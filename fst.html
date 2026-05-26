@@ -1,0 +1,130 @@
+<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>FastShop Pro &mdash; 26/05/2026</title><style>*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0f1117;--surface:#1a1d27;--border:#2a2d3a;--text:#e1e4ed;--text-secondary:#8b8fa3;--accent:#6c8cff;--green:#22c55e;--yellow:#eab308;--red:#ef4444;--blue:#3b82f6;--orange:#f97316}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.5;padding:24px;max-width:1040px;margin:0 auto;transition:background .2s,color .2s}
+.theme-bar{display:flex;align-items:center;gap:8px;margin-bottom:20px;font-size:13px;flex-wrap:wrap}.theme-bar span{color:var(--text-secondary)}
+.theme-btn{padding:4px 14px;border-radius:20px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;font-size:12px;transition:all .15s}
+.theme-btn:hover{border-color:var(--accent)}.theme-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.theme-light{--bg:#f8f9fc;--surface:#fff;--border:#e2e5ec;--text:#1a1d27;--text-secondary:#6b7085;--accent:#4f6ef7}
+.theme-paper{--bg:#faf7f0;--surface:#fff;--border:#e6ddd0;--text:#2c2416;--text-secondary:#8a7f6e;--accent:#8b6914;--green:#1a7a3a;--yellow:#b8860b;--red:#b91c1c}
+.header{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:24px;flex-wrap:wrap;gap:8px}
+.header h1{font-size:24px;font-weight:700;color:var(--text);letter-spacing:-.3px}
+.header .subtitle{color:var(--text-secondary);font-size:13px;display:flex;gap:16px;flex-wrap:wrap}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:16px}
+.card h2{font-size:16px;font-weight:600;color:var(--text);margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.table-wrap{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:8px}
+.table-wrap::-webkit-scrollbar{height:4px}.table-wrap::-webkit-scrollbar-track{background:transparent}.table-wrap::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+table{width:100%;border-collapse:collapse}
+th{text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);color:var(--text-secondary);font-size:11px;text-transform:uppercase;letter-spacing:.4px;font-weight:600}
+td{padding:8px 10px;border-bottom:1px solid rgba(42,45,58,.25);font-size:13px}
+tr:last-child td{border-bottom:none}.num{font-weight:700;font-size:15px}
+.num-red{color:var(--red)}.num-green{color:var(--green)}.num-yellow{color:var(--yellow)}.num-blue{color:var(--blue)}
+.badge{display:inline-flex;align-items:center;gap:4px;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;white-space:nowrap}
+.badge-done{background:color-mix(in srgb,var(--green) 12%,transparent);color:var(--green)}
+.badge-progress{background:color-mix(in srgb,var(--blue) 10%,transparent);color:var(--blue)}
+.badge-overdue{background:color-mix(in srgb,var(--red) 12%,transparent);color:var(--red)}
+.badge-blocked{background:color-mix(in srgb,var(--orange) 12%,transparent);color:var(--orange)}
+.badge-planned{background:color-mix(in srgb,var(--text) 8%,transparent);color:var(--text)}
+.badge-backlog{background:color-mix(in srgb,var(--text-secondary) 10%,transparent);color:var(--text-secondary)}
+details{margin-top:0}
+details summary{cursor:pointer;padding:14px 0;font-size:14px;font-weight:600;color:var(--accent);border-top:1px solid var(--border)}
+details[open] summary{border-bottom:1px solid var(--border);margin-bottom:14px}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+.section-title{font-size:13px;font-weight:600;color:var(--text);margin:18px 0 10px;padding-top:12px;border-top:1px solid var(--border)}
+.section-title:first-of-type{border-top:none;padding-top:0}.owner{color:var(--text-secondary);font-size:12px}
+.note{padding:10px 14px;border-radius:6px;margin:10px 0;font-size:13px;line-height:1.4}
+.note-danger{background:color-mix(in srgb,var(--red) 6%,transparent);border-left:3px solid var(--red)}
+.note-warn{background:color-mix(in srgb,var(--yellow) 6%,transparent);border-left:3px solid var(--yellow)}
+.note-info{background:color-mix(in srgb,var(--blue) 6%,transparent);border-left:3px solid var(--blue)}
+.note-ok{background:color-mix(in srgb,var(--green) 6%,transparent);border-left:3px solid var(--green)}
+.note strong{font-weight:600}
+.project-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
+.project-card{padding:20px;border-radius:12px;border:1px solid var(--border);background:var(--surface);cursor:pointer;transition:all .15s}
+.project-card:hover{border-color:var(--accent);transform:translateY(-2px)}
+.project-card h3{font-size:16px;font-weight:600;color:var(--text);margin-bottom:8px}
+.project-card .stat{display:flex;gap:16px;flex-wrap:wrap;font-size:13px;margin-bottom:6px}
+.project-card .stat span{color:var(--text-secondary)}
+.project-card .stat .v{font-weight:700}
+.project-card .atraso{color:var(--red)}.project-card .ok{color:var(--green)}.project-card .active{color:var(--blue)}
+.footer{text-align:center;color:var(--text-secondary);font-size:12px;padding:24px 0 12px;border-top:1px solid var(--border);margin-top:24px}
+@media(max-width:640px){body{padding:12px}.card{padding:14px}td,th{font-size:11px;padding:5px 6px}.header h1{font-size:20px}.note{font-size:12px;padding:8px 10px}.theme-bar{font-size:12px;gap:4px}.theme-btn{padding:3px 10px;font-size:11px}.project-grid{grid-template-columns:1fr}}
+</style></head><body>
+<div class="theme-bar"><span>Tema:</span>
+<button class="theme-btn active" onclick="setTheme('dark')">Escuro</button>
+<button class="theme-btn" onclick="setTheme('light')">Claro</button>
+<button class="theme-btn" onclick="setTheme('paper')">Leitura</button>
+</div>
+<script>
+function setTheme(t){document.body.className='theme-'+t;document.querySelectorAll('.theme-btn').forEach(b=>b.classList.remove('active'));document.querySelector('.theme-btn[onclick*="'+t+'"]').classList.add('active');localStorage.setItem('kruzer-theme',t)}
+(function(){var t=localStorage.getItem('kruzer-theme');if(t)setTheme(t)})();
+</script>
+<div class="header"><h1><a href="index.html" style="color:var(--text);text-decoration:none;">&larr; Kruzer Reports</a></h1><div class="subtitle"><span>26/05/2026</span><span>64 ativos | 9 atrasados</span></div></div>
+<div class="card"><h2>FastShop Pro</h2><details open><summary><span class="badge badge-planned">A fazer</span> Venda Atacadista X3 <span style="color:var(--text-secondary);font-weight:400;font-size:12px;">(25 cards)</span></summary>
+<div class="table-wrap" style="margin-top:8px;"><table><thead><tr><th>Card</th><th>Atividade</th><th>Status</th><th>Prazo</th><th>Resp</th></tr></thead>
+<tbody><tr><td>FST-65</td><td>Hipercare — 1ª semana pós go-live</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-64</td><td>Smoke test em produção pós-deploy</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-63</td><td>Stand-by em janela de deploy</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-62</td><td>Scripts de migration (nova collection Mongo, variáveis,</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-61</td><td>Changelog técnico + plano de rollback</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-60</td><td>Apoio à homologação conduzida pela FastShop (app do ven</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-59</td><td>Teste da rotina de limpeza (links expirados > 7 dias)</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-58</td><td>Cenário '2 cartões' (aprovado+aprovado, aprovado+negado</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-57</td><td>E2E com stubs Tuna + MQ + Mongo (link novo / reuso / ex</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-56</td><td>Regra '2 cartões': só publica Billing quando ambos os c</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-55</td><td>Publicação na fila MQ de retorno Billing (BillingHelper</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-54</td><td>Consulta complementar Tuna getPayments + montagem DFDL </td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-53</td><td>Endpoint POST /tuna/webhook + autenticação (token/HMAC)</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-52</td><td>Módulo tuna/ — controller, service, DTOs, router no API</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-51</td><td>Query de links expirados + delete em MongoDB</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-50</td><td>Worker cron PaymentLinksCleanupWorker.ts + bootstrap DI</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-49</td><td>Montagem do payload de e-mail (personalizations/from/co</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-48</td><td>Wiring do RestDataSource SENDGRID + importar SendEmailR</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-47</td><td>Configs ProductionConfig + StagingConfig (filas, endpoi</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-46</td><td>Publisher fila de retorno do link + montagem do payload</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-45</td><td>PaymentLinksRepository (MongoDB) — schema, upsert, find</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-44</td><td>TunaRepository.createPaymentLink() — chamada Tuna para </td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-43</td><td>DTOs request/response para Tuna + class-validator</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-42</td><td>CreatePaymentLinkUseCase — lógica de criação, reuso de </td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-41</td><td>Consumer MQ TunaCreatePaymentLinkWorker.ts — worker de </td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+</tbody></table></div></details><details open><summary><span class="badge badge-planned">A fazer</span> Integracao Amazon FBA <span style="color:var(--text-secondary);font-weight:400;font-size:12px;">(26 cards)</span></summary>
+<div class="table-wrap" style="margin-top:8px;"><table><thead><tr><th>Card</th><th>Atividade</th><th>Status</th><th>Prazo</th><th>Resp</th></tr></thead>
+<tbody><tr><td>FST-39</td><td>Runbook operacional — diagnostico de falha de publish, </td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-38</td><td>Atualizar CLAUDE.md do anymarket/ documentando o novo f</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-37</td><td>Deploy PRD via .deploy/production.sh (janela acordada)</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-36</td><td>Deploy HML via .deploy/homolog.sh</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-35</td><td>Pull request + code review (2 revisores)</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-34</td><td>Smoke test pos-deploy em PRD com a 1ª NFe real</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-33</td><td>Validacao com GAN/FastShop da mensagem recebida na fila</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-32</td><td>Teste E2E em HML: disparar FISCAL_DOCUMENTS no sandbox </td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-31</td><td>Teste de regressao manual do fluxo atual (type=ORDER) e</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-30</td><td>Testes unitarios do AnymarketInvoiceWebhookUseCase — ha</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-29</td><td>Atualizar segredos no Kruzer (data sources / connectors</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-28</td><td>Solicitar e validar as credenciais da nova fila GAN (HM</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-27</td><td>Cadastrar novo painel AnyMarket-FBA e token no MongoDB </td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-26</td><td>Logging estruturado seguindo padrao Winston + traceId</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-25</td><td>Tratamento de falhas — mapear erros de publish para 5xx</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-24</td><td>Implementar idempotencia — dedup por content.id em cole</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-23</td><td>Instanciar segundo IBMMQueueRepository apontando para n</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-22</td><td>Criar PublishGanInvoiceUseCase (ou estender InsertOrder</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-21</td><td>Estender AnymarketOrderRepository (ou criar AnymarketFi</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-20</td><td>Criar AnymarketInvoiceWebhookUseCase — validar payload,</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-19</td><td>Criar AnymarketInvoiceWebhookDTO com decorators class-t</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-18</td><td>Testes unitários do roteador — garantir que type=ORDER </td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-17</td><td>Atualizar AnymarketWebhookAutomation.ts para wiring das</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-16</td><td>Adicionar configuração da nova fila GAN em StagingConfi</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-15</td><td>Adicionar switch por body.type no AnymarketController, </td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+<tr><td>FST-14</td><td>Validar com GAN o nome/schema da nova fila e provisiona</td><td><span class="badge badge-planned">A fazer</span></td><td></td><td class="owner">-</td></tr>
+</tbody></table></div></details><details open><summary><span class="badge badge-planned">A fazer</span> FastPro &mdash; Correcoes <span style="color:var(--text-secondary);font-weight:400;font-size:12px;">(10 cards)</span></summary>
+<div class="table-wrap" style="margin-top:8px;"><table><thead><tr><th>Card</th><th>Atividade</th><th>Status</th><th>Prazo</th><th>Resp</th></tr></thead>
+<tbody><tr><td>FST-3</td><td>[39] Tela de aprovação está constando serviços — deveri</td><td><span class="badge badge-progress">Em Progresso</span></td><td></td><td class="owner">Rogerio Junior</td></tr>
+<tr><td>FST-10</td><td>[47] Extrato de Afiliado — data de expiração não aparec</td><td><span class="badge badge-progress">Em Progresso</span></td><td>05/18</td><td class="owner">Rogerio Junior</td></tr>
+<tr><td>FST-2</td><td>[38] Erro aprovação pedido - VTEX: Gustavo tentou fazer</td><td><span class="badge badge-progress">Em Progresso</span></td><td>05/15</td><td class="owner">Rogerio Junior</td></tr>
+<tr><td>FST-12</td><td>[49] Serviços notificados na carga não constam no porta</td><td><span class="badge badge-progress">Em Revisao</span></td><td>05/18</td><td class="owner">Rogerio Junior</td></tr>
+<tr><td>FST-9</td><td>[46] Ao gerar orçamento na plataforma, alguns produtos </td><td><span class="badge badge-progress">Em Revisao</span></td><td>05/15</td><td class="owner">Rogerio Junior</td></tr>
+<tr><td>FST-8</td><td>[44] Acrescentar 2 colunas (data original do pedido ref</td><td><span class="badge badge-progress">Em Revisao</span></td><td>05/15</td><td class="owner">Rogerio Junior</td></tr>
+<tr><td>FST-7</td><td>[43] Valor do desconto VTEX impactando — pedido 1626594</td><td><span class="badge badge-progress">Em Revisao</span></td><td>05/15</td><td class="owner">Rogerio Junior</td></tr>
+<tr><td>FST-6</td><td>[42] Falha integração pedido com devolução parcial — re</td><td><span class="badge badge-progress">Em Revisao</span></td><td>05/15</td><td class="owner">Rogerio Junior</td></tr>
+<tr><td>FST-5</td><td>[41] Pedidos incluídos em 12/05 que não refletiram no P</td><td><span class="badge badge-progress">Em Revisao</span></td><td>05/15</td><td class="owner">Rogerio Junior</td></tr>
+<tr><td>FST-4</td><td>[40] Pedido VTEX importando com data de criação D+1 — e</td><td><span class="badge badge-progress">Em Revisao</span></td><td>05/15</td><td class="owner">Rogerio Junior</td></tr>
+</tbody></table></div></details></div>
+<div class="footer"><a href="index.html" style="color:var(--accent);">&larr; Voltar</a> &bull; Kruzer</div></body></html>
