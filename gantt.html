@@ -236,7 +236,16 @@ function filter_project(name) {
     }
   });
   
-  gantt.refresh(filtered);
+  // v0.8.0 doesn't have refresh() - destroy + recreate
+  document.querySelector('#gantt').innerHTML = '';
+  gantt = new Gantt('#gantt', filtered, {
+    view_mode: 'Month',
+    date_format: 'YYYY-MM-DD',
+    bar_height: 32,
+    on_click: function(task) { show_detail(task.id); },
+    custom_popup_html: function(task) { return task_bar_html(task); },
+    on_view_change: function() { render_sprint_bands(); }
+  });
   render_sprint_bands();
   
   // Update epic count
