@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>J4PM Sprint 2 — Burndown</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0f1117;
+    color: #e1e4ed;
+    font-family: -apple-system, 'Inter', 'Segoe UI', system-ui, sans-serif;
+    display: flex; justify-content: center; align-items: center;
+    min-height: 100vh; padding: 32px;
+  }
+  .card {
+    background: #1a1d27;
+    border-radius: 16px;
+    padding: 40px;
+    max-width: 900px; width: 100%;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+  }
+  h1 {
+    font-size: 22px; font-weight: 600;
+    margin-bottom: 4px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  h1 span { color: #6b7280; font-weight: 400; font-size: 16px; }
+  .subtitle {
+    color: #9ca3af; font-size: 14px;
+    margin-bottom: 28px;
+  }
+  .badge {
+    display: inline-block;
+    padding: 3px 10px; border-radius: 20px;
+    font-size: 12px; font-weight: 600;
+    background: #3b82f6; color: #fff; margin-left: 8px;
+  }
+  .badge.active { background: #22c55e; }
+  .stats-row {
+    display: flex; gap: 24px; margin-bottom: 28px;
+    flex-wrap: wrap;
+  }
+  .stat {
+    background: #11131c; border-radius: 12px;
+    padding: 16px 24px; flex: 1; min-width: 120px;
+  }
+  .stat .num { font-size: 28px; font-weight: 700; }
+  .stat .num.green { color: #22c55e; }
+  .stat .num.blue { color: #3b82f6; }
+  .stat .num.amber { color: #f59e0b; }
+  .stat .num.red { color: #ef4444; }
+  .stat .label { font-size: 12px; color: #9ca3af; margin-top: 2px; }
+  .stat .sub { font-size: 11px; color: #6b7280; margin-top: 4px; }
+  .chart-wrap {
+    position: relative;
+    margin-bottom: 24px;
+  }
+  svg { width: 100%; height: auto; display: block; }
+  .legend {
+    display: flex; gap: 24px; justify-content: center;
+    margin-bottom: 24px; flex-wrap: wrap;
+  }
+  .legend-item {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 13px; color: #d1d5db;
+  }
+  .legend-line {
+    width: 28px; height: 3px; border-radius: 2px;
+  }
+  .legend-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+  }
+  .deviation-box {
+    background: #11131c; border-radius: 12px;
+    padding: 20px 24px; margin-bottom: 24px;
+  }
+  .deviation-box h3 { font-size: 14px; color: #9ca3af; margin-bottom: 12px; }
+  .deviation-grid {
+    display: flex; gap: 32px; flex-wrap: wrap;
+  }
+  .dev-item { flex: 1; min-width: 140px; }
+  .dev-item .label { font-size: 11px; color: #6b7280; }
+  .dev-item .value { font-size: 18px; font-weight: 600; margin-top: 2px; }
+  .dev-item .value.red { color: #ef4444; }
+  .dev-item .value.green { color: #22c55e; }
+  .dev-item .value.amber { color: #f59e0b; }
+  .dev-item .rel { font-size: 12px; color: #6b7280; margin-top: 4px; }
+  .per-person { margin-top: 20px; }
+  .per-person h3 { font-size: 14px; color: #9ca3af; margin-bottom: 12px; }
+  .person-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 8px 0; border-bottom: 1px solid #1f2937;
+  }
+  .person-row:last-child { border: none; }
+  .person-name { width: 140px; font-size: 13px; color: #e1e4ed; }
+  .person-bar-wrap { flex: 1; display: flex; align-items: center; gap: 8px; }
+  .person-bar { height: 8px; border-radius: 4px; background: #3b82f6; transition: width 0.5s; }
+  .person-count { font-size: 12px; color: #9ca3af; min-width: 24px; text-align: right; }
+  .footer {
+    text-align: center; font-size: 12px; color: #4b5563;
+    margin-top: 24px; padding-top: 16px; border-top: 1px solid #1f2937;
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>
+    J4PM Sprint 2 — Burndown
+    <span class="badge active">Ativa</span>
+  </h1>
+  <div class="subtitle">15 Jun (seg) → 26 Jun (sex) · 12 dias · 47 issues</div>
+
+  <div class="stats-row">
+    <div class="stat">
+      <div class="num blue">47</div>
+      <div class="label">Total issues</div>
+    </div>
+    <div class="stat">
+      <div class="num green">1</div>
+      <div class="label">Concluído</div>
+    </div>
+    <div class="stat">
+      <div class="num amber">46</div>
+      <div class="label">Restantes</div>
+    </div>
+    <div class="stat">
+      <div class="num red">+7</div>
+      <div class="label">Acima da ideal</div>
+      <div class="sub">dia 2 · 39 ideal → 46 real</div>
+    </div>
+  </div>
+
+  <div class="chart-wrap">
+    <svg viewBox="0 0 740 360" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system,Inter,system-ui,sans-serif">
+      <defs>
+        <linearGradient id="idealGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.15"/>
+          <stop offset="100%" stop-color="#3b82f6" stop-opacity="0.02"/>
+        </linearGradient>
+        <linearGradient id="actualGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.12"/>
+          <stop offset="100%" stop-color="#f59e0b" stop-opacity="0.02"/>
+        </linearGradient>
+        <filter id="glow">
+          <feGaussianBlur stdDeviation="2" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+      </defs>
+
+      <!-- Grid -->
+      <g stroke="#1f2937" stroke-width="1">
+        <line x1="50" y1="40" x2="50" y2="310"/>
+        <line x1="50" y1="310" x2="710" y2="310"/>
+        <!-- horizontal gridlines -->
+        <line x1="50" y1="40" x2="710" y2="40"/>
+        <line x1="50" y1="94" x2="710" y2="94"/>
+        <line x1="50" y1="148" x2="710" y2="148"/>
+        <line x1="50" y1="202" x2="710" y2="202"/>
+        <line x1="50" y1="256" x2="710" y2="256"/>
+        <line x1="50" y1="310" x2="710" y2="310"/>
+      </g>
+
+      <!-- Y-axis labels -->
+      <g fill="#6b7280" font-size="11" text-anchor="end">
+        <text x="42" y="44">47</text>
+        <text x="42" y="98">38</text>
+        <text x="42" y="152">28</text>
+        <text x="42" y="206">19</text>
+        <text x="42" y="260">9</text>
+        <text x="42" y="314">0</text>
+      </g>
+
+      <!-- X-axis labels (dates) -->
+      <g fill="#6b7280" font-size="10" text-anchor="middle">
+        <text x="50" y="330">15/06</text>
+        <text x="105" y="330">16/06</text>
+        <text x="160" y="330">17/06</text>
+        <text x="215" y="330">18/06</text>
+        <text x="270" y="330">19/06</text>
+        <text x="325" y="330">20/06</text>
+        <text x="380" y="330">21/06</text>
+        <text x="435" y="330">22/06</text>
+        <text x="490" y="330">23/06</text>
+        <text x="545" y="330">24/06</text>
+        <text x="600" y="330">25/06</text>
+        <text x="655" y="330">26/06</text>
+        <text x="710" y="330">27/06</text>
+      </g>
+
+      <!-- Weekend shading -->
+      <g fill="#ffffff" opacity="0.03">
+        <rect x="313" y="40" width="73" height="270" rx="0"/>  <!-- 20-21 (Sat-Sun) -->
+        <rect x="493" y="40" width="73" height="270" rx="0"/>  <!-- 27-28 -->
+      </g>
+
+      <!-- Day of week labels -->
+      <g fill="#4b5563" font-size="9" text-anchor="middle">
+        <text x="50" y="344">seg</text>
+        <text x="105" y="344">ter</text>
+        <text x="160" y="344">qua</text>
+        <text x="215" y="344">qui</text>
+        <text x="270" y="344">sex</text>
+        <text x="325" y="344">sáb</text>
+        <text x="380" y="344">dom</text>
+        <text x="435" y="344">seg</text>
+        <text x="490" y="344">ter</text>
+        <text x="545" y="344">qua</text>
+        <text x="600" y="344">qui</text>
+        <text x="655" y="344">sex</text>
+        <text x="710" y="344">sáb</text>
+      </g>
+
+      <!-- Area below ideal line -->
+      <polygon points="50,40 50,40 105,63 160,85 215,108 270,130 325,153 380,175 435,198 490,220 545,243 600,265 655,288 710,310 50,310"
+               fill="url(#idealGrad)"/>
+
+      <!-- IDEAL LINE (47→0) -->
+      <!-- Chart math: y = 310 - (issues * 270/47) -->
+      <!-- Day 0 (x=50): 47 issues → y=40 -->
+      <!-- Day 12 (x=710): 0 issues → y=310 -->
+      <polyline points="50,40 710,310"
+                fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-dasharray="8,4" stroke-linecap="round"/>
+
+      <!-- Legend label on ideal line -->
+      <text x="380" y="168" fill="#3b82f6" font-size="11" font-weight="500" text-anchor="middle">
+        Linha ideal (3.9/dia)
+      </text>
+
+      <!-- ACTUAL LINE -->
+      <polyline points="50,40 105,46"
+                fill="none" stroke="#f59e0b" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"
+                filter="url(#glow)"/>
+
+      <!-- Actual point today -->
+      <circle cx="105" cy="46" r="5" fill="#f59e0b" stroke="#0f1117" stroke-width="2"/>
+      <circle cx="105" cy="46" r="8" fill="#f59e0b" opacity="0.2"/>
+
+      <!-- Actual label -->
+      <text x="105" y="36" fill="#f59e0b" font-size="11" font-weight="600" text-anchor="middle">
+        46 restantes
+      </text>
+
+      <!-- Deviation arrow at day 2 -->
+      <line x1="105" y1="46" x2="105" y2="64" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="3,2"/>
+      <text x="115" y="60" fill="#ef4444" font-size="10">+7</text>
+      <polygon points="105,68 102,62 108,62" fill="#ef4444"/>
+
+      <!-- Required pace area (showing needed trajectory) -->
+      <!-- If we need to finish 46 in 11 days (days 2-12): slope = 46/11 = 4.18/day -->
+      <!-- y = 46 - x * (270*46/47/270?) ... let me compute -->
+      <!-- Scale: 270px for 47 issues. So 1 issue = 270/47 = 5.745px -->
+      <!-- Day 2 (x=105): 46 issues → y = 310 - (46*270/47) = 310 - 264 = 46 -->
+      <!-- Day 12 (x=710): 0 issues → y = 310 -->
+      <!-- Required line from (105, 46) to (710, 310) -->
+      <line x1="105" y1="46" x2="710" y2="310"
+            stroke="#ef4444" stroke-width="1.5" stroke-dasharray="4,4" stroke-linecap="round" opacity="0.6"/>
+
+      <!-- Today marker -->
+      <line x1="105" y1="40" x2="105" y2="310" stroke="#f59e0b" stroke-width="1" opacity="0.25"/>
+
+      <!-- Weekend labels -->
+      <text x="350" y="100" fill="#4b5563" font-size="10" text-anchor="middle" transform="rotate(-90,350,100)">fim de semana</text>
+    </svg>
+  </div>
+
+  <div class="legend">
+    <div class="legend-item">
+      <span class="legend-line" style="background:#3b82f6; border-top: 2px dashed #3b82f6; height:0;"></span>
+      <span class="legend-line" style="background:#3b82f6; height:0; border-top:2px dashed #3b82f6;"></span>
+      Ideal (3.9/dia)
+    </div>
+    <div class="legend-item">
+      <span class="legend-line" style="background:#f59e0b;"></span>
+      Real
+    </div>
+    <div class="legend-item">
+      <span class="legend-line" style="background:#ef4444; height:0; border-top:1.5px dashed #ef4444;"></span>
+      Ritmo necessário (4.2/dia)
+    </div>
+    <div class="legend-item">
+      <span class="legend-dot" style="background:#f59e0b;"></span>
+      Hoje — 16/06
+    </div>
+  </div>
+
+  <div class="deviation-box">
+    <h3>📊 Análise do desvio</h3>
+    <div class="deviation-grid">
+      <div class="dev-item">
+        <div class="label">Ritmo ideal</div>
+        <div class="value">3.9</div>
+        <div class="rel">issues/dia</div>
+      </div>
+      <div class="dev-item">
+        <div class="label">Ritmo necessário</div>
+        <div class="value amber">4.2</div>
+        <div class="rel">issues/dia para entregar no prazo</div>
+      </div>
+      <div class="dev-item">
+        <div class="label">Desvio acumulado</div>
+        <div class="value red">+7</div>
+        <div class="rel">issues acima da ideal</div>
+      </div>
+      <div class="dev-item">
+        <div class="label">Dias restantes</div>
+        <div class="value">11</div>
+        <div class="rel">incluindo hoje</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="per-person">
+    <h3>👤 Issues por responsável</h3>
+    <div class="person-row">
+      <span class="person-name">Wagner Lima</span>
+      <div class="person-bar-wrap">
+        <div class="person-bar" style="width:40%"></div>
+      </div>
+      <span class="person-count">19</span>
+    </div>
+    <div class="person-row">
+      <span class="person-name">Rafael Fachinelli</span>
+      <div class="person-bar-wrap">
+        <div class="person-bar" style="width:38%; background:#8b5cf6;"></div>
+      </div>
+      <span class="person-count">18</span>
+    </div>
+    <div class="person-row">
+      <span class="person-name">nilo.dias</span>
+      <div class="person-bar-wrap">
+        <div class="person-bar" style="width:6%; background:#22c55e;"></div>
+      </div>
+      <span class="person-count">3</span>
+    </div>
+    <div class="person-row">
+      <span class="person-name">Larissa</span>
+      <div class="person-bar-wrap">
+        <div class="person-bar" style="width:6%; background:#06b6d4;"></div>
+      </div>
+      <span class="person-count">3</span>
+    </div>
+    <div class="person-row">
+      <span class="person-name">Hernandes</span>
+      <div class="person-bar-wrap">
+        <div class="person-bar" style="width:4%; background:#f97316;"></div>
+      </div>
+      <span class="person-count">2</span>
+    </div>
+    <div class="person-row">
+      <span class="person-name">Chrysler</span>
+      <div class="person-bar-wrap">
+        <div class="person-bar" style="width:4%; background:#ec4899;"></div>
+      </div>
+      <span class="person-count">2</span>
+    </div>
+  </div>
+
+  <div class="footer">
+    Dados extraídos do Jira em 16/06/2026 · Sprint 2 (ID 1416) · pagMenos Jornada 4.0<br>
+    Gráfico atualizável — posso regenerar sob demanda
+  </div>
+</div>
+</body>
+</html>
