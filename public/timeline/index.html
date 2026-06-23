@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Timeline — Épicos FST × VENA por recurso</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+:root {
+  color-scheme: light;
+  --kruzer-primary: #3151CE; --kruzer-primary-100: #EAEEFA; --kruzer-primary-700: #1D317C;
+  --kruzer-navy: #232534; --kruzer-navy-300: #48507D; --kruzer-neutral-100: #F4F4F8;
+  --kruzer-neutral-300: #E3E3ED; --kruzer-neutral-500: #C6C9D9; --kruzer-neutral-700: #989DAD;
+  --kruzer-success: #12B76A; --kruzer-warning: #F79009; --kruzer-error: #F04438;
+  --fst: #F79009; --vena: #3151CE;
+  --shadow: 0 1px 2px rgba(11,16,32,.04), 0 4px 12px rgba(11,16,32,.05);
+}
+* { box-sizing: border-box; }
+body { margin: 0; font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif; background: var(--kruzer-neutral-100); color: var(--kruzer-navy); font-size: 14px; line-height: 1.5; }
+.container { padding: 16px 20px 40px; max-width: 1500px; margin: 0 auto; }
+.back { font-size: 12px; color: var(--kruzer-primary); text-decoration: none; margin-bottom: 8px; display: inline-block; }
+.back:hover { text-decoration: underline; }
+.header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; flex-wrap: wrap; }
+.header h1 { margin: 0 0 4px; font-size: 24px; font-weight: 700; letter-spacing: -0.01em; }
+.header .sub { color: var(--kruzer-navy-300); font-size: 13px; }
+.controls { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+.control { display: flex; flex-direction: column; gap: 4px; }
+.control label { font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--kruzer-neutral-700); letter-spacing: 0.04em; }
+select, button { font-family: inherit; font-size: 13px; padding: 8px 12px; border: 1px solid var(--kruzer-neutral-300); border-radius: 8px; background: #fff; color: var(--kruzer-navy); cursor: pointer; }
+button.primary { background: var(--kruzer-primary); color: #fff; border-color: var(--kruzer-primary); font-weight: 600; }
+button.primary:hover { background: var(--kruzer-primary-700); }
+button:disabled { opacity: 0.6; cursor: wait; }
+
+.kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 18px; }
+@media (max-width: 760px) { .kpis { grid-template-columns: repeat(2, 1fr); } }
+.kpi { background: #fff; border: 1px solid var(--kruzer-neutral-300); border-radius: 8px; padding: 14px 18px; box-shadow: var(--shadow); border-top-width: 3px; border-top-color: var(--kruzer-navy-300); }
+.kpi.k-fst { border-top-color: var(--fst); }
+.kpi.k-vena { border-top-color: var(--vena); }
+.kpi .label { font-size: 11px; text-transform: uppercase; color: var(--kruzer-neutral-700); font-weight: 600; letter-spacing: 0.5px; margin-bottom: 4px; }
+.kpi .value { font-size: 28px; font-weight: 700; line-height: 1; }
+
+.section { background: #fff; border: 1px solid var(--kruzer-neutral-300); border-radius: 8px; padding: 24px; margin-bottom: 16px; box-shadow: var(--shadow); }
+.section h2 { margin: 0 0 4px; font-size: 18px; font-weight: 600; }
+.section .sub { font-size: 12px; color: var(--kruzer-neutral-700); margin-bottom: 16px; font-style: italic; }
+
+.legend { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; font-size: 12px; color: var(--kruzer-navy-300); }
+.legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.legend-swatch { width: 16px; height: 11px; border-radius: 2px; display: inline-block; }
+.legend-swatch.fst { background: var(--fst); }
+.legend-swatch.vena { background: var(--vena); }
+.legend-swatch.blocked { background: #fff; border: 2px solid var(--kruzer-error); }
+.legend-swatch.est { background: repeating-linear-gradient(45deg, var(--kruzer-neutral-500), var(--kruzer-neutral-500) 3px, #fff 3px, #fff 6px); }
+.legend-swatch.today { width: 2px; height: 14px; background: var(--kruzer-error); border-radius: 0; }
+
+.gantt-wrap { overflow-x: auto; border: 1px solid var(--kruzer-neutral-300); border-radius: 6px; }
+.gantt-svg { display: block; }
+.gantt-bar { cursor: pointer; transition: opacity 0.15s; }
+.gantt-bar:hover { opacity: 0.82; }
+.g-group-band { fill: var(--kruzer-neutral-100); }
+.g-group-name { font-size: 12px; font-weight: 700; fill: var(--kruzer-navy); }
+.g-group-meta { font-size: 11px; fill: var(--kruzer-neutral-700); }
+.g-key { font-size: 11px; font-weight: 600; fill: var(--kruzer-primary-700); }
+.g-name { font-size: 11px; fill: var(--kruzer-navy); }
+.g-axis { font-size: 10px; fill: var(--kruzer-neutral-700); }
+.g-axis.bold { font-size: 11px; fill: var(--kruzer-navy); font-weight: 600; }
+.g-grid { stroke: var(--kruzer-neutral-300); stroke-width: 0.5; }
+.g-grid-month { stroke: var(--kruzer-neutral-500); stroke-width: 1; }
+.g-today { stroke: var(--kruzer-error); stroke-width: 2; stroke-dasharray: 4 4; }
+.g-barlabel { font-size: 10px; fill: #fff; font-weight: 600; pointer-events: none; }
+.g-rowsep { stroke: var(--kruzer-neutral-300); stroke-width: 0.5; }
+
+.tooltip { position: fixed; background: #fff; border: 1px solid var(--kruzer-neutral-300); border-radius: 6px; padding: 10px 12px; box-shadow: 0 6px 20px rgba(11,16,32,.12); font-size: 12px; max-width: 320px; pointer-events: none; opacity: 0; transition: opacity 0.1s; z-index: 100; }
+.tooltip.show { opacity: 1; }
+.tooltip .t-title { font-weight: 600; margin-bottom: 4px; color: var(--kruzer-navy); }
+.tooltip .t-meta { color: var(--kruzer-navy-300); margin-bottom: 6px; }
+.tooltip .t-grid { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; }
+.tooltip .t-grid .lbl { color: var(--kruzer-neutral-700); font-size: 11px; }
+.note { font-size: 12px; color: var(--kruzer-neutral-700); margin-top: 12px; }
+
+/* Disclaimer / alerta */
+.disclaimer { border-left: 4px solid var(--kruzer-warning); background: linear-gradient(180deg, #FFFBEB 0%, #fff 70%); }
+.disclaimer h2 { color: var(--kruzer-warning); }
+.disclaimer h2::before { content: "⚠ "; }
+.alert-item { padding: 16px 18px; border-radius: 8px; margin-bottom: 14px; border: 1px solid var(--kruzer-neutral-300); }
+.alert-item:last-child { margin-bottom: 0; }
+.alert-item.warn { background: #FFFBEB; border-color: #FDE68A; }
+.alert-item.crit { background: #FFF5F5; border-color: #FECACA; }
+.alert-item .a-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.alert-item .a-title { font-size: 15px; font-weight: 700; color: var(--kruzer-navy); }
+.alert-item .a-chip { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding: 3px 9px; border-radius: 999px; }
+.alert-item.warn .a-chip { background: var(--kruzer-warning); color: #fff; }
+.alert-item.crit .a-chip { background: var(--kruzer-error); color: #fff; }
+.alert-item p { font-size: 13px; line-height: 1.65; color: var(--kruzer-navy); margin: 0; }
+.alert-item p strong { font-weight: 700; }
+.alert-item .metric { font-variant-numeric: tabular-nums; }
+
+.loading { padding: 60px 20px; text-align: center; color: var(--kruzer-neutral-700); }
+.loading .spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid var(--kruzer-neutral-300); border-top-color: var(--kruzer-primary); border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 8px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.error { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; padding: 12px 16px; border-radius: 8px; margin-bottom: 12px; font-size: 13px; }
+a { color: var(--kruzer-primary); text-decoration: none; }
+a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="container">
+  <a href="/" class="back">← Todos os dashboards</a>
+  <div class="header">
+    <div>
+      <h1>Timeline — Épicos por recurso</h1>
+      <div class="sub" id="subtitle">Carregando dados…</div>
+    </div>
+    <div class="controls">
+      <div class="control"><label for="projFilter">Projeto</label>
+        <select id="projFilter"><option value="all">FST + VENA</option><option value="FST">Só FST</option><option value="VENA">Só VENA</option></select>
+      </div>
+      <div class="control"><label>&nbsp;</label><button class="primary" id="refreshBtn">Atualizar dados</button></div>
+    </div>
+  </div>
+
+  <div id="errorBox"></div>
+  <div id="loadingBox" class="loading"><span class="spinner"></span>Cruzando épicos de FST e VENA…</div>
+
+  <div id="content" style="display:none">
+    <div class="kpis" id="kpis"></div>
+
+    <section class="section">
+      <h2>Linha do tempo — quem está tocando o quê</h2>
+      <div class="sub">Cada barra é um épico em andamento, posicionado pelas datas de Start e Due do JIRA, agrupado pelo recurso (assignee). Cor = projeto. Bordas vermelhas = bloqueado. Hachura = data estimada (um dos extremos ausente no JIRA). A janela começa em abril — barras que iniciaram antes aparecem cortadas à esquerda (‹).</div>
+      <div class="legend">
+        <span class="legend-item"><span class="legend-swatch fst"></span> FST</span>
+        <span class="legend-item"><span class="legend-swatch vena"></span> VENA</span>
+        <span class="legend-item"><span class="legend-swatch blocked"></span> Bloqueado</span>
+        <span class="legend-item"><span class="legend-swatch est"></span> Data estimada</span>
+        <span class="legend-item"><span class="legend-swatch today"></span> Hoje</span>
+      </div>
+      <div class="gantt-wrap"><svg id="ganttSvg" class="gantt-svg" xmlns="http://www.w3.org/2000/svg"></svg></div>
+      <div class="note" id="omittedNote"></div>
+    </section>
+
+    <section class="section disclaimer">
+      <h2>Avisos & riscos</h2>
+      <div class="sub">Leitura qualitativa que contextualiza os números acima — atenção obrigatória ao planejar capacity e releases.</div>
+
+      <div class="alert-item warn">
+        <div class="a-head"><span class="a-chip">Atenção</span><span class="a-title">Capacity</span></div>
+        <p>Hoje, com base no <strong>VENA</strong> — o único projeto que metrifica esse ponto — estima-se um throughput de <strong class="metric">~17 SP/semana por dev</strong>, um volume <strong>baixo</strong>. Idealmente serve de <strong>baseline para projeções seguras</strong>, mas deve ser <strong>reavaliado agora</strong> com base nos KPIs possíveis de se obter. O objetivo é <strong>aumentar esse throughput via método e processo, ou substituindo recursos</strong>.</p>
+      </div>
+
+      <div class="alert-item crit">
+        <div class="a-head"><span class="a-chip">Risco grave</span><span class="a-title">Cobertura de testes</span></div>
+        <p>Hoje é <strong>nula</strong>. Não há metodologia para <strong>Code Review</strong> nem cobertura plena com <strong>testes automatizados, unitários e integrados</strong>. A discussão da esteira de release evidenciou uma <strong>fraqueza brutal na cobertura de testes da empresa</strong>, sinalizando um <strong>risco grave a ser tratado ASAP</strong>.</p>
+      </div>
+    </section>
+  </div>
+</div>
+<div class="tooltip" id="tooltip"></div>
+
+<script src="/shared/api.js"></script>
+<script>
+const JIRA_BASE = 'https://kruzer.atlassian.net';
+const FIELDS = ['summary','status','assignee','duedate','created','resolutiondate','labels','customfield_10015','project'];
+const MS_DAY = 86400000;
+const PROJ_COLOR = { FST: '#F79009', VENA: '#3151CE' };
+
+function parseDate(s){ if(!s) return null; const d = new Date(s.length === 10 ? s + 'T00:00:00' : s); return isNaN(d) ? null : d; }
+function fmt(d){ return d ? `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}` : '—'; }
+function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+const MONTHS = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+
+let RAW = [];
+
+// Normaliza épico e deriva janela (start/end) pra plotagem.
+function normalize(issue){
+  const f = issue.fields || {};
+  const proj = (f.project?.key) || (issue.key||'').split('-')[0];
+  const statusName = f.status?.name || '—';
+  const blocked = /bloque/i.test(statusName);
+  const resolved = !!f.resolutiondate;
+  const start = parseDate(f.customfield_10015);
+  const due = parseDate(f.duedate);
+  const created = parseDate(f.created);
+  // Nome limpo: remove prefixos "DMND0000 |", "P0 |", "Onda 1 |", "Done |"...
+  let name = (f.summary||'').replace(/^([A-Z]*\d[\w]*|P\d|Onda\s*\d|Done)\s*\|\s*/i, '').trim() || (f.summary||'');
+  return {
+    key: issue.key, url: `${JIRA_BASE}/browse/${issue.key}`,
+    project: proj, summary: f.summary||'', name,
+    assignee: f.assignee?.displayName || 'Sem responsável',
+    statusName, blocked, resolved,
+    start, due, created,
+    labels: f.labels || [],
+  };
+}
+
+// Resolve janela [s, e] + flags de estimativa. Retorna null se não dá pra plotar.
+function windowFor(ep, today){
+  let s = ep.start, e = ep.due, estStart = false, estEnd = false;
+  if (s && e) { /* ok */ }
+  else if (s && !e) { e = (ep.resolved && ep.created) ? today : today; estEnd = true; } // em andamento → corre até hoje
+  else if (!s && e) { s = ep.created && ep.created < e ? ep.created : new Date(e.getTime() - 14*MS_DAY); estStart = true; }
+  else { return null; } // sem datas → não plota
+  if (e < s) e = new Date(s.getTime() + 7*MS_DAY);
+  return { s, e, estStart, estEnd };
+}
+
+function selected(){
+  const pf = document.getElementById('projFilter').value;
+  return RAW.filter(ep => pf === 'all' || ep.project === pf);
+}
+
+function renderKPIs(plotted){
+  const resources = new Set(plotted.map(e => e.assignee));
+  const nFst = plotted.filter(e => e.project === 'FST').length;
+  const nVena = plotted.filter(e => e.project === 'VENA').length;
+  const c = document.getElementById('kpis');
+  c.innerHTML =
+    `<div class="kpi"><div class="label">Épicos rodando</div><div class="value">${plotted.length}</div></div>` +
+    `<div class="kpi"><div class="label">Recursos</div><div class="value">${resources.size}</div></div>` +
+    `<div class="kpi k-fst"><div class="label">FST</div><div class="value">${nFst}</div></div>` +
+    `<div class="kpi k-vena"><div class="label">VENA</div><div class="value">${nVena}</div></div>`;
+}
+
+function renderGantt(){
+  const today = new Date();
+  const sel = selected();
+  // Plotáveis: em andamento (não resolvido) e com datas.
+  const plotted = [];
+  let omittedNoDate = 0, omittedDone = 0;
+  sel.forEach(ep => {
+    if (ep.resolved) { omittedDone++; return; }
+    const w = windowFor(ep, today);
+    if (!w) { omittedNoDate++; return; }
+    plotted.push({ ...ep, ...w });
+  });
+
+  renderKPIs(plotted);
+
+  const svg = document.getElementById('ganttSvg');
+  if (!plotted.length) { svg.innerHTML = ''; svg.setAttribute('height', 0); document.getElementById('omittedNote').textContent = ''; return; }
+
+  // Agrupa por recurso, ordena recursos pelo start mais cedo.
+  const byRes = {};
+  plotted.forEach(ep => (byRes[ep.assignee] = byRes[ep.assignee] || []).push(ep));
+  Object.values(byRes).forEach(arr => arr.sort((a,b) => a.s - b.s));
+  const resources = Object.keys(byRes).sort((a,b) => Math.min(...byRes[a].map(e=>e.s)) - Math.min(...byRes[b].map(e=>e.s)));
+
+  // Escala de tempo. Piso em 1º de abril pra cortar o espaço "morto" à esquerda
+  // (épicos que começaram antes ficam clampados na borda, com indicador ‹).
+  const naturalMin = Math.min(...plotted.map(e => e.s.getTime()));
+  const aprFloor = new Date(today.getFullYear(), 3, 1).getTime(); // abril = mês 3 (0-indexed)
+  let minD = new Date(Math.max(naturalMin - 6*MS_DAY, aprFloor));
+  let maxD = new Date(Math.max(...plotted.map(e => e.e.getTime())) + 6*MS_DAY);
+  const totalDays = Math.max(1, (maxD - minD)/MS_DAY);
+
+  const LEFT = 280, TOP = 44, ROW = 30, GH = 28, PAD_B = 16;
+  // Preenche a largura disponível do container (sem espaço morto à direita).
+  const wrap = document.querySelector('.gantt-wrap');
+  const availW = (wrap && wrap.clientWidth ? wrap.clientWidth : 1100) - 1;
+  const PX_DAY = Math.max(2.6, (availW - LEFT) / totalDays);
+  const timeW = totalDays * PX_DAY;
+  const W = LEFT + timeW;
+  const xd = d => LEFT + (d - minD)/MS_DAY * PX_DAY;
+
+  let totalH = TOP;
+  resources.forEach(r => { totalH += GH + byRes[r].length * ROW; });
+  totalH += PAD_B;
+
+  let body = '';
+
+  // Defs: hachura por projeto (estimado).
+  body += '<defs>';
+  Object.entries(PROJ_COLOR).forEach(([k,c]) => {
+    body += `<pattern id="est-${k}" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)"><rect width="6" height="6" fill="${c}" opacity="0.28"/><rect width="3" height="6" fill="${c}"/></pattern>`;
+  });
+  body += '</defs>';
+
+  // Eixo de meses.
+  let m = new Date(minD.getFullYear(), minD.getMonth(), 1);
+  while (m <= maxD) {
+    const mx = xd(m);
+    if (mx >= LEFT) {
+      body += `<line class="g-grid-month" x1="${mx.toFixed(1)}" y1="${TOP-6}" x2="${mx.toFixed(1)}" y2="${totalH-PAD_B}"/>`;
+      body += `<text class="g-axis bold" x="${(mx+4).toFixed(1)}" y="${TOP-14}">${MONTHS[m.getMonth()]} ${String(m.getFullYear()).slice(2)}</text>`;
+    }
+    m = new Date(m.getFullYear(), m.getMonth()+1, 1);
+  }
+
+  // Grupos por recurso.
+  let y = TOP;
+  resources.forEach(r => {
+    const arr = byRes[r];
+    const projs = [...new Set(arr.map(e => e.project))].join(' · ');
+    body += `<rect class="g-group-band" x="0" y="${y}" width="${W}" height="${GH}"/>`;
+    body += `<text class="g-group-name" x="12" y="${y + GH/2 + 4}">${escapeHtml(r)}</text>`;
+    body += `<text class="g-group-meta" x="12" y="${y + GH/2 + 4}" dx="${(escapeHtml(r).length*7 + 16)}">${arr.length} épico${arr.length>1?'s':''} · ${projs}</text>`;
+    y += GH;
+
+    arr.forEach(ep => {
+      const sx = xd(ep.s), ex = xd(ep.e);
+      const clampedLeft = sx < LEFT;
+      const bx = Math.max(sx, LEFT), bw = Math.max(6, ex - bx);
+      const by = y + (ROW - 18)/2;
+      const color = PROJ_COLOR[ep.project] || '#48507D';
+      const est = ep.estStart || ep.estEnd;
+      const fill = est ? `url(#est-${ep.project})` : color;
+      const stroke = ep.blocked ? 'var(--kruzer-error)' : 'none';
+      const sw = ep.blocked ? 2 : 0;
+      // label esquerda
+      const nm = ep.name.length > 34 ? ep.name.slice(0,33) + '…' : ep.name;
+      body += `<text class="g-key" x="12" y="${y + ROW/2 + 4}">${ep.key}</text>`;
+      body += `<text class="g-name" x="74" y="${y + ROW/2 + 4}">${escapeHtml(nm)}</text>`;
+      body += `<line class="g-rowsep" x1="0" y1="${y+ROW}" x2="${W}" y2="${y+ROW}"/>`;
+      // barra
+      const dur = Math.round((ep.e - ep.s)/MS_DAY);
+      body += `<rect class="gantt-bar" x="${bx.toFixed(1)}" y="${by}" width="${bw.toFixed(1)}" height="18" rx="4" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"` +
+        ` data-key="${ep.key}" data-name="${escapeHtml(ep.name)}" data-proj="${ep.project}" data-status="${escapeHtml(ep.statusName)}" data-assignee="${escapeHtml(ep.assignee)}"` +
+        ` data-start="${fmt(ep.s)}" data-end="${fmt(ep.e)}" data-dur="${dur}" data-est="${est?(ep.estStart?'início estimado':'fim estimado'):''}" data-url="${ep.url}"/>`;
+      // Indicador ‹ quando a barra foi cortada na borda esquerda (começou antes de abril).
+      if (clampedLeft && bw > 16) body += `<polyline points="${(bx+8).toFixed(1)},${by+3} ${(bx+3).toFixed(1)},${by+9} ${(bx+8).toFixed(1)},${by+15}" fill="none" stroke="#fff" stroke-width="1.5"/>`;
+      if (bw > 42) body += `<text class="g-barlabel" x="${(bx+(clampedLeft?14:6)).toFixed(1)}" y="${by+13}">${dur}d</text>`;
+      y += ROW;
+    });
+  });
+
+  // Linha de hoje — desenhada por último pra ficar acima das faixas/barras (z-index).
+  if (today >= minD && today <= maxD) {
+    const tx = xd(today);
+    body += `<line class="g-today" x1="${tx.toFixed(1)}" y1="16" x2="${tx.toFixed(1)}" y2="${(totalH-PAD_B).toFixed(1)}"/>`;
+    body += `<rect x="${(tx-15).toFixed(1)}" y="2" width="30" height="15" rx="3" fill="#F04438"/>`;
+    body += `<text x="${tx.toFixed(1)}" y="13" fill="#fff" text-anchor="middle" font-size="10" font-weight="700">hoje</text>`;
+  }
+
+  svg.setAttribute('viewBox', `0 0 ${W.toFixed(0)} ${totalH.toFixed(0)}`);
+  svg.setAttribute('width', W.toFixed(0));
+  svg.setAttribute('height', totalH.toFixed(0));
+  svg.innerHTML = body;
+  wireTooltips();
+
+  const notes = [];
+  if (omittedNoDate) notes.push(`${omittedNoDate} épico(s) sem datas de Start/Due omitido(s)`);
+  if (omittedDone) notes.push(`${omittedDone} épico(s) já concluído(s) omitido(s)`);
+  document.getElementById('omittedNote').textContent = notes.length ? '* ' + notes.join(' · ') + '.' : '';
+}
+
+function wireTooltips(){
+  const tip = document.getElementById('tooltip');
+  document.querySelectorAll('.gantt-bar').forEach(bar => {
+    bar.addEventListener('mousemove', e => {
+      const d = bar.dataset;
+      tip.innerHTML = `<div class="t-title">${d.key} · ${d.name}</div>` +
+        `<div class="t-meta">${d.proj} · ${d.status}</div>` +
+        `<div class="t-grid">` +
+        `<span class="lbl">Recurso</span><span>${d.assignee}</span>` +
+        `<span class="lbl">Início</span><span>${d.start}</span>` +
+        `<span class="lbl">Fim</span><span>${d.end}</span>` +
+        `<span class="lbl">Duração</span><span>${d.dur} dias</span>` +
+        (d.est ? `<span class="lbl">⚠</span><span>${d.est}</span>` : '') +
+        `</div>`;
+      tip.classList.add('show');
+      const pad = 14; let left = e.clientX + pad, top = e.clientY + pad;
+      if (left + 330 > window.innerWidth) left = e.clientX - 330;
+      tip.style.left = left + 'px'; tip.style.top = top + 'px';
+    });
+    bar.addEventListener('mouseleave', () => tip.classList.remove('show'));
+    bar.addEventListener('click', () => window.open(bar.dataset.url, '_blank'));
+  });
+}
+
+async function loadAndRender(){
+  document.getElementById('errorBox').innerHTML = '';
+  document.getElementById('loadingBox').style.display = '';
+  document.getElementById('content').style.display = 'none';
+  const btn = document.getElementById('refreshBtn'); btn.disabled = true; btn.textContent = 'Atualizando…';
+  try {
+    const jql = `project in (FST, VENA) AND issuetype = Epic ORDER BY created DESC`;
+    const issues = await KruzerAPI.fetchAll({ jql, fields: FIELDS });
+    RAW = issues.map(normalize);
+    document.getElementById('loadingBox').style.display = 'none';
+    document.getElementById('content').style.display = '';
+    renderGantt();
+    requestAnimationFrame(renderGantt); // re-mede a largura após o layout assentar
+    document.getElementById('subtitle').textContent =
+      `${RAW.length} épicos lidos (FST + VENA) • atualizado ${new Date().toLocaleString('pt-BR')}`;
+  } catch (e) {
+    document.getElementById('loadingBox').style.display = 'none';
+    document.getElementById('errorBox').innerHTML = `<div class="error"><b>Falha ao carregar dados:</b> ${escapeHtml(e.message)}</div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Atualizar dados';
+  }
+}
+
+document.getElementById('refreshBtn').addEventListener('click', loadAndRender);
+document.getElementById('projFilter').addEventListener('change', renderGantt);
+let _rz; window.addEventListener('resize', () => { clearTimeout(_rz); _rz = setTimeout(() => { if (RAW.length) renderGantt(); }, 150); });
+loadAndRender();
+</script>
+</body>
+</html>

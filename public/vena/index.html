@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VENA — Dev Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gridjs@5.0.2/dist/gridjs.umd.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/gridjs@5.0.2/dist/theme/mermaid.min.css">
+<style>
+:root { color-scheme: light; --bg: #f7f7fb; --surface: #fff; --ink: #0b1020; --ink-soft: #485066; --muted: #8a91a3; --border: #e6e8ef; --brand: #0ea5e9; --shadow: 0 1px 2px rgba(11,16,32,.04), 0 4px 12px rgba(11,16,32,.05); }
+* { box-sizing: border-box; }
+body { margin: 0; font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg); color: var(--ink); font-size: 14px; line-height: 1.5; }
+.container { padding: 16px 20px 40px; max-width: 1400px; margin: 0 auto; }
+.back { font-size: 12px; color: var(--brand); text-decoration: none; margin-bottom: 8px; display: inline-block; }
+.back:hover { text-decoration: underline; }
+.header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; flex-wrap: wrap; }
+.header h1 { margin: 0 0 4px; font-size: 22px; font-weight: 700; }
+.header .sub { color: var(--ink-soft); font-size: 13px; }
+.controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.control { display: flex; flex-direction: column; gap: 4px; }
+.control label { font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--muted); letter-spacing: 0.04em; }
+select, button { font-family: inherit; font-size: 13px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--ink); cursor: pointer; }
+select:hover, button:hover { border-color: #c8cbd6; }
+button.primary { background: var(--brand); color: #fff; border-color: var(--brand); font-weight: 600; }
+button.primary:hover { background: #0284c7; }
+button:disabled { opacity: 0.6; cursor: wait; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 18px; }
+.kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; box-shadow: var(--shadow); }
+.kpi .label { font-size: 11px; text-transform: uppercase; color: var(--muted); letter-spacing: 0.04em; font-weight: 600; }
+.kpi .value { font-size: 30px; font-weight: 700; margin-top: 4px; }
+.kpi .hint { font-size: 12px; color: var(--ink-soft); margin-top: 2px; }
+.kpi.gauge { padding: 12px 14px; }
+.gauge-wrap { display: flex; align-items: center; gap: 12px; margin-top: 4px; }
+.gauge-svg { width: 140px; height: 84px; flex-shrink: 0; }
+.gauge-text .gv { font-size: 26px; font-weight: 700; line-height: 1; }
+.gauge-text .gh { font-size: 11px; color: var(--ink-soft); margin-top: 4px; }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+@media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; box-shadow: var(--shadow); margin-bottom: 14px; }
+.card h2 { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
+.card .card-sub { font-size: 12px; color: var(--ink-soft); margin-bottom: 12px; }
+.chart-wrap { position: relative; height: 280px; }
+.chart-wrap.tall { height: 320px; }
+.loading { padding: 60px 20px; text-align: center; color: var(--muted); }
+.loading .spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid var(--border); border-top-color: var(--brand); border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 8px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.error { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; padding: 12px 16px; border-radius: 8px; margin-bottom: 12px; font-size: 13px; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; line-height: 1.6; }
+.badge.todo { background: #e0e7ff; color: #3730a3; }
+.badge.in-progress { background: #fef3c7; color: #92400e; }
+.badge.done { background: #dcfce7; color: #166534; }
+.badge.blocked { background: #fecaca; color: #991b1b; }
+.badge.aging-fresh { background: #dcfce7; color: #166534; }
+.badge.aging-recent { background: #fef9c3; color: #854d0e; }
+.badge.aging-mid { background: #fed7aa; color: #9a3412; }
+.badge.aging-old { background: #fecaca; color: #991b1b; }
+.badge.aging-critical { background: #7f1d1d; color: #fff; }
+.badge.type-epic { background: #ddd6fe; color: #5b21b6; }
+.badge.type-story { background: #bfdbfe; color: #1e40af; }
+.badge.type-task { background: #e0e7ff; color: #3730a3; }
+.badge.type-bug { background: #fecaca; color: #991b1b; }
+.badge.type-feature { background: #bbf7d0; color: #166534; }
+.badge.type-subtask { background: #e5e7eb; color: #374151; }
+a { color: var(--brand); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.gridjs-td { white-space: normal !important; word-break: break-word; vertical-align: top; }
+</style>
+</head>
+<body>
+<div class="container">
+  <a href="/" class="back">← Todos os dashboards</a>
+  <div class="header">
+    <div><h1>VENA Dev Dashboard</h1><div class="sub" id="subtitle">Carregando dados…</div></div>
+    <div class="controls">
+      <div class="control"><label for="typeFilter">Issue Type</label><select id="typeFilter"><option value="all">Todos</option></select></div>
+      <div class="control"><label for="includeSub">Subtasks</label><select id="includeSub"><option value="exclude" selected>Excluir</option><option value="include">Incluir</option></select></div>
+      <div class="control"><label>&nbsp;</label><button class="primary" id="refreshBtn">Atualizar dados</button></div>
+    </div>
+  </div>
+  <div id="errorBox"></div>
+  <div id="loadingBox" class="loading"><span class="spinner"></span>Carregando dados do JIRA…</div>
+  <div id="content" style="display:none">
+    <div class="kpis" id="kpis"></div>
+    <div class="grid-2">
+      <div class="card"><h2>Open issues by status</h2><div class="card-sub">Issues ainda não finalizados por status atual</div><div class="chart-wrap"><canvas id="statusChart"></canvas></div></div>
+      <div class="card"><h2>Open issues by type</h2><div class="card-sub">Mix entre Bug, Feature, Story, Task, Epic</div><div class="chart-wrap"><canvas id="typeChart"></canvas></div></div>
+    </div>
+    <div class="grid-2">
+      <div class="card"><h2>Aging brackets</h2><div class="card-sub">Distribuição dos issues abertos por idade</div><div class="chart-wrap"><canvas id="agingBracketChart"></canvas></div></div>
+      <div class="card"><h2>Opened × Resolved (últimas 12 semanas)</h2><div class="card-sub">Throughput semanal</div><div class="chart-wrap"><canvas id="trendChart"></canvas></div></div>
+    </div>
+    <div class="card"><h2>Aging — issues abertos</h2><div class="card-sub">Workdays excluem fins de semana e feriados nacionais brasileiros.</div><div id="agingTable"></div></div>
+  </div>
+</div>
+
+<script src="/shared/api.js"></script>
+<script>
+const PROJECT='VENA',JIRA_BASE='https://kruzer.atlassian.net',LEAD_MAX=15;
+const FIELDS=['summary','status','statusCategory','priority','issuetype','created','resolutiondate','updated','assignee'];
+const RESOLUTIVE=new Set(['expired','done','canceled','cancelled','closed','pronto','concluído','concluido','finalizado','encerrado']);
+
+function easter(y){const a=y%19,b=Math.floor(y/100),c=y%100,d=Math.floor(b/4),e=b%4,f=Math.floor((b+8)/25),g=Math.floor((b-f+1)/3),h=(19*a+b-d-g+15)%30,i=Math.floor(c/4),k=c%4,L=(32+2*e+2*i-h-k)%7,m=Math.floor((a+11*h+22*L)/451),mo=Math.floor((h+L-7*m+114)/31),da=((h+L-7*m+114)%31)+1;return new Date(y,mo-1,da);}
+function addDays(d,n){const r=new Date(d);r.setDate(r.getDate()+n);return r;}
+function ymd(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+const HC={};
+function brHol(y){if(HC[y])return HC[y];const e=easter(y);HC[y]=new Set([new Date(y,0,1),addDays(e,-48),addDays(e,-47),addDays(e,-2),new Date(y,3,21),new Date(y,4,1),addDays(e,60),new Date(y,8,7),new Date(y,9,12),new Date(y,10,2),new Date(y,10,15),new Date(y,10,20),new Date(y,11,25)].map(ymd));return HC[y];}
+function isBiz(d){const w=d.getDay();if(w===0||w===6)return false;return !brHol(d.getFullYear()).has(ymd(d));}
+function workdays(s,e){if(!s||!e)return null;if(e<s)return 0;const ss=new Date(s);ss.setHours(0,0,0,0);const ee=new Date(e);ee.setHours(0,0,0,0);let days=0;for(let d=new Date(ss);d<=ee;d.setDate(d.getDate()+1)){if(isBiz(d))days++;}if(days===0)return 0;const sf=isBiz(s)?(s.getHours()*3600+s.getMinutes()*60+s.getSeconds())/86400:0;const ef=isBiz(e)?(e.getHours()*3600+e.getMinutes()*60+e.getSeconds())/86400:1;return Math.max(0,+(days-1+ef-sf).toFixed(2));}
+
+function fmtWd(v){if(v==null||isNaN(v))return'—';if(v<1)return(v*8).toFixed(1)+'h';return v.toFixed(1)+'d';}
+function sw(d){const r=new Date(d);r.setHours(0,0,0,0);const w=r.getDay();r.setDate(r.getDate()+(w===0?-6:1-w));return r;}
+function wkl(d){return d.getDate().toString().padStart(2,'0')+'/'+(d.getMonth()+1).toString().padStart(2,'0');}
+function isRes(s,cn,ck){if(ck==='done')return true;if(cn&&cn.toLowerCase()==='done')return true;return s&&RESOLUTIVE.has(s.toLowerCase());}
+function sCls(cat,s){const k=(cat||'').toLowerCase(),ss=(s||'').toLowerCase();if(ss.includes('bloque')||ss.includes('block'))return'blocked';if(k.includes('done'))return'done';if(k.includes('progress'))return'in-progress';return'todo';}
+function tCls(n){const x=(n||'').toLowerCase();if(x.includes('epic'))return'type-epic';if(x.includes('story'))return'type-story';if(x.includes('bug'))return'type-bug';if(x.includes('feature'))return'type-feature';if(x.includes('sub'))return'type-subtask';return'type-task';}
+function ab(d){if(d<=3)return{label:'0–3d',cls:'aging-fresh'};if(d<=7)return{label:'4–7d',cls:'aging-recent'};if(d<=14)return{label:'8–14d',cls:'aging-mid'};if(d<=30)return{label:'15–30d',cls:'aging-old'};return{label:'30+d',cls:'aging-critical'};}
+
+function normalize(issue){const f=issue.fields||{};const created=f.created?new Date(f.created):null;const updated=f.updated?new Date(f.updated):null;const status=f.status?.name||'—';const scn=f.status?.statusCategory?.name||'—';const sck=f.status?.statusCategory?.key||null;const resBy=isRes(status,scn,sck);let resolved=f.resolutiondate?new Date(f.resolutiondate):null;if(!resolved&&resBy&&updated)resolved=updated;return{key:issue.key,url:`${JIRA_BASE}/browse/${issue.key}`,summary:f.summary||'',status,statusCategory:scn,priority:f.priority?.name||'—',issuetype:f.issuetype?.name||'—',isSubtask:f.issuetype?.subtask===true,assignee:f.assignee?.displayName||null,created,resolved,isOpen:!resolved&&!resBy,leadTimeWd:(created&&f.resolutiondate)?workdays(created,new Date(f.resolutiondate)):null,ageWd:created?workdays(created,new Date()):null,ageCalDays:created?Math.floor((Date.now()-created.getTime())/86400000):null};}
+
+function gauge(v,max){const val=(v==null||isNaN(v))?null:v;const cl=val==null?0:Math.min(Math.max(val,0),max),pct=cl/max,ang=180-180*pct,rad=ang*Math.PI/180,r=58,cx=70,cy=70,x=cx+r*Math.cos(rad),y=cy-r*Math.sin(rad);let col='#16a34a';if(val!=null){if(val>max*0.6)col='#dc2626';else if(val>max*0.3)col='#d97706';}function arc(a,b){const a1=(180-180*a)*Math.PI/180,a2=(180-180*b)*Math.PI/180,x1=cx+r*Math.cos(a1),y1=cy-r*Math.sin(a1),x2=cx+r*Math.cos(a2),y2=cy-r*Math.sin(a2);return`M ${x1} ${y1} A ${r} ${r} 0 ${b-a>0.5?1:0} 1 ${x2} ${y2}`;}const txt=val==null?'—':(val<1?(val*8).toFixed(1)+'h':val.toFixed(1)+'d');return`<svg class="gauge-svg" viewBox="0 0 140 84"><path d="${arc(0,0.3)}" stroke="#dcfce7" stroke-width="12" fill="none" stroke-linecap="round"/><path d="${arc(0.3,0.6)}" stroke="#fef3c7" stroke-width="12" fill="none"/><path d="${arc(0.6,1)}" stroke="#fee2e2" stroke-width="12" fill="none" stroke-linecap="round"/>${val!=null?`<path d="${arc(0,pct)}" stroke="${col}" stroke-width="6" fill="none" stroke-linecap="round"/>`:''}<circle cx="${x}" cy="${y}" r="6" fill="${col}" stroke="#fff" stroke-width="2"/><text x="${cx}" y="78" text-anchor="middle" font-size="9" fill="#8a91a3">0d &nbsp; ${(max/2).toFixed(0)}d &nbsp; ${max}d+</text></svg><div class="gauge-text"><div class="gv" style="color:${col}">${txt}</div><div class="gh">target ≤ ${(max*0.3).toFixed(0)}d</div></div>`;}
+
+let RAW=[],charts={},gridInst=null;
+function applyFilter(){const t=document.getElementById('typeFilter').value,sm=document.getElementById('includeSub').value;return RAW.filter(i=>{if(sm==='exclude'&&i.isSubtask)return false;if(t!=='all'&&i.issuetype!==t)return false;return true;});}
+function avg(a){const v=a.filter(x=>x!=null&&!isNaN(x));return v.length?v.reduce((a,b)=>a+b,0)/v.length:null;}
+
+function renderKPIs(d){const open=d.filter(i=>i.isOpen),resolved=d.filter(i=>i.resolved);const cut=new Date(Date.now()-90*86400000);const ls=resolved.filter(i=>i.leadTimeWd!=null&&i.resolved>=cut).map(i=>i.leadTimeWd);const lead=avg(ls);const l7=new Date(Date.now()-7*86400000);const o7=d.filter(i=>i.created&&i.created>=l7).length,r7=resolved.filter(i=>i.resolved>=l7).length;const blk=open.filter(i=>/bloque|block/i.test(i.status)).length;
+document.getElementById('kpis').innerHTML=`
+<div class="kpi"><div class="label">Open issues</div><div class="value">${open.length}</div><div class="hint">${d.length} no escopo</div></div>
+<div class="kpi gauge"><div class="label">Lead time (workdays)</div><div class="gauge-wrap">${gauge(lead,LEAD_MAX)}</div><div class="hint" style="margin-top:6px">Média dos ${ls.length} resolvidos em 90d · escala 0–${LEAD_MAX}</div></div>
+<div class="kpi"><div class="label">Blocked</div><div class="value" style="color:${blk>0?'#dc2626':'#0b1020'}">${blk}</div><div class="hint">Issues em status Bloqueado/Blocked</div></div>
+<div class="kpi"><div class="label">Opened (last 7d)</div><div class="value">${o7}</div><div class="hint">Issues abertos na última semana</div></div>
+<div class="kpi"><div class="label">Resolved (last 7d)</div><div class="value">${r7}</div><div class="hint">Issues resolvidos na última semana</div></div>`;}
+
+function renderStatus(d){const open=d.filter(i=>i.isOpen),c={};open.forEach(i=>c[i.status]=(c[i.status]||0)+1);const s=Object.entries(c).sort((a,b)=>b[1]-a[1]);if(charts.status)charts.status.destroy();charts.status=new Chart(document.getElementById('statusChart'),{type:'bar',data:{labels:s.map(x=>x[0]),datasets:[{label:'Issues',data:s.map(x=>x[1]),backgroundColor:'#0ea5e9',borderRadius:6,maxBarThickness:48}]},options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',plugins:{legend:{display:false}},scales:{x:{beginAtZero:true,ticks:{precision:0}}}}});}
+
+function renderType(d){const open=d.filter(i=>i.isOpen),c={};open.forEach(i=>c[i.issuetype]=(c[i.issuetype]||0)+1);const s=Object.entries(c).sort((a,b)=>b[1]-a[1]);const pal=['#0ea5e9','#8b5cf6','#10b981','#f59e0b','#ef4444','#6b7280'];if(charts.type)charts.type.destroy();charts.type=new Chart(document.getElementById('typeChart'),{type:'doughnut',data:{labels:s.map(x=>x[0]),datasets:[{data:s.map(x=>x[1]),backgroundColor:pal,borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right'}}}});}
+
+function renderAging(d){const open=d.filter(i=>i.isOpen),b={'0–3d':0,'4–7d':0,'8–14d':0,'15–30d':0,'30+d':0};open.forEach(i=>{b[ab(i.ageCalDays||0).label]++;});const col=['#16a34a','#eab308','#f97316','#ef4444','#7f1d1d'];if(charts.aging)charts.aging.destroy();charts.aging=new Chart(document.getElementById('agingBracketChart'),{type:'bar',data:{labels:Object.keys(b),datasets:[{label:'Abertos',data:Object.values(b),backgroundColor:col,borderRadius:6,maxBarThickness:60}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{precision:0}}}}});}
+
+function renderTrend(d){const now=new Date(),s=sw(now),ws=[];for(let i=11;i>=0;i--){const x=new Date(s);x.setDate(x.getDate()-i*7);ws.push(x);}const op=ws.map(()=>0),re=ws.map(()=>0);d.forEach(i=>{if(i.created){const idx=ws.findIndex(w=>i.created>=w&&i.created<new Date(w.getTime()+7*86400000));if(idx>=0)op[idx]++;}if(i.resolved){const idx=ws.findIndex(w=>i.resolved>=w&&i.resolved<new Date(w.getTime()+7*86400000));if(idx>=0)re[idx]++;}});if(charts.trend)charts.trend.destroy();charts.trend=new Chart(document.getElementById('trendChart'),{type:'line',data:{labels:ws.map(wkl),datasets:[{label:'Opened',data:op,borderColor:'#0ea5e9',backgroundColor:'rgba(14,165,233,0.1)',tension:0.3,fill:true,borderWidth:2},{label:'Resolved',data:re,borderColor:'#16a34a',backgroundColor:'rgba(22,163,74,0.1)',tension:0.3,fill:true,borderWidth:2}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'top',align:'end'}},scales:{y:{beginAtZero:true,ticks:{precision:0}}}}});}
+
+function renderTable(d){const open=d.filter(i=>i.isOpen).sort((a,b)=>(b.ageCalDays||0)-(a.ageCalDays||0));const rows=open.map(i=>{const days=i.ageCalDays||0,br=ab(days),wd=i.ageWd!=null?i.ageWd.toFixed(1)+'d':'—',sc=sCls(i.statusCategory,i.status),tc=tCls(i.issuetype);return[gridjs.html(`<a href="${i.url}" target="_blank">${i.key}</a>`),i.summary,gridjs.html(`<span class="badge ${tc}">${i.issuetype}</span>`),gridjs.html(`<span class="badge ${sc}">${i.status}</span>`),i.priority,i.assignee||'—',gridjs.html(`<span class="badge ${br.cls}">${days}d (${wd})</span>`)];});const c=document.getElementById('agingTable');c.innerHTML='';gridInst=new gridjs.Grid({columns:[{name:'Key',width:'90px'},{name:'Summary',width:'480px'},{name:'Tipo',width:'110px'},{name:'Status',width:'140px'},{name:'Prioridade',width:'90px'},{name:'Responsável',width:'140px'},{name:'Idade',width:'120px',sort:{compare:(a,b)=>{const na=parseInt(String(a).match(/\d+/)||0),nb=parseInt(String(b).match(/\d+/)||0);return na-nb;}}}],data:rows,search:true,sort:true,pagination:{limit:25},resizable:true,style:{table:{'font-size':'13px'}}}).render(c);}
+
+function populateFilters(){const types=new Set();RAW.forEach(i=>{if(i.issuetype)types.add(i.issuetype);});const s=document.getElementById('typeFilter'),cur=s.value;s.innerHTML='<option value="all">Todos</option>'+Array.from(types).sort().map(t=>`<option value="${t}">${t}</option>`).join('');if(cur&&(cur==='all'||types.has(cur)))s.value=cur;}
+
+function renderAll(){const f=applyFilter();renderKPIs(f);renderStatus(f);renderType(f);renderAging(f);renderTrend(f);renderTable(f);document.getElementById('subtitle').textContent=`${f.length} issues no escopo • atualizado ${new Date().toLocaleString('pt-BR')}`;}
+
+async function loadAndRender(){document.getElementById('errorBox').innerHTML='';document.getElementById('loadingBox').style.display='';document.getElementById('content').style.display='none';const btn=document.getElementById('refreshBtn');btn.disabled=true;btn.textContent='Atualizando…';try{const jql=`project = ${PROJECT} AND (resolution is EMPTY OR resolved >= -120d OR updated >= -120d OR created >= -120d) ORDER BY created DESC`;const issues=await KruzerAPI.fetchAll({jql,fields:FIELDS});RAW=issues.map(normalize);populateFilters();document.getElementById('loadingBox').style.display='none';document.getElementById('content').style.display='';renderAll();}catch(e){document.getElementById('loadingBox').style.display='none';document.getElementById('errorBox').innerHTML=`<div class="error"><b>Falha ao carregar dados:</b> ${e.message}</div>`;}finally{btn.disabled=false;btn.textContent='Atualizar dados';}}
+
+document.getElementById('refreshBtn').addEventListener('click',loadAndRender);
+document.getElementById('typeFilter').addEventListener('change',renderAll);
+document.getElementById('includeSub').addEventListener('change',renderAll);
+loadAndRender();
+</script>
+</body>
+</html>

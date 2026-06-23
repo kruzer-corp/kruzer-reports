@@ -1,0 +1,21 @@
+name = "kruzer-dashboards"
+main = "src/worker.js"
+compatibility_date = "2024-12-01"
+
+# Serve arquivos estáticos do public/ via binding ASSETS
+# html_handling = "auto-trailing-slash" garante que /krzr/ → krzr/index.html
+# e /krzr/hml → krzr/hml.html (sem precisar do .html no link).
+[assets]
+directory = "./public"
+binding = "ASSETS"
+html_handling = "auto-trailing-slash"
+not_found_handling = "404-page"
+# run_worker_first = true faz TODO request passar pelo worker antes de servir
+# o asset. Sem isso, a Cloudflare serve o HTML direto (asset-first), e o gate de
+# Basic Auth do worker nunca roda pras páginas — só pra /api/*. Com isso, o worker
+# autentica primeiro e só então chama env.ASSETS.fetch().
+run_worker_first = true
+
+# Logs durante desenvolvimento
+[observability]
+enabled = true

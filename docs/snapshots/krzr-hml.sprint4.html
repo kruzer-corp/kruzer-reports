@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KRZR — Service Desk Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gridjs@5.0.2/dist/gridjs.umd.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/gridjs@5.0.2/dist/theme/mermaid.min.css">
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f7f7fb; --surface: #fff; --ink: #0b1020; --ink-soft: #485066; --muted: #8a91a3;
+  --border: #e6e8ef; --brand: #4f46e5; --shadow: 0 1px 2px rgba(11,16,32,.04), 0 4px 12px rgba(11,16,32,.05);
+}
+* { box-sizing: border-box; }
+body { margin: 0; font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg); color: var(--ink); font-size: 14px; line-height: 1.5; }
+.container { padding: 16px 20px 40px; max-width: 1400px; margin: 0 auto; }
+.back { font-size: 12px; color: var(--brand); text-decoration: none; margin-bottom: 8px; display: inline-block; }
+.back:hover { text-decoration: underline; }
+.header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; flex-wrap: wrap; }
+.header h1 { margin: 0 0 4px; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
+.header .sub { color: var(--ink-soft); font-size: 13px; }
+.controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.control { display: flex; flex-direction: column; gap: 4px; }
+.control label { font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--muted); letter-spacing: 0.04em; }
+select, button { font-family: inherit; font-size: 13px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--ink); cursor: pointer; }
+select:hover, button:hover { border-color: #c8cbd6; }
+button.primary { background: var(--brand); color: #fff; border-color: var(--brand); font-weight: 600; }
+button.primary:hover { background: #4338ca; }
+button:disabled { opacity: 0.6; cursor: wait; }
+.dropdown { position: relative; }
+.dd-toggle { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 190px; font-family: inherit; font-size: 13px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--ink); cursor: pointer; }
+.dd-toggle:hover { border-color: #c8cbd6; }
+.dd-caret { color: var(--muted); font-size: 11px; }
+.dd-panel { position: absolute; z-index: 30; top: calc(100% + 4px); left: 0; min-width: 230px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow); padding: 4px; max-height: 360px; overflow: auto; }
+.dd-panel[hidden] { display: none; }
+.dd-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 10px; border-radius: 6px; font-size: 13px; cursor: pointer; color: var(--ink); }
+.dd-item:hover { background: #f0f0f5; }
+.dd-item.active { background: var(--brand); color: #fff; }
+.dd-expand { border: none; background: transparent; cursor: pointer; font-size: 12px; color: inherit; padding: 2px 6px; line-height: 1; border-radius: 4px; }
+.dd-expand:hover { background: rgba(0,0,0,.06); }
+.dd-weeks { margin: 2px 0 2px 8px; border-left: 2px solid var(--border); padding-left: 4px; }
+.dd-weeks[hidden] { display: none; }
+.dd-week { font-size: 12px; color: var(--ink-soft); }
+.dd-sep { height: 1px; background: var(--border); margin: 4px 2px; }
+.kpis { display: flex; flex-direction: column; gap: 12px; margin-bottom: 18px; }
+.kpi-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+@media (max-width: 900px) { .kpi-row { grid-template-columns: 1fr; } }
+.kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; box-shadow: var(--shadow); }
+.kpi .label { font-size: 11px; text-transform: uppercase; color: var(--muted); letter-spacing: 0.04em; font-weight: 600; }
+.kpi .value { font-size: 30px; font-weight: 700; margin-top: 4px; letter-spacing: -0.02em; }
+.kpi .hint { font-size: 12px; color: var(--ink-soft); margin-top: 2px; }
+.kpi.gauge { padding: 12px 14px; }
+.gauge-wrap { display: flex; align-items: center; gap: 16px; margin-top: 6px; }
+.gauge-svg { width: 120px; height: 72px; flex-shrink: 0; }
+.gauge-text .gv { font-size: 26px; font-weight: 700; line-height: 1; }
+.gauge-text .gh { font-size: 11px; color: var(--ink-soft); margin-top: 4px; }
+.kpi-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: stretch; }
+@media (max-width: 900px) { .kpi-row2 { grid-template-columns: 1fr; } }
+.dual { display: flex; gap: 32px; margin-top: 8px; }
+.dual-v { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; line-height: 1; }
+.dual-l { font-size: 11px; text-transform: uppercase; color: var(--muted); font-weight: 600; margin-top: 4px; letter-spacing: 0.04em; }
+.trend-card { display: flex; flex-direction: column; }
+.trend-wrap { position: relative; flex: 1; min-height: 150px; margin-top: 8px; }
+.kpi-gauges { display: flex; gap: 10px; margin-top: 8px; }
+.kpi-gauges .gauge-col { flex: 1; min-width: 0; }
+.kpi-gauges .sub-label { font-size: 11px; font-weight: 600; color: var(--ink-soft); margin-bottom: 2px; }
+.kpi-gauges .gauge-wrap { gap: 8px; margin-top: 2px; }
+.kpi-gauges .gauge-svg { width: 92px; height: 55px; }
+.kpi-gauges .gauge-text .gv { font-size: 20px; }
+.compare-box .label { margin-bottom: 10px; }
+.compare-grid { display: grid; grid-template-columns: 1.7fr 1fr 1fr 1fr; row-gap: 7px; column-gap: 10px; align-items: baseline; }
+.pct-row { display: flex; gap: 14px; margin-top: 6px; font-size: 13px; color: var(--ink-soft); }
+.pct-row b { font-size: 17px; color: var(--ink); font-weight: 700; }
+.cancel-rate { font-size: 12px; margin-top: 6px; }
+.cancel-rate.bad { color: #991b1b; font-weight: 600; }
+.cancel-bd { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.trend-cap { font-size: 11px; font-weight: 500; color: var(--ink-soft); margin-left: 8px; }
+.mini { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; font-size: 13px; padding: 5px 0; border-bottom: 1px solid var(--border); }
+.mini:last-child { border-bottom: none; }
+.mini .m-name { color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
+.mini .m-bar-wrap { background: #f0f0f5; border-radius: 4px; height: 8px; overflow: hidden; }
+.mini .m-bar { height: 100%; background: var(--brand); border-radius: 4px; }
+.mini .m-val { font-weight: 700; text-align: right; white-space: nowrap; font-size: 12px; }
+.mini .m-sub { color: var(--muted); font-size: 11px; }
+.org-row { cursor: pointer; }
+.org-row:hover { background: #f0f0f5; }
+.badge.overload { background: #fecaca; color: #7f1d1d; margin-left: 6px; }
+.kpi-click { cursor: pointer; }
+.kpi-click:hover { border-color: #c8cbd6; }
+.kpi-active { border-color: var(--brand) !important; box-shadow: 0 0 0 1px var(--brand); }
+.cv-mini { height: 4px; border-radius: 2px; background: #ececf3; margin-top: 3px; overflow: hidden; }
+.cv-mini > span { display: block; height: 100%; background: var(--brand); }
+.delta { font-size: 11px; font-weight: 600; margin-top: 2px; }
+.delta.up { color: #166534; } .delta.down { color: #991b1b; } .delta.flat { color: var(--muted); }
+.compare-grid .ch { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.compare-grid .ch.num { text-align: right; }
+.compare-grid .cm { font-size: 13px; color: var(--ink-soft); }
+.compare-grid .cv { font-size: 16px; font-weight: 700; text-align: right; letter-spacing: -0.01em; }
+.compare-grid .crow { grid-column: 1 / -1; height: 1px; background: var(--border); margin: 2px 0; }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+@media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; box-shadow: var(--shadow); margin-bottom: 14px; }
+.card h2 { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
+.card .card-sub { font-size: 12px; color: var(--ink-soft); margin-bottom: 12px; }
+.chart-wrap { position: relative; height: 280px; }
+.chart-wrap.tall { height: 320px; }
+.loading { padding: 60px 20px; text-align: center; color: var(--muted); font-size: 14px; }
+.loading .spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid var(--border); border-top-color: var(--brand); border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 8px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.error { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; padding: 12px 16px; border-radius: 8px; margin-bottom: 12px; font-size: 13px; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; line-height: 1.6; }
+.badge.todo { background: #e0e7ff; color: #3730a3; }
+.badge.in-progress { background: #fef3c7; color: #92400e; }
+.badge.done { background: #dcfce7; color: #166534; }
+.badge.aging-fresh { background: #dcfce7; color: #166534; }
+.badge.aging-recent { background: #fef9c3; color: #854d0e; }
+.badge.aging-mid { background: #fed7aa; color: #9a3412; }
+.badge.aging-old { background: #fecaca; color: #991b1b; }
+.badge.aging-critical { background: #7f1d1d; color: #fff; }
+.badge.prio-highest { background: #fecaca; color: #7f1d1d; }
+.badge.prio-high { background: #fed7aa; color: #9a3412; }
+.badge.prio-medium { background: #fef9c3; color: #854d0e; }
+.badge.prio-low { background: #e5e7eb; color: #475569; }
+.badge.sla-ok { background: #dcfce7; color: #166534; }
+.badge.sla-risk { background: #fed7aa; color: #9a3412; }
+.badge.sla-breach { background: #fee2e2; color: #991b1b; }
+.breach-mark { border-left: 3px solid #dc2626; padding-left: 6px; }
+.alerts { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.alert { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 8px; font-size: 13px; cursor: pointer; border: 1px solid; border-left-width: 4px; }
+.alert:hover { filter: brightness(0.98); }
+.alert .a-count { font-weight: 700; }
+.alert.crit { background: #fef2f2; color: #991b1b; border-color: #fecaca; }
+.alert.warn { background: #fff7ed; color: #9a3412; border-color: #fed7aa; }
+.alert.info { background: #eff6ff; color: #1e40af; border-color: #bfdbfe; }
+.alert.muted { background: #f8fafc; color: #475569; border-color: #e2e8f0; }
+.table-filter-note { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-soft); margin-left: 10px; }
+.table-filter-note button { padding: 2px 8px; font-size: 11px; }
+.csv-btn { padding: 6px 12px; font-size: 12px; font-weight: 600; }
+a { color: var(--brand); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.gridjs-td { vertical-align: top; }
+#agingTable .gridjs-td, #agingTable .gridjs-th { padding: 8px 10px; }
+/* cl1 = 1 linha + reticências; cl2 = até 2 linhas (altura fixa) + reticências */
+#agingTable .cl1 { display: block; width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.3; }
+#agingTable .cl2 { display: -webkit-box; width: 100%; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.3; height: 2.6em; word-break: break-word; }
+#agingTable .cl1 .badge { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+.column-controls { display: flex; gap: 8px; margin-bottom: 12px; padding: 0 2px; }
+.col-size-btn { padding: 4px 8px; font-size: 12px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); cursor: pointer; color: var(--ink); }
+.col-size-btn:hover { background: #f0f0f5; }
+.col-size-btn.active { background: var(--brand); color: white; border-color: var(--brand); }
+</style>
+</head>
+<body>
+<div id="hmlBanner" style="position:sticky;top:0;z-index:50;background:#fef9c3;color:#854d0e;font-size:12px;font-weight:600;text-align:center;padding:6px 12px;border-bottom:1px solid #f59e0b">🧪 Ambiente de homologação — dados reais, mudanças em validação</div>
+<script>if(!location.pathname.includes('-hml')&&!/[?&]env=hml/.test(location.search)){var _b=document.getElementById('hmlBanner');if(_b)_b.remove();}</script>
+<div class="container">
+  <a href="/" class="back">← Todos os dashboards</a>
+  <div class="header">
+    <div>
+      <h1>KRZR Service Desk Dashboard</h1>
+      <div class="sub" id="subtitle">Carregando dados…</div>
+    </div>
+    <div class="controls">
+      <div class="control"><label>Período</label><div class="dropdown" id="periodDropdown"><button type="button" class="dd-toggle" id="periodToggle" aria-label="Selecionar período" aria-haspopup="listbox"><span id="periodLabel">Semana atual</span><span class="dd-caret">▾</span></button><div class="dd-panel" id="periodPanel" hidden></div></div></div>
+      <div class="control"><label for="orgFilter">Organização</label><select id="orgFilter" aria-label="Filtrar por organização"><option value="all">Todas</option></select></div>
+      <div class="control"><label>&nbsp;</label><button class="primary" id="refreshBtn">Atualizar dados</button></div>
+    </div>
+  </div>
+  <div id="errorBox"></div>
+  <div id="loadingBox" class="loading"><span class="spinner"></span>Carregando dados do JIRA…</div>
+  <div id="content" style="display:none">
+    <div id="alertsBanner"></div>
+    <div class="kpis" id="kpis"></div>
+    <div class="grid-2">
+      <div class="card"><h2>Open tickets by status</h2><div class="card-sub">Tickets ainda não resolvidos por status atual</div><div class="chart-wrap"><canvas id="statusChart" role="img" aria-label="Tickets abertos por status"></canvas></div></div>
+      <div class="card"><h2>Tickets by aging bracket</h2><div class="card-sub">Distribuição dos tickets abertos por idade</div><div class="chart-wrap"><canvas id="agingBracketChart" role="img" aria-label="Tickets por faixa de idade"></canvas></div></div>
+    </div>
+    <div class="grid-2">
+      <div class="card"><h2>Workload por assignee</h2><div class="card-sub">Abertos · idade média · lead p90 — top 10</div><div id="workloadCard"></div></div>
+      <div class="card"><h2>Top organizações (abertos)</h2><div class="card-sub">Clique numa org para filtrar o dashboard</div><div id="orgsCard"></div></div>
+    </div>
+    <div class="grid-2">
+      <div class="card"><h2>MTTR por prioridade</h2><div class="card-sub">Lead time médio e p90 (workdays) · clique numa barra para filtrar</div><div class="chart-wrap"><canvas id="mttrChart" role="img" aria-label="MTTR por prioridade"></canvas></div></div>
+      <div class="card"><h2>CSAT</h2><div class="card-sub">Satisfação pós-resolução</div><div style="padding:22px 4px;color:var(--muted);font-size:14px">CSAT — não configurado no JSM.<span style="display:block;margin-top:6px;font-size:12px">Ative a pesquisa pós-resolução no Jira Service Management para habilitar este indicador (decisão pendente #3).</span></div></div>
+    </div>
+    <div class="card"><h2>Aging — tickets abertos</h2><div class="card-sub">Ordenado por idade decrescente. Workdays excluem fins de semana e feriados nacionais brasileiros.</div><div id="agingTable"></div></div>
+  </div>
+</div>
+
+<script src="/api.js"></script>
+<script>
+const PROJECT = 'KRZR';
+const JIRA_BASE = 'https://kruzer.atlassian.net';
+const FIELDS = ['summary','status','statusCategory','priority','issuetype','created','resolutiondate','updated','assignee','customfield_10002','customfield_10024','labels'];
+// Mapeamento de status do board KRZR
+const BACKLOG_STATUSES = new Set(['pending','on queue','waiting for support']);
+const BLOCKED_STATUSES = new Set(['blocked','waiting for customer']);
+const DONE_STATUSES = new Set(['done']);
+const CANCELED_STATUSES = new Set(['expired','duplicated','canceled','cancelled']);
+const RESOLUTIVE_STATUSES = new Set([...DONE_STATUSES, ...CANCELED_STATUSES]);
+
+// ── SLA por prioridade (horas). DEFAULTS do handoff Cowork — VALIDAR com Operações (decisão pendente #1).
+// Acordo contratual Kruzer (horas úteis). "Assumir Atendimento" = 1ª resposta · "Restaurar Serviço" = resolução.
+const SLA_MATRIX = {
+  'p0': { firstResponse: 0, resolution: 2 },
+  'p1': { firstResponse: 1, resolution: 16 },
+  'p2': { firstResponse: 5, resolution: 32 },
+  'p3': { firstResponse: 8, resolution: 48 },
+  // fallback por nomes comuns do Jira
+  'highest': { firstResponse: 0, resolution: 2 },
+  'critical':{ firstResponse: 0, resolution: 2 },
+  'high':    { firstResponse: 1, resolution: 16 },
+  'medium':  { firstResponse: 5, resolution: 32 },
+  'low':     { firstResponse: 8, resolution: 48 },
+  '_default':{ firstResponse: 5, resolution: 32 },
+};
+const WORKHOURS_PER_DAY = 8;
+function slaTargetFor(priority){return SLA_MATRIX[String(priority||'').toLowerCase()]||SLA_MATRIX._default;}
+// Tempo decorrido de resolução em horas úteis: aberto usa idade ativa (sem blocked); resolvido usa lead bruto.
+function slaBreached(t){const tgt=slaTargetFor(t.priority);
+  const resWd=t.isOpen?((t.ageWd!=null?t.ageWd:0)-(t.timeBlockedWd||0)):(t.leadTimeRawWd!=null?t.leadTimeRawWd:null);
+  const resH=resWd==null?null:Math.max(0,resWd)*WORKHOURS_PER_DAY;
+  const frH=t.firstRespWd!=null?t.firstRespWd*WORKHOURS_PER_DAY:(t.isOpen&&!t.firstResp&&t.ageWd!=null?t.ageWd*WORKHOURS_PER_DAY:null);
+  const resolutionBreached=resH!=null&&resH>tgt.resolution;
+  const firstResponseBreached=frH!=null&&frH>tgt.firstResponse;
+  const atRisk=!resolutionBreached&&resH!=null&&resH>=0.8*tgt.resolution;
+  return {firstResponseBreached,resolutionBreached,atRisk,resH,frH,target:tgt};}
+function slaStatus(t){const b=slaBreached(t);if(b.resolutionBreached)return{label:'Breach',cls:'sla-breach',breached:true,atRisk:false};if(b.atRisk)return{label:'Risco',cls:'sla-risk',breached:false,atRisk:true};return{label:'OK',cls:'sla-ok',breached:false,atRisk:false};}
+function isCritical(t){return ['p0','p1','highest','critical','high'].includes(String(t.priority||'').toLowerCase());}
+function priorityClass(p){const k=String(p||'').toLowerCase();if(k==='p0'||k==='highest'||k==='critical')return'prio-highest';if(k==='p1'||k==='high')return'prio-high';if(k==='p2'||k==='medium')return'prio-medium';return'prio-low';}
+
+// ---- Brazilian holidays + workdays ---------------------------------------
+function easter(y){const a=y%19,b=Math.floor(y/100),c=y%100,d=Math.floor(b/4),e=b%4,f=Math.floor((b+8)/25),g=Math.floor((b-f+1)/3),h=(19*a+b-d-g+15)%30,i=Math.floor(c/4),k=c%4,L=(32+2*e+2*i-h-k)%7,m=Math.floor((a+11*h+22*L)/451),mo=Math.floor((h+L-7*m+114)/31),da=((h+L-7*m+114)%31)+1;return new Date(y,mo-1,da);}
+function addDays(d,n){const r=new Date(d);r.setDate(r.getDate()+n);return r;}
+function ymd(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+const HC={};
+function brHolidays(y){if(HC[y])return HC[y];const e=easter(y);const list=[new Date(y,0,1),addDays(e,-48),addDays(e,-47),addDays(e,-2),new Date(y,3,21),new Date(y,4,1),addDays(e,60),new Date(y,8,7),new Date(y,9,12),new Date(y,10,2),new Date(y,10,15),new Date(y,10,20),new Date(y,11,25)];HC[y]=new Set(list.map(ymd));return HC[y];}
+function isBusinessDay(d){const w=d.getDay();if(w===0||w===6)return false;return !brHolidays(d.getFullYear()).has(ymd(d));}
+function workdaysBetween(s,e){if(!s||!e)return null;if(e<s)return 0;const ss=new Date(s);ss.setHours(0,0,0,0);const ee=new Date(e);ee.setHours(0,0,0,0);let days=0;for(let d=new Date(ss);d<=ee;d.setDate(d.getDate()+1)){if(isBusinessDay(d))days++;}if(days===0)return 0;const sf=isBusinessDay(s)?(s.getHours()*3600+s.getMinutes()*60+s.getSeconds())/86400:0;const ef=isBusinessDay(e)?(e.getHours()*3600+e.getMinutes()*60+e.getSeconds())/86400:1;return Math.max(0,+(days-1+ef-sf).toFixed(2));}
+
+function fmtWd(v){if(v==null||isNaN(v))return'—';if(v<1)return(v*8).toFixed(1)+'h';return v.toFixed(1)+'d';}
+function startOfWeek(d){const r=new Date(d);r.setHours(0,0,0,0);const w=r.getDay();r.setDate(r.getDate()+(w===0?-6:1-w));return r;}
+function weekLabel(d){return d.getDate().toString().padStart(2,'0')+'/'+(d.getMonth()+1).toString().padStart(2,'0');}
+function statusClass(cat){const k=(cat||'').toLowerCase();if(k.includes('done'))return'done';if(k.includes('progress'))return'in-progress';return'todo';}
+function isResolutiveStatus(name){return name && RESOLUTIVE_STATUSES.has(String(name).toLowerCase());}
+function agingBracket(d){if(d<=3)return{label:'0–3d',cls:'aging-fresh'};if(d<=7)return{label:'4–7d',cls:'aging-recent'};if(d<=14)return{label:'8–14d',cls:'aging-mid'};if(d<=30)return{label:'15–30d',cls:'aging-old'};return{label:'30+d',cls:'aging-critical'};}
+
+// Tempo (workdays) por status, reconstruído do changelog. Retorna null quando o ticket
+// nunca passou por aquele status (excluído da média); 0+ quando passou.
+function statusDurations(changelog,created,endTime){if(!changelog||!Array.isArray(changelog.histories))return{backlog:null,blocked:null};const trans=[];changelog.histories.forEach(h=>{const t=h.created?new Date(h.created):null;(h.items||[]).forEach(it=>{if(it.field==='status'&&t)trans.push({t,from:it.fromString,to:it.toString});});});if(!trans.length)return{backlog:null,blocked:null};trans.sort((a,b)=>a.t-b.t);let cur=trans[0].from,start=created||trans[0].t;const acc={};const add=(st,a,b)=>{if(!st||!a||!b)return;const w=workdaysBetween(a,b);if(w!=null)acc[st]=(acc[st]||0)+w;};trans.forEach(tr=>{add(cur,start,tr.t);cur=tr.to;start=tr.t;});add(cur,start,endTime||new Date());let backlog=null,blocked=null;Object.keys(acc).forEach(k=>{const kl=k.toLowerCase();if(BACKLOG_STATUSES.has(kl))backlog=(backlog||0)+acc[k];if(BLOCKED_STATUSES.has(kl))blocked=(blocked||0)+acc[k];});return{backlog,blocked};}
+function isBugType(name){return /bug|incident/i.test(name||'');}
+// ── ITIL category (default provisório — validar mapeamento real, decisão pendente #2)
+function itilCategory(name){const n=(name||'').toLowerCase();if(/incident|bug|outage|falha/.test(n))return'incident';if(/request|solicita|access|onboarding/.test(n))return'request';if(/problem|rca|root cause/.test(n))return'problem';if(/change|mudan|deploy/.test(n))return'change';return'other';}
+const ITIL_LABEL={incident:'Incidents',request:'Requests',other:'Outros'};
+function itilGroupKey(cat){return cat==='incident'?'incident':cat==='request'?'request':'other';}
+// Reopen via label "Reopen" (controle na triagem — decisão #5). FCR via changelog.
+function hasReopenLabel(labels){return Array.isArray(labels)&&labels.some(l=>String(l).toLowerCase()==='reopen');}
+function computeFCR(changelog){if(!changelog||!Array.isArray(changelog.histories))return false;let reassign=0,blocked=false;changelog.histories.forEach(h=>(h.items||[]).forEach(it=>{if(it.field==='assignee'&&it.fromString)reassign++;if(it.field==='status'&&BLOCKED_STATUSES.has((it.toString||'').toLowerCase()))blocked=true;}));return reassign===0&&!blocked;}
+function percentile(arr,p){const v=arr.filter(x=>x!=null&&!isNaN(x)).sort((a,b)=>a-b);if(!v.length)return null;const idx=(v.length-1)*p,lo=Math.floor(idx),hi=Math.ceil(idx);return lo===hi?v[lo]:v[lo]+(v[hi]-v[lo])*(idx-lo);}
+function normalize(issue){const f=issue.fields||{};const created=f.created?new Date(f.created):null;let resolved=f.resolutiondate?new Date(f.resolutiondate):null;const updated=f.updated?new Date(f.updated):null;const firstResp=f.customfield_10024?new Date(f.customfield_10024):null;const orgs=Array.isArray(f.customfield_10002)?f.customfield_10002.map(o=>o.name):[];const status=f.status?.name||'—';const issueType=f.issuetype?.name||'—';const resByStatus=isResolutiveStatus(status);if(!resolved&&resByStatus&&updated)resolved=updated;const sd=statusDurations(issue.changelog,created,resolved||new Date());const rawLead=(created&&f.resolutiondate)?workdaysBetween(created,new Date(f.resolutiondate)):null;const leadTimeWd=rawLead==null?null:Math.max(0,+(rawLead-(sd.blocked||0)).toFixed(2));const labels=Array.isArray(f.labels)?f.labels:[];return{key:issue.key,url:`${JIRA_BASE}/browse/${issue.key}`,summary:f.summary||'',status,issueType,itil:itilCategory(issueType),itilKey:itilGroupKey(itilCategory(issueType)),labels,isReopen:hasReopenLabel(labels),isFCR:computeFCR(issue.changelog),isBug:isBugType(issueType),isCanceled:CANCELED_STATUSES.has(status.toLowerCase()),statusCategory:f.status?.statusCategory?.name||'—',priority:f.priority?.name||'—',assignee:f.assignee?.displayName||null,created,resolved,firstResp,orgs,isOpen:!resolved&&!resByStatus,leadTimeWd,leadTimeRawWd:rawLead,firstRespWd:(created&&firstResp)?workdaysBetween(created,firstResp):null,timeInBacklogWd:sd.backlog,timeBlockedWd:sd.blocked,ageWd:created?workdaysBetween(created,new Date()):null,ageCalDays:created?Math.floor((Date.now()-created.getTime())/86400000):null,updated,staleDays:updated?Math.floor((Date.now()-updated.getTime())/86400000):null};}
+
+// Unified gauge: top-bowing semicircle (180°→360°), no clipping. segColors = [esquerda, meio, direita].
+function gaugeBase(pct,color,segColors,valueText,hint,ticks){const cx=50,cy=50,r=38;const rad=d=>d*Math.PI/180;const P=d=>[+(cx+r*Math.cos(rad(d))).toFixed(2),+(cy+r*Math.sin(rad(d))).toFixed(2)];const seg=(d1,d2,col,w)=>{const[x1,y1]=P(d1),[x2,y2]=P(d2);return`<path d="M ${x1} ${y1} A ${r} ${r} 0 0 1 ${x2} ${y2}" stroke="${col}" stroke-width="${w}" fill="none" stroke-linecap="round"/>`;};const p=Math.min(Math.max(pct,0),1);const endDeg=180+180*p;const[ex,ey]=P(endDeg);const bg=seg(180,240,segColors[0],8)+seg(240,300,segColors[1],8)+seg(300,360,segColors[2],8);const val=p>0?seg(180,endDeg,color,5):'';const dot=`<circle cx="${ex}" cy="${ey}" r="3.5" fill="${color}" stroke="#fff" stroke-width="1.5"/>`;const tick=ticks?`<text x="50" y="58" text-anchor="middle" font-size="7" fill="#8a91a3">${ticks}</text>`:'';return`<svg class="gauge-svg" viewBox="0 0 100 60" preserveAspectRatio="xMidYMid meet">${bg}${val}${dot}${tick}</svg><div class="gauge-text"><div class="gv" style="color:${color}">${valueText}</div><div class="gh">${hint}</div></div>`;}
+function gaugeSVG(value,max=5){const v=(value==null||isNaN(value))?null:value;let color='#16a34a';if(v!=null){if(v>3)color='#dc2626';else if(v>1.5)color='#d97706';}const txt=v==null?'—':(v<1?(v*8).toFixed(1)+'h':v.toFixed(1)+'d');const hint=v!=null&&v<=1.5?'✅ SLA OK':'target ≤ 1.5d';return gaugeBase(v==null?0:v/max,color,['#dcfce7','#fef3c7','#fee2e2'],txt,hint,'0d&#160;&#160;2,5d&#160;&#160;5d+');}
+
+// ---- State + render -------------------------------------------------------
+let RAW=[],charts={},tableFilter=null;
+
+// Column width persistence (simple version)
+function getColumnWidths(tableId){const saved=localStorage.getItem(`col-widths-${tableId}`);return saved?JSON.parse(saved):{};}
+function saveColumnWidths(tableId,widths){localStorage.setItem(`col-widths-${tableId}`,JSON.stringify(widths));}
+function getColumnsWithSavedWidths(columns,tableId){const saved=getColumnWidths(tableId);return columns.map(col=>({...col,width:saved[col.name]||col.width}));}
+
+
+const FIXED_PERIODS=[{value:'current-week',label:'Semana atual'},{value:'previous-week',label:'Semana passada'},{value:'current-month',label:'Mês atual'},{value:'previous-month',label:'Mês passado'},{value:'current-year',label:'Ano atual'}];
+let selectedPeriod='current-week';
+function buildWeekOptions(){const now=new Date(),arr=[];for(let i=2;i<=24;i++){const sw=startOfWeek(now);sw.setDate(sw.getDate()-i*7);const weekNum=Math.ceil((sw.getTime()-new Date(sw.getFullYear(),0,1).getTime())/(7*86400000));const label=`W${weekNum} - ${sw.getDate()}/${String(sw.getMonth()+1).padStart(2,'0')}`;arr.push({value:`week-${i}`,label});}return arr;}
+function highlightActivePeriod(){document.querySelectorAll('#periodPanel .dd-item').forEach(el=>el.classList.toggle('active',el.getAttribute('data-value')===selectedPeriod));}
+function generatePeriodOptions(){const panel=document.getElementById('periodPanel');const weeks=buildWeekOptions();let html='';FIXED_PERIODS.forEach(p=>{html+=`<div class="dd-item" data-value="${p.value}" data-label="${p.label}">${p.label}</div>`;});html+='<div class="dd-sep"></div>';html+=`<div class="dd-item dd-parent" data-value="last-24-weeks" data-label="Últimas 24 semanas"><span>Últimas 24 semanas</span><button type="button" class="dd-expand" aria-label="Expandir semanas">▸</button></div>`;html+='<div class="dd-weeks" hidden>'+weeks.map(w=>`<div class="dd-item dd-week" data-value="${w.value}" data-label="${w.label}">${w.label}</div>`).join('')+'</div>';panel.innerHTML=html;highlightActivePeriod();}
+function selectPeriod(value,label){selectedPeriod=value;document.getElementById('periodLabel').textContent=label;document.getElementById('periodPanel').hidden=true;highlightActivePeriod();renderAll();}
+
+function getPeriodFilter(){const p=selectedPeriod;const now=new Date();let start,end=new Date();if(p==='current-week'){start=startOfWeek(now);}else if(p==='previous-week'){const pw=startOfWeek(now);pw.setDate(pw.getDate()-7);start=pw;end=new Date(pw);end.setDate(end.getDate()+7);}else if(p==='last-24-weeks'){const sw=startOfWeek(now);sw.setDate(sw.getDate()-24*7);start=sw;end=new Date();}else if(p.startsWith('week-')){const weeksAgo=parseInt(p.split('-')[1]);const sw=startOfWeek(now);sw.setDate(sw.getDate()-weeksAgo*7);start=sw;end=new Date(sw);end.setDate(end.getDate()+7);}else if(p==='current-month'){start=new Date(now.getFullYear(),now.getMonth(),1);}else if(p==='previous-month'){const pm=new Date(now.getFullYear(),now.getMonth()-1,1);start=pm;end=new Date(now.getFullYear(),now.getMonth(),0);}else if(p==='current-year'){start=new Date(now.getFullYear(),0,1);}return{start,end};}
+
+function applyFilter(){const o=document.getElementById('orgFilter').value;const {start,end}=getPeriodFilter();let filtered=RAW;if(o!=='all')filtered=filtered.filter(i=>i.orgs.includes(o));return filtered;}
+function getPrevPeriodFilter(){const {start,end}=getPeriodFilter();const span=Math.max(1,end-start);return{start:new Date(start.getTime()-span),end:new Date(start.getTime())};}
+function deltaHTML(cur,prev,goodUp){if(prev==null||prev===0)return'';const pct=(cur-prev)/prev*100;const flat=Math.abs(pct)<0.5;const up=pct>0;const cls=flat?'flat':((up===goodUp)?'up':'down');const arrow=flat?'•':(up?'▲':'▼');return`<div class="delta ${cls}">${arrow} ${Math.abs(pct).toFixed(0)}% vs período anterior</div>`;}
+
+function filterByPeriod(data,start,end){return data.filter(i=>{const d=i.resolved||i.created;return d&&d>=start&&d<=end;});}
+
+function avg(arr){const v=arr.filter(x=>x!=null&&!isNaN(x));return v.length?v.reduce((a,b)=>a+b,0)/v.length:null;}
+
+function calcSLAPercent(resolvedTickets){if(!resolvedTickets.length)return null;const withLeadTime=resolvedTickets.filter(t=>t.leadTimeRawWd!=null);if(!withLeadTime.length)return 0;const onSLA=withLeadTime.filter(t=>t.leadTimeRawWd<=1.5).length;return(onSLA/withLeadTime.length)*100;}
+
+function gaugeSLAPercent(value){const v=(value==null||isNaN(value))?null:value;let color='#16a34a';if(v!=null){if(v<85)color='#dc2626';else if(v<95)color='#d97706';}const txt=v==null?'—':v.toFixed(0)+'%';const hint=v!=null&&v>=95?'✅ Target OK':'target ≥ 95%';return gaugeBase(v==null?0:v/100,color,['#fee2e2','#fef3c7','#dcfce7'],txt,hint,'0%&#160;&#160;50%&#160;&#160;100%');}
+function groupMetrics(arr){const o=arr.filter(i=>i.isOpen);const resolved=arr.filter(i=>i.resolved&&!i.isCanceled);const reopenN=arr.filter(i=>i.isReopen).length;const fcrN=resolved.filter(i=>i.isFCR).length;return{count:arr.length,open:o.length,firstResp:avg(o.map(i=>i.firstRespWd).filter(x=>x!=null)),backlog:avg(o.map(i=>i.timeInBacklogWd).filter(x=>x!=null)),blocked:avg(o.map(i=>i.timeBlockedWd).filter(x=>x!=null)),reopenN,reopenPct:arr.length?reopenN/arr.length*100:null,fcrPct:resolved.length?fcrN/resolved.length*100:null};}
+function renderKPIs(d){const {start:periodStart,end:periodEnd}=getPeriodFilter();const inP=dt=>dt&&dt>=periodStart&&dt<=periodEnd;const resolvedInPeriod=d.filter(i=>inP(i.resolved));const canceledInPeriod=resolvedInPeriod.filter(i=>i.isCanceled);const resolvedClean=resolvedInPeriod.filter(i=>!i.isCanceled);const createdInPeriod=d.filter(i=>inP(i.created));const leadS=resolvedInPeriod.map(i=>i.leadTimeWd).filter(x=>x!=null);const lead=avg(leadS);const p50=percentile(leadS,0.5),p90=percentile(leadS,0.9),p95=percentile(leadS,0.95);const p90col=p90==null?'var(--ink)':(p90>3?'#dc2626':p90>1.5?'#d97706':'#16a34a');const slaPercent=calcSLAPercent(resolvedInPeriod);
+const inc=groupMetrics(d.filter(i=>i.itilKey==='incident'));const req=groupMetrics(d.filter(i=>i.itilKey==='request'));const oth=groupMetrics(d.filter(i=>i.itilKey==='other'));
+const total=resolvedClean.length+canceledInPeriod.length;const cancelRate=total?canceledInPeriod.length/total*100:0;const cb={Expired:0,Duplicated:0,Canceled:0};canceledInPeriod.forEach(i=>{const s=i.status.toLowerCase();if(s.includes('expir'))cb.Expired++;else if(s.includes('duplic'))cb.Duplicated++;else cb.Canceled++;});const crBad=cancelRate>20;
+const {start:ps,end:pe}=getPrevPeriodFilter();const inPrev=dt=>dt&&dt>=ps&&dt<pe;const prevResolved=d.filter(i=>inPrev(i.resolved)&&!i.isCanceled).length;const prevOpened=d.filter(i=>inPrev(i.created)).length;
+const idf=x=>x;const num=v=>v==null?'—':String(v);const pct=v=>v==null?'—':v.toFixed(0)+'%';
+const reopenStr=g=>g.reopenN+' ('+pct(g.reopenPct)+')';
+const row3=(label,a,b,c,fmt)=>`<div class="cm">${label}</div><div class="cv">${fmt(a)}</div><div class="cv">${fmt(b)}</div><div class="cv">${fmt(c)}</div>`;
+const row3bar=(label,vals,fmt)=>{const mx=Math.max(1,...vals.map(v=>v==null?0:v));return `<div class="cm">${label}</div>`+vals.map(v=>`<div class="cv">${fmt(v)}<div class="cv-mini"><span style="width:${v==null?0:(v/mx*100).toFixed(0)}%"></span></div></div>`).join('');};
+document.getElementById('kpis').innerHTML=`
+<div class="kpi-row">
+<div class="kpi"><div class="label">Resolved × Cancelados (período)</div><div class="dual"><div><div class="dual-v">${resolvedClean.length}</div><div class="dual-l">Resolvidos</div></div><div><div class="dual-v">${canceledInPeriod.length}</div><div class="dual-l">Cancelados</div></div></div><div class="hint" style="margin-top:8px">Total: ${total} issues fechadas no período</div>${deltaHTML(resolvedClean.length,prevResolved,true)}<div class="cancel-rate ${crBad?'bad':''}">Cancel rate: ${cancelRate.toFixed(0)}% (saudável ≤ 15%)</div><div class="cancel-bd">${cb.Expired} expired · ${cb.Duplicated} duplicated · ${cb.Canceled} canceled</div></div>
+<div class="kpi"><div class="label">Lead time & SLA</div><div class="kpi-gauges"><div class="gauge-col"><div class="sub-label">Lead time (wd)</div><div class="pct-row"><span>p50 <b>${fmtWd(p50)}</b></span><span>p90 <b style="color:${p90col}">${fmtWd(p90)}</b></span><span>p95 <b>${fmtWd(p95)}</b></span></div><div class="hint" style="margin-top:6px">média ${fmtWd(lead)} · n=${leadS.length} · target ≤ 1.5d</div></div><div class="gauge-col"><div class="sub-label">SLA (≤1.5d, bruto)</div><div class="gauge-wrap">${gaugeSLAPercent(slaPercent)}</div></div></div></div>
+<div class="kpi"><div class="label">Opened (período)</div><div class="value">${createdInPeriod.length}</div><div class="hint">Tickets abertos no período selecionado</div>${deltaHTML(createdInPeriod.length,prevOpened,false)}</div>
+</div>
+<div class="kpi-row2">
+<div class="kpi compare-box"><div class="label">Por tipo de issue (ITIL)</div><div class="compare-grid">
+<div class="ch"></div><div class="ch num">Incidents</div><div class="ch num">Requests</div><div class="ch num">Outros</div>
+${row3bar('Open tickets',[inc.open,req.open,oth.open],num)}
+${row3bar('Avg. first response',[inc.firstResp,req.firstResp,oth.firstResp],fmtWd)}
+${row3bar('Avg. time in Backlog',[inc.backlog,req.backlog,oth.backlog],fmtWd)}
+${row3bar('Avg. time Blocked',[inc.blocked,req.blocked,oth.blocked],fmtWd)}
+${row3('Reopen (label)',reopenStr(inc),reopenStr(req),reopenStr(oth),idf)}
+${row3bar('FCR',[inc.fcrPct,req.fcrPct,oth.fcrPct],pct)}
+</div></div>
+<div class="kpi trend-card"><div class="label">Opened × Resolved (12 semanas)<span class="trend-cap" id="trendCap"></span></div><div class="trend-wrap"><canvas id="trendChart" role="img" aria-label="Opened versus Resolved nas últimas 12 semanas"></canvas></div></div>
+</div>`;}
+
+function setTableFilter(fn,label){tableFilter=fn?{fn,label}:null;renderTable(applyFilter());}
+function renderAlerts(d){const open=d.filter(i=>i.isOpen);
+ const p1Breach=open.filter(i=>isCritical(i)&&slaBreached(i).resolutionBreached);
+ const atRisk=open.filter(i=>{const b=slaBreached(i);return b.atRisk&&!b.resolutionBreached;});
+ const stale=open.filter(i=>i.staleDays!=null&&i.staleDays>3);
+ const now=new Date(),d14=new Date(now.getTime()-14*86400000);
+ const net=d.filter(i=>i.created&&i.created>=d14).length-d.filter(i=>i.resolved&&i.resolved>=d14).length;
+ const items=[];
+ if(p1Breach.length)items.push({cls:'crit',icon:'🚨',count:p1Breach.length,text:'P0/P1 abertos em SLA breach',fn:i=>i.isOpen&&isCritical(i)&&slaBreached(i).resolutionBreached,label:'P0/P1 em breach'});
+ if(atRisk.length)items.push({cls:'warn',icon:'⚠️',count:atRisk.length,text:'tickets em risco de breach',fn:i=>{const b=slaBreached(i);return i.isOpen&&b.atRisk&&!b.resolutionBreached;},label:'em risco de breach'});
+ if(stale.length)items.push({cls:'info',icon:'🕓',count:stale.length,text:'tickets abertos sem update há > 3d',fn:i=>i.isOpen&&i.staleDays!=null&&i.staleDays>3,label:'sem update > 3d'});
+ if(net>0)items.push({cls:'muted',icon:'📈',count:'+'+net,text:'no backlog nas últimas 2 semanas (abertos − resolvidos)',fn:null,label:null});
+ const c=document.getElementById('alertsBanner');
+ if(!items.length){c.innerHTML='';return;}
+ c.innerHTML='<div class="alerts">'+items.map((a,i)=>`<div class="alert ${a.cls}" data-i="${i}"><span>${a.icon}</span><span class="a-count">${a.count}</span><span>${a.text}</span></div>`).join('')+'</div>';
+ c.querySelectorAll('.alert').forEach(el=>{const a=items[+el.getAttribute('data-i')];el.addEventListener('click',()=>{setTableFilter(a.fn||null,a.label);document.getElementById('agingTable').scrollIntoView({behavior:'smooth',block:'start'});});});}
+
+function renderStatus(d){const open=d.filter(i=>i.isOpen),counts={};open.forEach(i=>counts[i.status]=(counts[i.status]||0)+1);const sorted=Object.entries(counts).sort((a,b)=>b[1]-a[1]);if(charts.status)charts.status.destroy();charts.status=new Chart(document.getElementById('statusChart'),{type:'bar',data:{labels:sorted.map(s=>s[0]),datasets:[{label:'Tickets',data:sorted.map(s=>s[1]),backgroundColor:'#4f46e5',borderRadius:6,maxBarThickness:48}]},options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',onClick:(e,els)=>{if(els.length){const st=sorted[els[0].index][0];setTableFilter(i=>i.isOpen&&i.status===st,'Status: '+st);document.getElementById('agingTable').scrollIntoView({behavior:'smooth',block:'start'});}},plugins:{legend:{display:false}},scales:{x:{beginAtZero:true,ticks:{precision:0}}}}});}
+
+function renderAging(d){const open=d.filter(i=>i.isOpen),buckets={'0–3d':0,'4–7d':0,'8–14d':0,'15–30d':0,'30+d':0};open.forEach(i=>{buckets[agingBracket(i.ageCalDays||0).label]++;});const colors=['#16a34a','#eab308','#f97316','#ef4444','#7f1d1d'];if(charts.aging)charts.aging.destroy();const brLabels=Object.keys(buckets);charts.aging=new Chart(document.getElementById('agingBracketChart'),{type:'bar',data:{labels:brLabels,datasets:[{label:'Abertos',data:Object.values(buckets),backgroundColor:colors,borderRadius:6,maxBarThickness:60}]},options:{responsive:true,maintainAspectRatio:false,onClick:(e,els)=>{if(els.length){const lb=brLabels[els[0].index];setTableFilter(i=>i.isOpen&&agingBracket(i.ageCalDays||0).label===lb,'Idade: '+lb);document.getElementById('agingTable').scrollIntoView({behavior:'smooth',block:'start'});}},plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{precision:0}}}}});}
+
+function renderTrend(d){const now=new Date(),sw=startOfWeek(now),weeks=[];for(let i=11;i>=0;i--){const ws=new Date(sw);ws.setDate(ws.getDate()-i*7);weeks.push(ws);}const opened=weeks.map(()=>0),resolved=weeks.map(()=>0);d.forEach(i=>{if(i.created){const idx=weeks.findIndex(w=>i.created>=w&&i.created<new Date(w.getTime()+7*86400000));if(idx>=0)opened[idx]++;}if(i.resolved){const idx=weeks.findIndex(w=>i.resolved>=w&&i.resolved<new Date(w.getTime()+7*86400000));if(idx>=0)resolved[idx]++;}});const net=weeks.map((_,i)=>opened[i]-resolved[i]);const netColors=net.map(v=>v>0?'rgba(220,38,38,0.45)':'rgba(22,163,74,0.45)');if(charts.trend)charts.trend.destroy();charts.trend=new Chart(document.getElementById('trendChart'),{data:{labels:weeks.map(weekLabel),datasets:[{type:'bar',label:'Net (O−R)',data:net,backgroundColor:netColors,yAxisID:'y1',order:3},{type:'line',label:'Opened',data:opened,borderColor:'#4f46e5',backgroundColor:'rgba(79,70,229,0.1)',tension:0.3,fill:true,borderWidth:2,order:1},{type:'line',label:'Resolved',data:resolved,borderColor:'#16a34a',backgroundColor:'rgba(22,163,74,0.1)',tension:0.3,fill:true,borderWidth:2,order:2}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'top',align:'end'}},scales:{y:{beginAtZero:true,ticks:{precision:0}},y1:{position:'right',grid:{drawOnChartArea:false},ticks:{precision:0}}}}});const netWeek=net[net.length-1],net4=net.slice(-4).reduce((a,b)=>a+b,0);const sg=v=>(v>0?'+':'')+v;const cap=document.getElementById('trendCap');if(cap)cap.textContent=`Backlog: ${sg(netWeek)} esta semana · ${sg(net4)} no mês`;}
+
+function renderWorkload(d){const open=d.filter(i=>i.isOpen);const by={};open.forEach(i=>{const a=i.assignee||'— sem responsável';(by[a]=by[a]||[]).push(i);});let rows=Object.entries(by).map(([a,arr])=>({a,open:arr.length,avgAge:avg(arr.map(i=>i.ageWd)),p90:percentile(arr.map(i=>i.leadTimeWd).filter(x=>x!=null),0.9)}));rows.sort((x,y)=>y.open-x.open);const teamAvg=rows.length?open.length/rows.length:0;const top=rows.slice(0,10);const maxOpen=Math.max(1,...top.map(r=>r.open));const c=document.getElementById('workloadCard');if(!top.length){c.innerHTML='<div style="color:var(--muted);font-size:13px;padding:8px 0">Nenhum ticket aberto.</div>';return;}const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');c.innerHTML=top.map(r=>`<div class="mini"><span class="m-name" title="${esc(r.a)}">${esc(r.a)}${(r.open>1.5*teamAvg&&r.open>=3)?'<span class="badge overload">overload</span>':''}</span><span class="m-bar-wrap"><span class="m-bar" style="width:${(r.open/maxOpen*100).toFixed(0)}%"></span></span><span class="m-val">${r.open}<span class="m-sub"> · ${fmtWd(r.avgAge)} · p90 ${fmtWd(r.p90)}</span></span></div>`).join('');}
+function renderTopOrgs(d){const open=d.filter(i=>i.isOpen);const by={};open.forEach(i=>{(i.orgs.length?i.orgs:['—']).forEach(o=>{(by[o]=by[o]||[]).push(i);});});let rows=Object.entries(by).map(([o,arr])=>{const ok=arr.filter(i=>!slaBreached(i).resolutionBreached).length;return{o,open:arr.length,sla:arr.length?ok/arr.length*100:null,avgAge:avg(arr.map(i=>i.ageWd))};});rows.sort((x,y)=>y.open-x.open);const top=rows.slice(0,5);const maxOpen=Math.max(1,...top.map(r=>r.open));const c=document.getElementById('orgsCard');if(!top.length){c.innerHTML='<div style="color:var(--muted);font-size:13px;padding:8px 0">Nenhum ticket aberto.</div>';return;}const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');c.innerHTML=top.map(r=>`<div class="mini org-row" data-org="${esc(r.o)}"><span class="m-name" title="${esc(r.o)}">${esc(r.o)}</span><span class="m-bar-wrap"><span class="m-bar" style="width:${(r.open/maxOpen*100).toFixed(0)}%"></span></span><span class="m-val">${r.open}<span class="m-sub"> · SLA ${r.sla==null?'—':r.sla.toFixed(0)+'%'} · ${fmtWd(r.avgAge)}</span></span></div>`).join('');c.querySelectorAll('.org-row').forEach(el=>el.addEventListener('click',()=>{const o=el.getAttribute('data-org'),sel=document.getElementById('orgFilter');if([...sel.options].some(op=>op.value===o)){sel.value=o;tableFilter=null;renderAll();document.getElementById('content').scrollIntoView({behavior:'smooth',block:'start'});}}));}
+function renderMTTR(d){const resolved=d.filter(i=>i.resolved&&!i.isCanceled&&i.leadTimeWd!=null);const order=p=>{const k=String(p).toLowerCase();const m={p0:0,highest:0,critical:0,p1:1,high:1,p2:2,medium:2,p3:3,low:3};return m[k]==null?9:m[k];};const labels=[...new Set(d.map(i=>i.priority).filter(Boolean))].sort((a,b)=>order(a)-order(b));const avgD=labels.map(p=>avg(resolved.filter(i=>i.priority===p).map(i=>i.leadTimeWd)));const p90D=labels.map(p=>percentile(resolved.filter(i=>i.priority===p).map(i=>i.leadTimeWd),0.9));const tgt=labels.map(p=>slaTargetFor(p).resolution/WORKHOURS_PER_DAY);if(charts.mttr)charts.mttr.destroy();charts.mttr=new Chart(document.getElementById('mttrChart'),{data:{labels:labels,datasets:[{type:'bar',label:'Média',data:avgD,backgroundColor:'#4f46e5',borderRadius:4},{type:'bar',label:'p90',data:p90D,backgroundColor:'#a5b4fc',borderRadius:4},{type:'line',label:'Alvo SLA',data:tgt,borderColor:'#dc2626',borderDash:[5,4],pointRadius:0,borderWidth:2}]},options:{responsive:true,maintainAspectRatio:false,onClick:(e,els)=>{if(els.length){const p=labels[els[0].index];setTableFilter(i=>i.isOpen&&i.priority===p,'Prioridade '+p);document.getElementById('agingTable').scrollIntoView({behavior:'smooth',block:'start'});}},plugins:{legend:{position:'top',align:'end'}},scales:{y:{beginAtZero:true,title:{display:true,text:'workdays'},ticks:{precision:0}}}}});}
+function exportAgingCSV(open){const hdr=['Key','Summary','Organização','Status','Prioridade','Responsável','Idade (workdays)','SLA','URL'];const q=s=>'"'+String(s==null?'':s).replace(/"/g,'""')+'"';const lines=[hdr.map(q).join(',')];open.forEach(i=>{const wd=i.ageWd!=null?i.ageWd.toFixed(1):'';lines.push([i.key,i.summary||'',i.orgs.join(', ')||'',i.status,i.priority||'',i.assignee||'',wd,slaStatus(i).label,i.url].map(q).join(','));});const blob=new Blob(['﻿'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='KRZR-aging-'+new Date().toISOString().slice(0,10)+'.csv';document.body.appendChild(a);a.click();a.remove();}
+function renderTable(d){let open=d.filter(i=>i.isOpen);if(tableFilter)open=open.filter(tableFilter.fn);open=open.sort((a,b)=>(b.ageCalDays||0)-(a.ageCalDays||0));const data=open.map(i=>{const days=i.ageCalDays||0,br=agingBracket(days),wd=i.ageWd!=null?i.ageWd.toFixed(1)+'d':'—',sc=statusClass(i.statusCategory),ss=slaStatus(i);return[i.key,i.summary||'',i.orgs.join(', ')||'—',i.status,i.priority||'—',i.assignee||'—',days,ss.label,i.url,sc,br.cls,wd,priorityClass(i.priority),ss.cls,ss.breached?1:0,i.staleDays,(i.staleDays==null?'':i.staleDays>7?'aging-old':i.staleDays>3?'aging-recent':'')];});const c=document.getElementById('agingTable');c.innerHTML='';
+const bar=document.createElement('div');bar.style.cssText='display:flex;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:6px';bar.innerHTML=`<button type="button" class="csv-btn" id="csvBtn">⬇ Exportar CSV</button>`+(tableFilter?`<span class="table-filter-note">Filtrando por: <b>${tableFilter.label}</b> <button type="button" id="clearFilterBtn">limpar ✕</button></span>`:'');c.appendChild(bar);
+const host=document.createElement('div');c.appendChild(host);
+const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');const cell=(inner,titleText,cls)=>gridjs.html(`<div class="${cls}" title="${esc(titleText)}">${inner}</div>`);
+const grid=new gridjs.Grid({autoWidth:false,columns:[
+{name:'Key',width:'104px',formatter:(c,row)=>cell(`<a href="${row.cells[8].data}" target="_blank" rel="noopener">${esc(c)}</a>`,c,row.cells[14].data?'cl1 breach-mark':'cl1')},
+{name:'Summary',formatter:c=>cell(esc(c),c,'cl2')},
+{name:'Organização',width:'120px',formatter:c=>cell(esc(c),c,'cl1')},
+{name:'Status',width:'120px',formatter:(c,row)=>cell(`<span class="badge ${row.cells[9].data}">${esc(c)}</span>`,c,'cl1')},
+{name:'Prioridade',width:'110px',formatter:(c,row)=>cell(`<span class="badge ${row.cells[12].data}">${esc(c)}</span>`,c,'cl1')},
+{name:'Responsável',width:'140px',formatter:c=>cell(esc(c),c,'cl2')},
+{name:'Idade',width:'120px',formatter:(c,row)=>cell(`<span class="badge ${row.cells[10].data}">${esc(c)}d (${esc(row.cells[11].data)})</span>`,c+'d','cl1')},
+{name:'SLA',width:'92px',formatter:(c,row)=>cell(`<span class="badge ${row.cells[13].data}">${esc(c)}</span>`,c,'cl1')},
+{name:'_url',hidden:true},{name:'_scls',hidden:true},{name:'_acls',hidden:true},{name:'_awd',hidden:true},{name:'_pcls',hidden:true},{name:'_slacls',hidden:true},{name:'_breach',hidden:true},
+{name:'Atualização',width:'104px',formatter:(c,row)=>{const cls=row.cells[16].data;const txt=(c==null?'—':c+'d');return cell(cls?`<span class="badge ${cls}">${txt}</span>`:txt,txt,'cl1');}},{name:'_stalecls',hidden:true}],data,search:true,sort:true,pagination:{limit:25},style:{table:{'font-size':'13px','table-layout':'fixed','width':'100%'}}});grid.render(host);
+document.getElementById('csvBtn').addEventListener('click',()=>exportAgingCSV(open));const cf=document.getElementById('clearFilterBtn');if(cf)cf.addEventListener('click',()=>setTableFilter(null));}
+
+
+function populateOrgs(){const o=new Set();RAW.forEach(i=>i.orgs.forEach(x=>o.add(x)));const s=document.getElementById('orgFilter'),cur=s.value;const esc=v=>String(v).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');s.innerHTML='<option value="all">Todas</option>'+Array.from(o).sort().map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('');if(cur&&(cur==='all'||o.has(cur)))s.value=cur;}
+
+function renderAll(){const f=applyFilter();renderAlerts(f);renderKPIs(f);renderStatus(f);renderAging(f);renderTrend(f);renderWorkload(f);renderTopOrgs(f);renderMTTR(f);renderTable(f);document.getElementById('subtitle').textContent=`${f.length} tickets no escopo • atualizado ${new Date().toLocaleString('pt-BR')}`;}
+
+async function loadAndRender(){document.getElementById('errorBox').innerHTML='';document.getElementById('loadingBox').style.display='';document.getElementById('content').style.display='none';const btn=document.getElementById('refreshBtn');btn.disabled=true;btn.textContent='Atualizando…';try{generatePeriodOptions();const jql=`project = ${PROJECT} AND (resolution is EMPTY OR resolved >= -120d OR created >= -120d) ORDER BY created DESC`;const issues=await KruzerAPI.fetchAll({jql,fields:FIELDS,expand:['changelog']});RAW=issues.map(normalize);populateOrgs();document.getElementById('loadingBox').style.display='none';document.getElementById('content').style.display='';renderAll();}catch(e){document.getElementById('loadingBox').style.display='none';document.getElementById('errorBox').innerHTML=`<div class="error"><b>Falha ao carregar dados:</b> ${e.message}</div>`;}finally{btn.disabled=false;btn.textContent='Atualizar dados';}}
+
+document.getElementById('refreshBtn').addEventListener('click',loadAndRender);
+document.getElementById('orgFilter').addEventListener('change',renderAll);
+document.getElementById('periodToggle').addEventListener('click',e=>{e.stopPropagation();const p=document.getElementById('periodPanel');p.hidden=!p.hidden;});
+document.getElementById('periodPanel').addEventListener('click',e=>{const exp=e.target.closest('.dd-expand');if(exp){e.stopPropagation();const w=document.querySelector('#periodPanel .dd-weeks');w.hidden=!w.hidden;exp.textContent=w.hidden?'▸':'▾';return;}const item=e.target.closest('.dd-item');if(item)selectPeriod(item.getAttribute('data-value'),item.getAttribute('data-label'));});
+document.addEventListener('click',e=>{const dd=document.getElementById('periodDropdown');if(dd&&!dd.contains(e.target))document.getElementById('periodPanel').hidden=true;});
+loadAndRender();
+</script>
+</body>
+</html>

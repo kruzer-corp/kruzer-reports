@@ -1,0 +1,1244 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VENA — Capacity Planner (v2)</title>
+<!--
+  VENA Capacity Planner v2 — Tetris de capacity, não Gantt de calendário.
+  A unidade primária é ESFORÇO (story points). A largura de cada bloco é
+  proporcional ao SP; datas são consequência da posição na esteira, não premissa.
+  Self-contained: KruzerAPI inline, SortableJS p/ drag, html2canvas lazy p/ export.
+  Decisões tomadas (ver handoff HANDOFF_VENA_ROADMAP_V2.md):
+    - T-shirt: XS=8 S=20 M=40 L=80 XL=160 (calibrado c/ SP reais 7/25/69/80).
+    - Default squad: 2 devs × 5 SP/sem = 10 SP/sem (Matheus é PD, não conta).
+    - Calendário deriva do esforço: pack sequencial por track a partir de HOJE.
+-->
+<script src="https://cdn.jsdelivr.net/npm/gridjs@5.0.2/dist/gridjs.umd.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/gridjs@5.0.2/dist/theme/mermaid.min.css">
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+<style>
+:root {
+  color-scheme: light;
+  --kruzer-primary: #3151CE; --kruzer-primary-100: #EAEEFA; --kruzer-primary-700: #1D317C;
+  --kruzer-navy: #232534; --kruzer-navy-300: #48507D; --kruzer-neutral-100: #F4F4F8;
+  --kruzer-neutral-300: #E3E3ED; --kruzer-neutral-500: #C6C9D9; --kruzer-neutral-700: #989DAD;
+  --kruzer-success: #12B76A; --kruzer-warning: #F79009; --kruzer-error: #F04438;
+  --shadow: 0 1px 2px rgba(11,16,32,.04), 0 4px 12px rgba(11,16,32,.05);
+  --px-per-sp: 3.2; /* px por story point — escala visual do esforço */
+}
+* { box-sizing: border-box; }
+body { margin: 0; font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif; background: var(--kruzer-neutral-100); color: var(--kruzer-navy); font-size: 14px; line-height: 1.5; }
+.container { padding: 16px 20px 40px; max-width: 1640px; margin: 0 auto; }
+.back { font-size: 12px; color: var(--kruzer-primary); text-decoration: none; margin-bottom: 8px; display: inline-block; }
+.back:hover { text-decoration: underline; }
+.header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
+.header h1 { margin: 0 0 4px; font-size: 24px; font-weight: 700; letter-spacing: -0.01em; }
+.header h1 .beta { font-size: 11px; font-weight: 700; background: var(--kruzer-warning); color: #fff; padding: 2px 8px; border-radius: 999px; vertical-align: middle; margin-left: 8px; letter-spacing: 0.04em; }
+.header .sub { color: var(--kruzer-navy-300); font-size: 13px; max-width: 720px; }
+
+.toolbar { display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; background: #fff; border: 1px solid var(--kruzer-neutral-300); border-radius: 10px; padding: 12px 16px; margin-bottom: 16px; box-shadow: var(--shadow); }
+.control { display: flex; flex-direction: column; gap: 4px; }
+.control label { font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--kruzer-neutral-700); letter-spacing: 0.04em; }
+select, input, button { font-family: inherit; font-size: 13px; padding: 8px 12px; border: 1px solid var(--kruzer-neutral-300); border-radius: 8px; background: #fff; color: var(--kruzer-navy); cursor: pointer; }
+input[type=number] { width: 64px; cursor: text; }
+button.primary { background: var(--kruzer-primary); color: #fff; border-color: var(--kruzer-primary); font-weight: 600; }
+button.primary:hover { background: var(--kruzer-primary-700); }
+button.ghost { background: #fff; }
+button.ghost:hover { background: var(--kruzer-neutral-100); }
+button:disabled { opacity: 0.6; cursor: wait; }
+.toolbar .spacer { flex: 1; }
+.switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; padding: 8px 12px; border: 1px solid var(--kruzer-neutral-300); border-radius: 8px; background: #fff; font-size: 13px; }
+.switch input { display: none; }
+.switch .track-sw { width: 34px; height: 18px; background: var(--kruzer-neutral-500); border-radius: 999px; position: relative; transition: background .15s; flex: none; }
+.switch .track-sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; background: #fff; border-radius: 50%; transition: transform .15s; }
+.switch input:checked + .track-sw { background: var(--kruzer-warning); }
+.switch input:checked + .track-sw::after { transform: translateX(16px); }
+
+.kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 16px; }
+@media (max-width: 1100px) { .kpis { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); } }
+.kpi { background: #fff; border: 1px solid var(--kruzer-neutral-300); border-radius: 8px; padding: 14px 18px; box-shadow: var(--shadow); border-top-width: 3px; }
+.kpi.k-open { border-top-color: var(--kruzer-navy-300); }
+.kpi.k-sized { border-top-color: var(--kruzer-primary); }
+.kpi.k-unsized { border-top-color: var(--kruzer-neutral-500); }
+.kpi.k-capacity { border-top-color: var(--kruzer-success); }
+.kpi.k-horizon { border-top-color: var(--kruzer-error); }
+.kpi .label { font-size: 11px; text-transform: uppercase; color: var(--kruzer-neutral-700); font-weight: 600; letter-spacing: 0.5px; margin-bottom: 4px; }
+.kpi .value { font-size: 28px; font-weight: 700; line-height: 1; }
+.kpi .hint { font-size: 11px; color: var(--kruzer-neutral-700); margin-top: 4px; }
+
+/* minmax(0,1fr) deixa a coluna encolher abaixo do conteúdo, senão a esteira larga
+   empurra a página inteira além do viewport. min-width:0 nos filhos pra garantir
+   que o scroll lateral fique CONTIDO no .board-scroll, não na janela. */
+.board-layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 16px; align-items: start; }
+.board-layout > * { min-width: 0; }
+@media (max-width: 1180px) { .board-layout { grid-template-columns: minmax(0, 1fr); } }
+.section { background: #fff; border: 1px solid var(--kruzer-neutral-300); border-radius: 8px; padding: 18px 20px; margin-bottom: 16px; box-shadow: var(--shadow); }
+.section h2 { margin: 0 0 4px; font-size: 17px; font-weight: 600; }
+.section .sub { font-size: 12px; color: var(--kruzer-neutral-700); margin-bottom: 14px; }
+
+.legend { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 12px; font-size: 11px; color: var(--kruzer-navy-300); }
+.legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.legend-swatch { width: 16px; height: 12px; border-radius: 3px; flex: none; }
+.legend-swatch.committed { background: var(--kruzer-primary); border: 2px solid var(--kruzer-primary-700); }
+.legend-swatch.dev { background: var(--kruzer-success); }
+.legend-swatch.refin { background: var(--kruzer-primary); }
+.legend-swatch.backlog { background: var(--kruzer-navy-300); }
+.legend-swatch.placeholder { background: repeating-linear-gradient(45deg, #d7dae6, #d7dae6 4px, #f1f2f7 4px, #f1f2f7 8px); border: 1px dashed var(--kruzer-neutral-500); }
+.legend-swatch.overflow { background: repeating-linear-gradient(45deg, rgba(240,68,56,.85), rgba(240,68,56,.85) 4px, rgba(240,68,56,.4) 4px, rgba(240,68,56,.4) 8px); }
+
+/* ---- Board ---- */
+.board-scroll { overflow-x: auto; border: 1px solid var(--kruzer-neutral-300); border-radius: 8px; background: #fff; }
+.board-inner { position: relative; }
+.lane-head-w { width: 132px; }
+/* time ruler */
+.ruler { display: flex; position: relative; height: 38px; border-bottom: 1px solid var(--kruzer-neutral-300); background: var(--kruzer-neutral-100); }
+.ruler .ruler-pad { flex: none; border-right: 1px solid var(--kruzer-neutral-300); }
+.ruler .ruler-track { position: relative; flex: none; }
+.ruler .wk { position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--kruzer-neutral-300); font-size: 9px; color: var(--kruzer-neutral-700); padding: 2px 0 0 3px; }
+.ruler .wk.month { border-left: 1.5px solid var(--kruzer-neutral-500); }
+.ruler .wk .mo { font-weight: 700; color: var(--kruzer-navy); display: block; font-size: 10px; }
+.ruler .horizon-mark { position: absolute; top: 0; bottom: 0; border-left: 2px dashed var(--kruzer-warning); z-index: 3; }
+.ruler .horizon-mark span { position: absolute; top: 2px; left: 4px; font-size: 9px; font-weight: 700; color: var(--kruzer-warning); white-space: nowrap; }
+
+.lanes { position: relative; }
+.today-line { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--kruzer-error); z-index: 6; pointer-events: none; }
+.today-line span { position: absolute; top: -34px; left: 4px; font-size: 9px; font-weight: 700; color: var(--kruzer-error); white-space: nowrap; }
+.horizon-zone { position: absolute; top: 0; bottom: 0; background: repeating-linear-gradient(45deg, rgba(240,68,56,.05), rgba(240,68,56,.05) 6px, rgba(240,68,56,.1) 6px, rgba(240,68,56,.1) 12px); border-left: 2px dashed rgba(240,68,56,.5); z-index: 1; pointer-events: none; }
+
+.lane { display: flex; align-items: stretch; border-bottom: 1px solid var(--kruzer-neutral-300); min-height: 64px; position: relative; z-index: 2; }
+.lane:last-child { border-bottom: none; }
+.lane-head { flex: none; width: 132px; padding: 8px 10px; background: var(--kruzer-neutral-100); border-right: 1px solid var(--kruzer-neutral-300); display: flex; flex-direction: column; justify-content: center; gap: 2px; position: sticky; left: 0; z-index: 4; }
+.lane-head .nm { font-weight: 700; font-size: 13px; }
+.lane-head .mt { font-size: 10px; color: var(--kruzer-neutral-700); }
+.lane-strip { flex: 1; display: flex; align-items: center; gap: 6px; padding: 8px 6px; min-height: 64px; min-width: 200px; }
+.lane-strip.drag-over { background: var(--kruzer-primary-100); }
+
+.block { position: relative; flex: none; height: 46px; border-radius: 6px; padding: 5px 8px; color: #fff; cursor: grab; overflow: hidden; display: flex; flex-direction: column; justify-content: center; box-shadow: 0 1px 3px rgba(11,16,32,.15); user-select: none; transition: box-shadow .12s; min-width: 30px; }
+.block:hover { box-shadow: 0 3px 10px rgba(11,16,32,.25); }
+.block:active { cursor: grabbing; }
+.block.s-dev { background: var(--kruzer-success); }
+.block.s-refin { background: var(--kruzer-primary); }
+.block.s-backlog { background: var(--kruzer-navy-300); }
+.block.s-block { background: var(--kruzer-error); }
+.block.committed { border: 2px solid rgba(0,0,0,.28); cursor: not-allowed; }
+.block.placeholder { background: repeating-linear-gradient(45deg, #c6cadb, #c6cadb 5px, #eef0f6 5px, #eef0f6 10px); color: var(--kruzer-navy); border: 1px dashed var(--kruzer-neutral-700); }
+.block .bk { font-size: 11px; font-weight: 700; line-height: 1.1; white-space: nowrap; }
+.block .bs { font-size: 9px; opacity: .92; line-height: 1.15; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.block .sp-tag { position: absolute; top: 3px; right: 5px; font-size: 9px; font-weight: 700; background: rgba(0,0,0,.18); border-radius: 4px; padding: 0 4px; }
+.block.placeholder .sp-tag { background: rgba(0,0,0,.08); }
+.block .src-dot { position: absolute; bottom: 3px; right: 5px; font-size: 8px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; opacity: .85; }
+.block .overflow-ov { position: absolute; inset: 0; background: repeating-linear-gradient(45deg, rgba(240,68,56,.55), rgba(240,68,56,.55) 5px, rgba(240,68,56,.15) 5px, rgba(240,68,56,.15) 10px); border: 2px solid var(--kruzer-error); border-radius: 6px; pointer-events: none; }
+.block .late-ov { position: absolute; inset: 0; border: 2px solid var(--kruzer-error); border-radius: 6px; box-shadow: inset 0 0 0 2px rgba(240,68,56,.4); pointer-events: none; }
+.block .due-mark { position: absolute; top: 0; bottom: 0; width: 2px; background: #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.3); pointer-events: none; }
+.block .resize-handle { position: absolute; top: 0; right: 0; width: 8px; height: 100%; cursor: ew-resize; z-index: 5; }
+.block .resize-handle::after { content: ''; position: absolute; top: 50%; right: 2px; transform: translateY(-50%); width: 2px; height: 16px; background: rgba(255,255,255,.6); border-radius: 2px; box-shadow: 3px 0 0 -.5px rgba(255,255,255,.4); }
+.block.placeholder .resize-handle::after { background: rgba(35,37,52,.4); }
+.block .dep-flag { position: absolute; bottom: 3px; left: 5px; font-size: 9px; opacity: .9; }
+.block.dragging-src { opacity: .4; }
+.sortable-ghost { opacity: .5; }
+.sortable-chosen { box-shadow: 0 6px 18px rgba(11,16,32,.3) !important; }
+
+/* heatmap */
+.heatmap-wrap { margin-top: 4px; }
+.heatmap { display: flex; align-items: stretch; }
+.heatmap .hm-pad { flex: none; width: 132px; font-size: 10px; color: var(--kruzer-neutral-700); padding: 6px 10px; border-right: 1px solid var(--kruzer-neutral-300); display: flex; align-items: center; }
+.heatmap .hm-track { position: relative; flex: none; height: 30px; }
+.heatmap .hm-cell { position: absolute; top: 0; bottom: 0; border-left: 1px solid #fff; }
+.heatmap .hm-cell.lvl-free { background: #E6F7EF; }
+.heatmap .hm-cell.lvl-ok { background: #B7E9CE; }
+.heatmap .hm-cell.lvl-warn { background: #FCE3B4; }
+.heatmap .hm-cell.lvl-over { background: #F9C0BA; }
+
+/* backlog sidebar */
+.backlog-panel { position: sticky; top: 12px; }
+.backlog-panel h2 { font-size: 15px; }
+.backlog-list { display: flex; flex-direction: column; gap: 6px; min-height: 120px; padding: 4px; border: 1px dashed var(--kruzer-neutral-300); border-radius: 8px; }
+.backlog-list.drag-over { background: var(--kruzer-primary-100); border-color: var(--kruzer-primary); }
+.backlog-block { background: var(--kruzer-neutral-100); border: 1px solid var(--kruzer-neutral-300); border-radius: 6px; padding: 8px 10px; cursor: grab; }
+.backlog-block .bk { font-size: 11px; font-weight: 700; }
+.backlog-block .bs { font-size: 11px; color: var(--kruzer-navy-300); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.backlog-block .bm { font-size: 10px; color: var(--kruzer-neutral-700); margin-top: 2px; }
+.backlog-empty { font-size: 12px; color: var(--kruzer-neutral-700); text-align: center; padding: 20px 8px; }
+
+/* badges */
+.badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; line-height: 1.6; }
+.badge.status-backlog { background: var(--kruzer-neutral-300); color: var(--kruzer-navy); }
+.badge.status-refin { background: var(--kruzer-primary-100); color: var(--kruzer-primary-700); }
+.badge.status-dev { background: #DCFCE7; color: #166534; }
+.badge.status-block { background: #FECACA; color: #991B1B; }
+.badge.prio-highest { background: var(--kruzer-error); color: #fff; }
+.badge.prio-high { background: var(--kruzer-warning); color: #fff; }
+.badge.prio-medium { background: var(--kruzer-primary); color: #fff; }
+.badge.prio-low { background: var(--kruzer-neutral-500); color: var(--kruzer-navy); }
+.badge.src-rollup { background: var(--kruzer-success); color: #fff; }
+.badge.src-epic-jira { background: var(--kruzer-primary); color: #fff; }
+.badge.src-hours { background: #7C3AED; color: #fff; }
+.badge.src-manual { background: var(--kruzer-warning); color: #fff; }
+.badge.src-placeholder { background: var(--kruzer-neutral-500); color: var(--kruzer-navy); }
+
+/* detail drawer */
+.drawer-backdrop { position: fixed; inset: 0; background: rgba(11,16,32,.25); opacity: 0; pointer-events: none; transition: opacity .15s; z-index: 90; }
+.drawer-backdrop.show { opacity: 1; pointer-events: auto; }
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 420px; max-width: 92vw; background: #fff; box-shadow: -8px 0 30px rgba(11,16,32,.18); transform: translateX(100%); transition: transform .18s; z-index: 91; overflow-y: auto; }
+.drawer.show { transform: translateX(0); }
+.drawer .dh { padding: 18px 20px; border-bottom: 1px solid var(--kruzer-neutral-300); display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.drawer .dh h3 { margin: 0 0 4px; font-size: 16px; }
+.drawer .dh .close { font-size: 20px; cursor: pointer; color: var(--kruzer-neutral-700); border: none; background: none; padding: 0; line-height: 1; }
+.drawer .db { padding: 18px 20px; }
+.drawer .db h4 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--kruzer-neutral-700); margin: 18px 0 8px; }
+.drawer .db h4:first-child { margin-top: 0; }
+.dgrid { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 13px; }
+.dgrid .lbl { color: var(--kruzer-neutral-700); }
+.tshirt-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.tshirt-btn { padding: 6px 10px; border-radius: 8px; border: 1px solid var(--kruzer-neutral-300); background: #fff; cursor: pointer; font-weight: 600; font-size: 12px; }
+.tshirt-btn.active { background: var(--kruzer-primary); color: #fff; border-color: var(--kruzer-primary); }
+.tshirt-btn small { display: block; font-weight: 400; font-size: 9px; opacity: .7; }
+.child-list { display: flex; flex-direction: column; gap: 6px; }
+.child-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: var(--kruzer-neutral-100); border-radius: 6px; font-size: 12px; }
+.child-item .ck { font-weight: 600; flex: none; }
+.child-item .cs { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--kruzer-navy-300); }
+.child-item .csp { flex: none; font-size: 11px; color: var(--kruzer-neutral-700); }
+.child-item.done .cs { text-decoration: line-through; color: var(--kruzer-neutral-700); }
+.dep-select { width: 100%; }
+
+.loading { padding: 60px 20px; text-align: center; color: var(--kruzer-neutral-700); }
+.loading .spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid var(--kruzer-neutral-300); border-top-color: var(--kruzer-primary); border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 8px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.error { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; padding: 12px 16px; border-radius: 8px; margin-bottom: 12px; font-size: 13px; }
+.toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--kruzer-navy); color: #fff; padding: 10px 18px; border-radius: 999px; font-size: 13px; opacity: 0; pointer-events: none; transition: all .2s; z-index: 200; }
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+a { color: var(--kruzer-primary); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* Tabela de épicos — mesma padronização da tabela de Aging do KRZR */
+#epicTable .gridjs-td, #epicTable .gridjs-th { padding: 8px 10px; }
+#epicTable .gridjs-td { vertical-align: top; }
+#epicTable .cl1 { display: block; width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.3; }
+#epicTable .cl2 { display: -webkit-box; width: 100%; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.3; height: 2.6em; word-break: break-word; }
+#epicTable .cl1 .badge { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+
+/* Track dedicada (99Food) — fora da regra de capacity do squad */
+.lane.dedicated { background: linear-gradient(0deg, #FFF7ED, #fff); }
+.lane.dedicated .lane-head { background: #FFEAD5; border-right-color: #FDBA74; }
+.lane.dedicated .lane-head .nm { color: #9A3412; }
+.lane.dedicated .lane-head .tag99 { font-size: 9px; font-weight: 700; color: #C2410C; text-transform: uppercase; letter-spacing: .04em; }
+</style>
+</head>
+<body>
+<div class="container">
+  <a href="/" class="back">← Todos os dashboards</a>
+  <div class="header">
+    <div>
+      <h1>VENA — Capacity Planner <span class="beta">BETA · v2</span></h1>
+      <div class="sub" id="subtitle">Carregando dados…</div>
+    </div>
+  </div>
+
+  <div class="toolbar" id="toolbar" style="display:none">
+    <div class="control"><label for="devsInput">Devs ativos</label><input type="number" id="devsInput" value="2" min="1" max="20"></div>
+    <div class="control"><label for="velInput">SP/pessoa/sem</label><input type="number" id="velInput" value="15" min="1" max="60"></div>
+    <div class="control"><label for="tracksInput">Tracks paralelos</label><input type="number" id="tracksInput" value="2" min="1" max="6"></div>
+    <div class="control"><label for="horizonInput">Horizonte (sem)</label><input type="number" id="horizonInput" value="12" min="2" max="52"></div>
+    <div class="control"><label for="hoursInput" title="Converte horas estimadas no JIRA em SP quando o épico não tem story points">h / SP</label><input type="number" id="hoursInput" value="1.5" min="0.5" max="40" step="0.5"></div>
+    <label class="switch" title="Destrava épicos comprometidos para simular cenários. Não persiste — volta ao recarregar.">
+      <input type="checkbox" id="whatIfToggle"><span class="track-sw"></span><span>Modo what-if</span>
+    </label>
+    <div class="spacer"></div>
+    <div class="control">
+      <label for="scenarioSelect">Cenário</label>
+      <select id="scenarioSelect"><option value="__current">Atual (não salvo)</option></select>
+    </div>
+    <div class="control"><label>&nbsp;</label><button class="ghost" id="saveScenarioBtn">Salvar cenário</button></div>
+    <div class="control"><label>&nbsp;</label><button class="ghost" id="exportBtn">Export PNG</button></div>
+    <div class="control"><label>&nbsp;</label><button class="ghost" id="resetBtn">Resetar pro JIRA</button></div>
+    <div class="control"><label>&nbsp;</label><button class="primary" id="refreshBtn">Atualizar dados</button></div>
+  </div>
+
+  <div id="errorBox"></div>
+  <div id="loadingBox" class="loading"><span class="spinner"></span>Carregando épicos do VENA…</div>
+
+  <div id="content" style="display:none">
+    <div class="kpis" id="kpis"></div>
+
+    <div class="board-layout">
+      <div>
+        <section class="section" id="boardSection">
+          <h2>Esteira de capacity</h2>
+          <div class="sub">A largura de cada bloco é proporcional ao <b>esforço (SP)</b>. Arraste entre tracks (quem trabalha em quê), reordene (prioridade), ou puxe do backlog. As datas no topo são <b>consequência</b> da posição — recalculam ao vivo. Arraste a alça direita de um bloco para reestimar o SP.</div>
+          <div class="legend">
+            <span class="legend-item"><span class="legend-swatch dev"></span> Em Desenvolvimento</span>
+            <span class="legend-item"><span class="legend-swatch refin"></span> Em Refinamento</span>
+            <span class="legend-item"><span class="legend-swatch backlog"></span> Backlog</span>
+            <span class="legend-item"><span class="legend-swatch committed"></span> Comprometido (borda)</span>
+            <span class="legend-item"><span class="legend-swatch placeholder"></span> Sem estimativa (?)</span>
+            <span class="legend-item"><span class="legend-swatch overflow"></span> Estoura horizonte</span>
+          </div>
+          <div class="board-scroll" id="boardScroll">
+            <div class="board-inner" id="boardInner">
+              <div class="ruler" id="ruler"></div>
+              <div class="lanes" id="lanes"></div>
+              <div class="heatmap-wrap">
+                <div class="heatmap" id="heatmap"></div>
+              </div>
+            </div>
+          </div>
+          <div class="legend" style="margin-top:10px">
+            <span class="legend-item"><span class="legend-swatch" style="background:#E6F7EF"></span> Folga (pode pegar mais)</span>
+            <span class="legend-item"><span class="legend-swatch" style="background:#B7E9CE"></span> ~100% alocado</span>
+            <span class="legend-item"><span class="legend-swatch" style="background:#FCE3B4"></span> 100–110%</span>
+            <span class="legend-item"><span class="legend-swatch" style="background:#F9C0BA"></span> &gt;110% (afogado)</span>
+          </div>
+        </section>
+
+        <section class="section">
+          <h2>Épicos detalhados</h2>
+          <div class="sub">Linha por épico com SP efetivo, fonte da estimativa, track e datas projetadas.</div>
+          <div id="epicTable"></div>
+        </section>
+      </div>
+
+      <aside>
+        <section class="section backlog-panel">
+          <h2>Backlog não escalado</h2>
+          <div class="sub">Épicos fora do plano. Arraste para uma track para entrar na esteira.</div>
+          <div class="backlog-list" id="backlogList"></div>
+        </section>
+      </aside>
+    </div>
+  </div>
+</div>
+
+<div class="drawer-backdrop" id="drawerBackdrop"></div>
+<aside class="drawer" id="drawer">
+  <div class="dh">
+    <div>
+      <h3 id="drawerKey">—</h3>
+      <div id="drawerBadges"></div>
+    </div>
+    <button class="close" id="drawerClose">×</button>
+  </div>
+  <div class="db" id="drawerBody"></div>
+</aside>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ============================================================================
+// Inline KruzerAPI (mesmo helper de /api.js, embarcado).
+// ============================================================================
+window.KruzerAPI = window.KruzerAPI || (function(){
+  async function jqlPage({ jql, fields, maxResults = 100, nextPageToken, expand }){
+    const res = await fetch('/api/jira/jql', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ jql, fields, maxResults, nextPageToken, expand }),
+    });
+    if (!res.ok){ const text = await res.text(); throw new Error(`JIRA proxy ${res.status}: ${text}`); }
+    return res.json();
+  }
+  async function fetchAll({ jql, fields, expand, onProgress, maxPages = 60 }){
+    let all=[], token=null, page=0;
+    while (page < maxPages){
+      const data = await jqlPage({ jql, fields, expand, nextPageToken: token, maxResults: 100 });
+      const issues = data.issues || [];
+      all = all.concat(issues); page++;
+      if (onProgress) onProgress(all.length, page);
+      if (data.isLast === true || !data.nextPageToken) break;
+      token = data.nextPageToken;
+    }
+    return all;
+  }
+  return { jqlPage, fetchAll };
+})();
+
+// ============================================================================
+// Constantes & helpers
+// ============================================================================
+const PROJECT = 'VENA', JIRA_BASE = 'https://kruzer.atlassian.net';
+const EPIC_FIELDS = ['summary','status','priority','assignee','labels','duedate','customfield_10015','customfield_10016','timeoriginalestimate','aggregatetimeoriginalestimate'];
+const CHILD_FIELDS = ['summary','status','customfield_10016','parent','customfield_10014'];
+// customfield_10015 = Start date · customfield_10016 = Story Points · customfield_10014 = Epic Link (legacy)
+
+const TSHIRT = { XS:8, S:20, M:40, L:80, XL:160 };
+const PLACEHOLDER_SP = 20; // espaço nominal que um épico sem estimativa ocupa na esteira
+const MS_DAY = 86400000;
+const PX_PER_SP = 3.2;
+const HEATMAP_WEEKS = 26;
+
+const LS = {
+  current: 'kruzer:vena-capacity:current-scenario',
+  saved:   'kruzer:vena-capacity:saved-scenarios',
+};
+const SCHEMA_VERSION = 3; // bump descarta overrides antigos → reseta as mudanças projetadas
+const DEFAULT_HOURS_PER_SP = 1.5; // calibrado: VENA-161 (80SP/120h) e VENA-284 (25SP/37.5h) = 1.5 h/SP
+
+// Track dedicada (fora da regra de capacity do squad): só o épico de 99Food,
+// como stream separado e SEM recurso nomeado (assignee).
+const DEDICATED = { epic: 'VENA-145', label: '99Food' };
+
+const STATUS_MAP = {
+  'Em Desenvolvimento': { cls:'status-dev', blk:'s-dev' },
+  'Em Refinamento':     { cls:'status-refin', blk:'s-refin' },
+  'Bloqueado':          { cls:'status-block', blk:'s-block' },
+  'Backlog':            { cls:'status-backlog', blk:'s-backlog' },
+};
+const PRIO_RANK = { 'Highest':0, 'High':1, 'Medium':2, 'Low':3, 'Lowest':4 };
+
+function parseDate(s){ if(!s) return null; const d = new Date(s); return isNaN(d) ? null : d; }
+function startOfDay(d){ const x=new Date(d); x.setHours(0,0,0,0); return x; }
+function addDays(d,n){ const x=new Date(d); x.setDate(x.getDate()+n); return x; }
+function fmtBR(d){ return d ? d.toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'2-digit'}) : '—'; }
+function fmtWeekday(d){ return d ? d.toLocaleDateString('pt-BR',{weekday:'short'}).replace('.','') : ''; }
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function keyNum(k){ const n = parseInt(String(k).split('-')[1]); return isNaN(n) ? 0 : n; }
+function clampNum(v, lo, hi, def){ v = Number(v); if (isNaN(v)) return def; return Math.min(hi, Math.max(lo, v)); }
+
+let toastTimer = null;
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=> t.classList.remove('show'), 2200);
+}
+
+// ============================================================================
+// Estado
+// ============================================================================
+let EPICS = [];                 // dados do JIRA normalizados (imutáveis no client)
+let CHILDREN_BY_EPIC = {};      // epicKey -> [{key, summary, done, sp}]
+let STATE = null;               // ScenarioState corrente (overrides do operador)
+let LAST_SCHEDULE = null;       // resultado do schedule() mais recente p/ render auxiliar
+let saveTimer = null;
+
+function defaultState(){
+  return {
+    name: 'Atual (não salvo)',
+    schemaVersion: SCHEMA_VERSION,
+    devs: 2, velocityPerDev: 15, parallelTracks: 2, horizonWeeks: 12, hoursPerSp: DEFAULT_HOURS_PER_SP,
+    trackAssignments: {},   // epicKey -> { trackIdx, orderInTrack }
+    backlog: [],            // epicKeys fora do plano
+    manualSp: {},           // epicKey -> SP
+    dependencies: {},       // epicKey -> [epicKeys]
+    childDone: {},          // childKey -> bool (override manual de done)
+    whatIfMode: false,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function loadState(){
+  try {
+    const raw = localStorage.getItem(LS.current);
+    if (raw){
+      const s = JSON.parse(raw);
+      // schema antigo → descarta overrides (reseta projeções) e usa defaults novos
+      if (s.schemaVersion !== SCHEMA_VERSION) { localStorage.removeItem(LS.current); return defaultState(); }
+      s.whatIfMode = false;
+      return Object.assign(defaultState(), s);
+    }
+  } catch(e){ /* corrompido — ignora */ }
+  return defaultState();
+}
+function persist(){
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(()=>{
+    try { localStorage.setItem(LS.current, JSON.stringify(STATE)); } catch(e){}
+  }, 300);
+}
+function loadSavedScenarios(){
+  try { return JSON.parse(localStorage.getItem(LS.saved) || '[]'); } catch(e){ return []; }
+}
+function persistSavedScenarios(list){
+  try { localStorage.setItem(LS.saved, JSON.stringify(list)); } catch(e){}
+}
+
+// ============================================================================
+// Normalização do JIRA
+// ============================================================================
+function normalizeEpic(issue){
+  const f = issue.fields || {};
+  const status = f.status?.name || 'Backlog';
+  const catKey = f.status?.statusCategory?.key || '';
+  const jiraStart = parseDate(f.customfield_10015);
+  // Estimativa de horas: prefere a do épico "em si" (timeoriginalestimate),
+  // cai pro agregado (com filhas) se a do épico estiver vazia.
+  const origSec = f.timeoriginalestimate, aggSec = f.aggregatetimeoriginalestimate;
+  const estSec = (origSec != null && origSec > 0) ? origSec : ((aggSec != null && aggSec > 0) ? aggSec : null);
+  return {
+    key: issue.key,
+    url: `${JIRA_BASE}/browse/${issue.key}`,
+    summary: f.summary || '',
+    status,
+    priority: f.priority?.name || 'Medium',
+    assignee: f.assignee?.displayName || null,
+    jiraStart,
+    jiraDue: parseDate(f.duedate),
+    jiraSp: f.customfield_10016 != null ? Number(f.customfield_10016) : null,
+    jiraEstimateH: estSec != null ? Math.round(estSec / 3600 * 10) / 10 : null,
+    labels: f.labels || [],
+    isCommitted: !!jiraStart || status === 'Em Desenvolvimento',
+    done: catKey === 'done',   // Done no JIRA → não entra no cálculo da esteira
+  };
+}
+function normalizeChild(issue){
+  const f = issue.fields || {};
+  const parentKey = f.parent?.key || f.customfield_10014 || null;
+  const status = f.status?.name || '';
+  const done = !!(f.status?.statusCategory?.key === 'done') ||
+               /conclu|done|resolv|finaliz|encerrad/i.test(status);
+  return {
+    key: issue.key,
+    parentKey,
+    summary: f.summary || '',
+    sp: f.customfield_10016 != null ? Number(f.customfield_10016) : null,
+    status, done,
+  };
+}
+
+// effective SP por hierarquia: manual -> rollup -> SP do épico -> horas estimadas -> placeholder
+function resolveSp(epic){
+  const rollup = childrenSpSum(epic.key);
+  const manual = STATE.manualSp[epic.key];
+  if (manual != null && manual > 0) return { sp: manual, source: 'manual' };
+  if (rollup != null && rollup > 0)  return { sp: rollup, source: 'rollup' };
+  if (epic.jiraSp != null && epic.jiraSp > 0) return { sp: epic.jiraSp, source: 'epic-jira' };
+  // Sem SP: projeta tamanho a partir das horas estimadas no JIRA (h ÷ horas-por-SP).
+  if (epic.jiraEstimateH != null && epic.jiraEstimateH > 0) {
+    const hps = STATE.hoursPerSp > 0 ? STATE.hoursPerSp : DEFAULT_HOURS_PER_SP;
+    return { sp: Math.max(1, Math.round(epic.jiraEstimateH / hps)), source: 'hours' };
+  }
+  return { sp: PLACEHOLDER_SP, source: 'placeholder' };
+}
+function childrenSpSum(epicKey){
+  const ch = CHILDREN_BY_EPIC[epicKey];
+  if (!ch || !ch.length) return null;
+  const sum = ch.reduce((a,c)=> a + (c.sp || 0), 0);
+  return sum > 0 ? sum : null;
+}
+
+// ============================================================================
+// Layout default (quando não há override): distribui por prioridade nas tracks
+// ============================================================================
+function ensureAssignments(){
+  const p = STATE.parallelTracks;
+  // épicos já no backlog do operador ficam fora
+  const inBacklog = new Set(STATE.backlog);
+  // ordena épicos: committed primeiro, depois prioridade, depois key
+  const ordered = [...EPICS].sort((a,b)=>{
+    if (a.isCommitted !== b.isCommitted) return a.isCommitted ? -1 : 1;
+    const pa = PRIO_RANK[a.priority] ?? 9, pb = PRIO_RANK[b.priority] ?? 9;
+    if (pa !== pb) return pa - pb;
+    return keyNum(a.key) - keyNum(b.key);
+  });
+  let rr = 0;
+  for (const e of ordered){
+    if (e.key === DEDICATED.epic) { delete STATE.trackAssignments[e.key]; continue; } // vive na track dedicada
+    if (e.done) { delete STATE.trackAssignments[e.key]; continue; } // Done no JIRA → fora da esteira
+    if (inBacklog.has(e.key)) { delete STATE.trackAssignments[e.key]; continue; }
+    const cur = STATE.trackAssignments[e.key];
+    if (cur && cur.trackIdx < p) continue; // já alocado e válido p/ nº de tracks atual
+    const trackIdx = rr % p; rr++;
+    const orderInTrack = Object.values(STATE.trackAssignments).filter(a=>a.trackIdx===trackIdx).length;
+    STATE.trackAssignments[e.key] = { trackIdx, orderInTrack };
+  }
+  // clamp: épicos em track >= p (reduziu tracks) vão p/ última track
+  for (const k in STATE.trackAssignments){
+    if (STATE.trackAssignments[k].trackIdx >= p) STATE.trackAssignments[k].trackIdx = p - 1;
+  }
+}
+
+// ============================================================================
+// Engine de scheduling — função pura. Esforço -> datas.
+// ============================================================================
+function computeSchedule(){
+  const today = startOfDay(new Date());
+  const squad = STATE.devs * STATE.velocityPerDev;          // SP/sem total
+  const throughputPerTrack = squad / STATE.parallelTracks;  // SP/sem por track
+
+  // monta épicos com SP efetivo
+  const byKey = {};
+  const epics = EPICS.map(e => {
+    const { sp, source } = resolveSp(e);
+    const committedLocked = e.isCommitted && !STATE.whatIfMode;
+    const o = {
+      ...e, effectiveSp: sp, spSource: source, committedLocked,
+      trackIdx: STATE.trackAssignments[e.key]?.trackIdx ?? null,
+      orderInTrack: STATE.trackAssignments[e.key]?.orderInTrack ?? 0,
+      inBacklog: STATE.backlog.includes(e.key),
+      dependencies: STATE.dependencies[e.key] || [],
+      scheduledStart: null, scheduledEnd: null, overHorizon: false, late: false,
+    };
+    byKey[e.key] = o;
+    return o;
+  });
+
+  // Track dedicada do 99Food (fora da regra): stream próprio, não consome o squad.
+  const dedEpic = byKey[DEDICATED.epic] || null;
+  if (dedEpic) dedEpic.isDedicated = true;
+  const dedThroughput = STATE.velocityPerDev; // 1 stream dedicado = velocity de uma pessoa
+
+  const placed = epics.filter(e => !e.inBacklog && e.trackIdx != null && e.key !== DEDICATED.epic && !e.done);
+  const tracks = Array.from({length: STATE.parallelTracks}, () => []);
+  placed.forEach(e => tracks[Math.min(e.trackIdx, STATE.parallelTracks-1)].push(e));
+  tracks.forEach(t => t.sort((a,b)=> a.orderInTrack - b.orderInTrack));
+
+  const horizonEnd = addDays(today, STATE.horizonWeeks * 7);
+
+  function scheduleSequential(track, perTrack){
+    let cursor = today;
+    track.forEach(e => {
+      let startMin = cursor;
+      // committed com start real e modo real: ancora no start do JIRA
+      if (e.committedLocked && e.jiraStart){
+        startMin = new Date(Math.max(startMin.getTime(), startOfDay(e.jiraStart).getTime()));
+      }
+      // dependências: começa após o fim de todas
+      e.dependencies.forEach(depKey => {
+        const dep = byKey[depKey];
+        if (dep && dep.scheduledEnd) startMin = new Date(Math.max(startMin.getTime(), dep.scheduledEnd.getTime()));
+      });
+      const durDays = Math.max(1, Math.round((e.effectiveSp / perTrack) * 7));
+      e.scheduledStart = startOfDay(startMin);
+      e.scheduledEnd = addDays(e.scheduledStart, durDays);
+      cursor = e.scheduledEnd;
+    });
+  }
+
+  // resolução de dependências entre tracks: itera até estabilizar (grafo pequeno)
+  for (let pass = 0; pass < placed.length + 2; pass++){
+    tracks.forEach(track => scheduleSequential(track, throughputPerTrack));
+    if (dedEpic) scheduleSequential([dedEpic], dedThroughput);
+  }
+
+  // lista completa do que está agendado (squad + dedicada) p/ heatmap, KPIs e flags
+  const allScheduled = dedEpic ? placed.concat([dedEpic]) : placed;
+
+  // flags de risco
+  allScheduled.forEach(e => {
+    e.overHorizon = e.scheduledStart >= horizonEnd;
+    if (e.jiraDue && e.scheduledEnd > startOfDay(e.jiraDue)) e.late = true;
+  });
+
+  // janela de tempo do board
+  let maxEnd = horizonEnd;
+  allScheduled.forEach(e => { if (e.scheduledEnd > maxEnd) maxEnd = e.scheduledEnd; });
+  const totalWeeks = Math.max(HEATMAP_WEEKS, Math.ceil((maxEnd - today)/(MS_DAY*7)) + 1);
+
+  // capacidade total inclui o stream dedicado (recurso separado)
+  const totalCapacity = squad + (dedEpic ? dedThroughput : 0);
+
+  return { today, squad, totalCapacity, throughputPerTrack, dedThroughput, tracks, dedEpic,
+           byKey, epics, placed, allScheduled, horizonEnd, totalWeeks };
+}
+
+// ============================================================================
+// Publish — grava o cronograma calculado pro Status Report (/vena/roadmap)
+// renderizar EXATAMENTE o mesmo plano (espelho real, não recálculo).
+// ============================================================================
+const PUBLISH_KEY = 'kruzer:vena-capacity:schedule';
+const BLK_HEX = { 's-dev':'#12B76A','s-refin':'#3151CE','s-warn':'#F79009','s-neutral':'#C6C9D9','s-backlog':'#48507D','s-block':'#F04438' };
+function publishSchedule(sched){
+  const cleanName = s => String(s||'').replace(/^(DMND\d+|P\d|Onda\s*\d+|Done)\s*\|\s*/i,'').trim();
+  const itemize = e => ({
+    key: e.key, url: e.url, name: cleanName(e.summary),
+    effort: e.effectiveSp, placeholder: e.spSource === 'placeholder',
+    color: BLK_HEX[(STATUS_MAP[e.status]||{}).blk] || '#48507D',
+    statusLabel: e.status,
+    start: e.scheduledStart ? e.scheduledStart.toISOString() : null,
+    end: e.scheduledEnd ? e.scheduledEnd.toISOString() : null,
+    dueISO: e.jiraDue ? startOfDay(e.jiraDue).toISOString() : null,
+    late: !!e.late,
+  });
+  const lanes = [];
+  if (sched.dedEpic) lanes.push({ label: `${DEDICATED.label} (dedicada)`, dedicated:true, items:[itemize(sched.dedEpic)] });
+  sched.tracks.forEach((items, i) => lanes.push({ label:`Track ${i+1}`, dedicated:false, items: items.map(itemize) }));
+  const payload = {
+    v:1, generatedAt:new Date().toISOString(), unit:'SP',
+    today: sched.today.toISOString(), horizonEnd: sched.horizonEnd.toISOString(),
+    params: { devs:STATE.devs, velocityPerDev:STATE.velocityPerDev, parallelTracks:STATE.parallelTracks, horizonWeeks:STATE.horizonWeeks, squad:sched.squad, throughputPerTrack:sched.throughputPerTrack, dedThroughput: sched.dedEpic ? (sched.dedThroughput || 0) : 0 },
+    lanes, backlogCount: STATE.backlog.length, doneCount: sched.epics.filter(e=>e.done).length,
+  };
+  try { localStorage.setItem(PUBLISH_KEY, JSON.stringify(payload)); } catch {}
+}
+
+// ============================================================================
+// Render
+// ============================================================================
+function render(){
+  ensureAssignments();
+  const sched = computeSchedule();
+  LAST_SCHEDULE = sched;
+  publishSchedule(sched);
+  renderKPIs(sched);
+  renderBoard(sched);
+  renderBacklog(sched);
+  renderHeatmap(sched);
+  renderTable(sched);
+  wireSortables();
+  document.getElementById('subtitle').textContent =
+    `${EPICS.length} épicos • squad ${sched.squad} SP/sem (${STATE.devs} devs × ${STATE.velocityPerDev}) · ${STATE.parallelTracks} tracks → ${sched.throughputPerTrack.toFixed(1)} SP/sem por track`
+    + (sched.dedEpic ? ` · +1 track dedicada ${DEDICATED.label} (${sched.dedThroughput} SP/sem)` : '')
+    + (STATE.whatIfMode ? ' · ⚠ MODO WHAT-IF' : '');
+}
+
+function renderKPIs(sched){
+  const total = EPICS.length;
+  const sized = sched.epics.filter(e => e.spSource !== 'placeholder').length;
+  const unsized = total - sized;
+  const placedSp = sched.allScheduled.reduce((a,e)=> a + e.effectiveSp, 0);
+  const horizonSp = Math.round(sched.totalCapacity * STATE.horizonWeeks);
+  const lastEnd = sched.allScheduled.reduce((m,e)=> e.scheduledEnd && e.scheduledEnd>m ? e.scheduledEnd : m, sched.today);
+  const weeksOut = ((lastEnd - sched.today)/(MS_DAY*7));
+  const overflowing = sched.allScheduled.filter(e=>e.overHorizon).length;
+  document.getElementById('kpis').innerHTML = `
+    <div class="kpi k-open"><div class="label">Épicos abertos</div><div class="value">${total}</div><div class="hint">${sched.allScheduled.length} na esteira · ${STATE.backlog.length} no backlog${sched.epics.filter(e=>e.done).length?` · ${sched.epics.filter(e=>e.done).length} concluído(s)`:''}</div></div>
+    <div class="kpi k-sized"><div class="label">Estimados</div><div class="value">${sized}</div><div class="hint">rollup · épico · horas · manual</div></div>
+    <div class="kpi k-unsized"><div class="label">Sem estimativa</div><div class="value">${unsized}</div><div class="hint">usando placeholder ${PLACEHOLDER_SP} SP</div></div>
+    <div class="kpi k-capacity"><div class="label">Esforço na esteira</div><div class="value">${placedSp}<span style="font-size:14px"> SP</span></div><div class="hint">cabem ${horizonSp} SP em ${STATE.horizonWeeks} sem (inc. 99Food)</div></div>
+    <div class="kpi k-horizon"><div class="label">Fim projetado</div><div class="value">${weeksOut.toFixed(1)}<span style="font-size:14px"> sem</span></div><div class="hint">${fmtBR(lastEnd)}${overflowing? ' · '+overflowing+' fora do horizonte':''}</div></div>
+  `;
+}
+
+function renderBoard(sched){
+  const ppwk = sched.throughputPerTrack * PX_PER_SP; // px por semana (1 semana = throughput SP)
+  const boardW = Math.max(sched.totalWeeks * ppwk, 600);
+
+  // ---- Régua de tempo ----
+  const ruler = document.getElementById('ruler');
+  let rh = `<div class="ruler-pad lane-head-w"></div><div class="ruler-track" style="width:${boardW}px">`;
+  for (let w = 0; w <= sched.totalWeeks; w++){
+    const x = w * ppwk;
+    const d = addDays(sched.today, w*7);
+    const isMonth = d.getDate() <= 7; // primeira semana do mês
+    const moLabel = isMonth ? `<span class="mo">${d.toLocaleDateString('pt-BR',{month:'short'}).replace('.','')}</span>` : '';
+    rh += `<div class="wk ${isMonth?'month':''}" style="left:${x}px">${moLabel}${w%2===0?('S'+w):''}</div>`;
+  }
+  // marca de horizonte
+  const hx = STATE.horizonWeeks * ppwk;
+  rh += `<div class="horizon-mark" style="left:${hx}px"><span>horizonte ${STATE.horizonWeeks}sem</span></div>`;
+  rh += `</div>`;
+  ruler.innerHTML = rh;
+
+  // ---- Lanes ----
+  const lanes = document.getElementById('lanes');
+  let lh = '';
+  // zona de horizonte (vermelho claro) e linha de HOJE atravessando as lanes
+  lh += `<div class="today-line" style="left:${132}px"><span>HOJE ${fmtBR(sched.today)} (${fmtWeekday(sched.today)})</span></div>`;
+  const horizonStartX = 132 + STATE.horizonWeeks * ppwk;
+  lh += `<div class="horizon-zone" style="left:${horizonStartX}px; width:${Math.max(0, boardW - STATE.horizonWeeks*ppwk)}px"></div>`;
+
+  // Track dedicada do 99Food primeiro (fora da regra de capacity do squad)
+  if (sched.dedEpic){
+    const e = sched.dedEpic;
+    const lastEnd = e.scheduledEnd || sched.today;
+    lh += `<div class="lane dedicated">
+      <div class="lane-head">
+        <div class="nm">${DEDICATED.label}</div>
+        <div class="tag99">dedicada · sem recurso</div>
+        <div class="mt">${e.spSource==='placeholder'?'? SP':e.effectiveSp+' SP'} · ${sched.dedThroughput}/sem</div>
+        <div class="mt">→ ${fmtBR(lastEnd)}</div>
+      </div>
+      <div class="lane-strip" data-dedicated="1" style="min-width:${boardW}px">
+        ${blockHtml(e)}
+      </div>
+    </div>`;
+  }
+
+  for (let ti = 0; ti < STATE.parallelTracks; ti++){
+    const items = sched.tracks[ti] || [];
+    const sumSp = items.reduce((a,e)=>a+e.effectiveSp,0);
+    const lastEnd = items.reduce((m,e)=> e.scheduledEnd&&e.scheduledEnd>m?e.scheduledEnd:m, sched.today);
+    lh += `<div class="lane">
+      <div class="lane-head">
+        <div class="nm">Track ${ti+1}</div>
+        <div class="mt">${items.length} épicos · ${sumSp} SP</div>
+        <div class="mt">→ ${fmtBR(lastEnd)}</div>
+      </div>
+      <div class="lane-strip" data-track="${ti}" style="min-width:${boardW}px">
+        ${items.map(e => blockHtml(e)).join('')}
+      </div>
+    </div>`;
+  }
+  lanes.innerHTML = lh;
+}
+
+function blockHtml(e){
+  const st = STATUS_MAP[e.status] || STATUS_MAP['Backlog'];
+  const isPlaceholder = e.spSource === 'placeholder';
+  const w = Math.max(30, e.effectiveSp * PX_PER_SP);
+  const cls = ['block', isPlaceholder ? 'placeholder' : st.blk];
+  if (e.committedLocked) cls.push('committed');
+  const srcLabel = { rollup:'rollup', 'epic-jira':'jira', hours:'horas', manual:'manual', placeholder:'?' }[e.spSource];
+  const truncSum = e.summary.length > 26 ? e.summary.slice(0,24)+'…' : e.summary;
+  let overlays = '';
+  if (e.overHorizon) overlays += `<div class="overflow-ov" title="Começa fora do horizonte de ${STATE.horizonWeeks} semanas"></div>`;
+  if (e.late && !e.overHorizon) overlays += `<div class="late-ov" title="Projeção ultrapassa o due date do JIRA (${fmtBR(e.jiraDue)})"></div>`;
+  // marca de due date prometido: posição relativa ao próprio bloco
+  // (o bloco de largura w cobre a duração scheduledStart→scheduledEnd)
+  let dueMark = '';
+  if (e.jiraDue && e.scheduledStart && e.scheduledEnd && e.scheduledEnd > e.scheduledStart){
+    const durDays = (e.scheduledEnd - e.scheduledStart)/MS_DAY;
+    const offDays = (startOfDay(e.jiraDue) - e.scheduledStart)/MS_DAY;
+    const offPx = (offDays / durDays) * w;
+    if (offPx > 2 && offPx < w) dueMark = `<div class="due-mark" style="left:${offPx}px" title="Due prometido: ${fmtBR(e.jiraDue)}"></div>`;
+  }
+  const depFlag = (e.dependencies && e.dependencies.length) ? `<span class="dep-flag" title="Depende de ${e.dependencies.join(', ')}">⛓ ${e.dependencies.length}</span>` : '';
+  return `<div class="${cls.join(' ')}" data-key="${e.key}" style="width:${w}px" title="${escapeHtml(e.key+' · '+e.summary)}">
+    <span class="bk">${e.key}</span>
+    <span class="bs">${escapeHtml(truncSum)}</span>
+    <span class="sp-tag">${isPlaceholder ? '?' : e.effectiveSp}</span>
+    <span class="src-dot">${srcLabel}</span>
+    ${depFlag}${dueMark}${overlays}
+    <div class="resize-handle" data-key="${e.key}"></div>
+  </div>`;
+}
+
+function renderBacklog(sched){
+  const el = document.getElementById('backlogList');
+  const items = STATE.backlog.filter(k => k !== DEDICATED.epic).map(k => sched.byKey[k]).filter(Boolean);
+  if (!items.length){
+    el.innerHTML = `<div class="backlog-empty">Tudo escalado.<br>Arraste épicos pra cá para tirar do plano.</div>`;
+    return;
+  }
+  el.innerHTML = items.map(e=>{
+    const sp = e.spSource==='placeholder' ? '?' : e.effectiveSp;
+    return `<div class="backlog-block" data-key="${e.key}">
+      <div class="bk">${e.key} <span class="badge prio-${e.priority.toLowerCase()}" style="font-size:9px">${e.priority}</span></div>
+      <div class="bs">${escapeHtml(e.summary)}</div>
+      <div class="bm">${sp} SP · ${e.status}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderHeatmap(sched){
+  const ppwk = sched.throughputPerTrack * PX_PER_SP;
+  const cap = sched.totalCapacity; // SP/sem capacidade total (squad + stream dedicado)
+  const el = document.getElementById('heatmap');
+  let html = `<div class="hm-pad lane-head-w">Carga / semana</div><div class="hm-track" style="width:${sched.totalWeeks*ppwk}px">`;
+  for (let w = 0; w < sched.totalWeeks; w++){
+    const wkStart = addDays(sched.today, w*7);
+    const wkEnd = addDays(wkStart, 7);
+    // carga = soma das frações de SP de épicos cruzando a semana
+    let load = 0;
+    sched.allScheduled.forEach(e=>{
+      if (!e.scheduledStart || !e.scheduledEnd) return;
+      const ov = Math.min(e.scheduledEnd, wkEnd) - Math.max(e.scheduledStart, wkStart);
+      if (ov <= 0) return;
+      const durDays = Math.max(1, (e.scheduledEnd - e.scheduledStart)/MS_DAY);
+      load += e.effectiveSp * (ov/MS_DAY) / durDays;
+    });
+    const pct = cap>0 ? load/cap : 0;
+    const lvl = pct < 0.05 ? 'lvl-free' : pct <= 1.0 ? 'lvl-ok' : pct <= 1.1 ? 'lvl-warn' : 'lvl-over';
+    const cls = (pct < 0.05) ? 'lvl-free' : lvl;
+    html += `<div class="hm-cell ${cls}" style="left:${w*ppwk}px; width:${ppwk}px" title="Semana ${w+1} (${fmtBR(wkStart)}): ${load.toFixed(1)}/${cap} SP · ${(pct*100).toFixed(0)}%"></div>`;
+  }
+  html += `</div>`;
+  el.innerHTML = html;
+}
+
+let gridInst = null;
+function renderTable(sched){
+  const esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const cell = (inner, titleText, cls) => gridjs.html(`<div class="${cls}" title="${esc(titleText)}">${inner}</div>`);
+
+  const rows = sched.epics.map(e=>{
+    const st = STATUS_MAP[e.status] || STATUS_MAP['Backlog'];
+    const isDed = e.key === DEDICATED.epic;
+    const loc = isDed ? DEDICATED.label : (e.inBacklog ? 'Backlog' : (e.trackIdx!=null ? 'T'+(e.trackIdx+1) : '—'));
+    const assignee = isDed ? '—' : (e.assignee || '—'); // 99Food: sem recurso nomeado
+    const sp = e.spSource==='placeholder' ? '?' : String(e.effectiveSp);
+    return [
+      e.key, e.summary, e.status, e.priority, assignee, sp, e.spSource, loc,
+      e.scheduledStart ? fmtBR(e.scheduledStart) : '—',
+      e.scheduledEnd ? fmtBR(e.scheduledEnd) : '—',
+      e.url, st.cls,
+    ];
+  });
+
+  const c = document.getElementById('epicTable');
+  c.innerHTML = '';
+  const host = document.createElement('div');
+  c.appendChild(host);
+  gridInst = new gridjs.Grid({
+    autoWidth: false,
+    columns: [
+      {name:'Key', width:'95px', formatter:(v,row)=>cell(`<a href="${row.cells[10].data}" target="_blank" rel="noopener">${esc(v)}</a>`, v, 'cl1')},
+      {name:'Summary', formatter:v=>cell(esc(v), v, 'cl2')},
+      {name:'Status', width:'150px', formatter:(v,row)=>cell(`<span class="badge ${row.cells[11].data}">${esc(v)}</span>`, v, 'cl1')},
+      {name:'Prio', width:'95px', formatter:v=>cell(`<span class="badge prio-${String(v).toLowerCase()}">${esc(v)}</span>`, v, 'cl1')},
+      {name:'Responsável', width:'150px', formatter:v=>cell(esc(v), v, 'cl2')},
+      {name:'SP', width:'70px', sort:{compare:(a,b)=>(parseFloat(a)||0)-(parseFloat(b)||0)}, formatter:v=>cell(esc(v), v, 'cl1')},
+      {name:'Fonte', width:'110px', formatter:v=>cell(`<span class="badge src-${esc(v)}">${esc(v)}</span>`, v, 'cl1')},
+      {name:'Local', width:'85px', formatter:v=>cell(esc(v), v, 'cl1')},
+      {name:'Início', width:'105px', formatter:v=>cell(esc(v), v, 'cl1')},
+      {name:'Fim', width:'105px', formatter:v=>cell(esc(v), v, 'cl1')},
+      {name:'_url', hidden:true},
+      {name:'_stcls', hidden:true},
+    ],
+    data: rows, search: true, sort: true, pagination: {limit: 25},
+    style: {table: {'font-size':'13px', 'table-layout':'fixed', 'width':'100%'}},
+  }).render(host);
+}
+
+// ============================================================================
+// Drag & drop (SortableJS) — entre tracks, reordenação, e backlog
+// ============================================================================
+let sortables = [];
+function wireSortables(){
+  sortables.forEach(s => { try { s.destroy(); } catch(e){} });
+  sortables = [];
+  const committedFilter = STATE.whatIfMode ? '' : '.committed';
+  // só as tracks do squad são sortables; a track dedicada (99Food) é fixa
+  document.querySelectorAll('.lane-strip[data-track]').forEach(strip => {
+    sortables.push(new Sortable(strip, {
+      group: 'epics',
+      animation: 140,
+      filter: committedFilter + (committedFilter?',':'') + '.resize-handle',
+      preventOnFilter: false,
+      draggable: '.block',
+      ghostClass: 'sortable-ghost',
+      chosenClass: 'sortable-chosen',
+      onEnd: onDragEnd,
+    }));
+  });
+  const backlog = document.getElementById('backlogList');
+  sortables.push(new Sortable(backlog, {
+    group: 'epics', animation: 140, draggable: '.backlog-block',
+    ghostClass: 'sortable-ghost', chosenClass: 'sortable-chosen',
+    onEnd: onDragEnd,
+  }));
+}
+
+function onDragEnd(){
+  // Lê o DOM e reconstrói trackAssignments + backlog a partir da nova ordem.
+  const newAssign = {};
+  document.querySelectorAll('.lane-strip[data-track]').forEach(strip => {
+    const ti = +strip.dataset.track;
+    [...strip.querySelectorAll('.block')].forEach((blk, idx) => {
+      newAssign[blk.dataset.key] = { trackIdx: ti, orderInTrack: idx };
+    });
+  });
+  const newBacklog = [...document.querySelectorAll('#backlogList .backlog-block')].map(b => b.dataset.key);
+  STATE.trackAssignments = newAssign;
+  STATE.backlog = newBacklog;
+  persist();
+  render(); // reschedule + redraw (re-wires sortables)
+}
+
+// ============================================================================
+// Resize de bloco (ajuste manual de SP, snap a múltiplos de 4)
+// ============================================================================
+let resizing = null;
+document.addEventListener('mousedown', (ev)=>{
+  const handle = ev.target.closest('.resize-handle');
+  if (!handle) return;
+  ev.preventDefault(); ev.stopPropagation();
+  const key = handle.dataset.key;
+  const epic = LAST_SCHEDULE.byKey[key];
+  if (!epic || (epic.committedLocked)) { toast('Épico comprometido — ative What-if para reestimar.'); return; }
+  const block = handle.closest('.block');
+  resizing = { key, block, startX: ev.clientX, startW: block.offsetWidth };
+  document.body.style.cursor = 'ew-resize';
+}, true);
+document.addEventListener('mousemove', (ev)=>{
+  if (!resizing) return;
+  const dw = ev.clientX - resizing.startX;
+  let newSp = Math.round(((resizing.startW + dw) / PX_PER_SP) / 4) * 4;
+  newSp = Math.max(4, Math.min(400, newSp));
+  resizing.block.style.width = Math.max(30, newSp*PX_PER_SP)+'px';
+  const tag = resizing.block.querySelector('.sp-tag'); if (tag) tag.textContent = newSp;
+  resizing.preview = newSp;
+});
+document.addEventListener('mouseup', ()=>{
+  if (!resizing) return;
+  document.body.style.cursor = '';
+  if (resizing.preview != null){
+    STATE.manualSp[resizing.key] = resizing.preview;
+    persist();
+    toast(`${resizing.key} reestimado em ${resizing.preview} SP (manual)`);
+    resizing = null;
+    render();
+  } else { resizing = null; }
+});
+
+// ============================================================================
+// Drawer de detalhe
+// ============================================================================
+let drawerKey = null;
+document.getElementById('lanes').addEventListener('click', (ev)=>{
+  if (ev.target.closest('.resize-handle')) return;
+  const blk = ev.target.closest('.block');
+  if (blk) openDrawer(blk.dataset.key);
+});
+document.getElementById('backlogList').addEventListener('click', (ev)=>{
+  const blk = ev.target.closest('.backlog-block');
+  if (blk) openDrawer(blk.dataset.key);
+});
+document.getElementById('drawerClose').addEventListener('click', closeDrawer);
+document.getElementById('drawerBackdrop').addEventListener('click', closeDrawer);
+
+function openDrawer(key){
+  drawerKey = key;
+  const e = LAST_SCHEDULE.byKey[key];
+  if (!e) return;
+  const st = STATUS_MAP[e.status] || STATUS_MAP['Backlog'];
+  document.getElementById('drawerKey').innerHTML = `<a href="${e.url}" target="_blank">${e.key}</a> · ${escapeHtml(e.summary)}`;
+  document.getElementById('drawerBadges').innerHTML =
+    `<span class="badge ${st.cls}">${e.status}</span> <span class="badge prio-${e.priority.toLowerCase()}">${e.priority}</span> `
+    + (e.isCommitted ? `<span class="badge src-epic-jira">comprometido</span>` : '');
+
+  const children = CHILDREN_BY_EPIC[e.key] || [];
+  const rollup = childrenSpSum(e.key);
+  const otherEpics = EPICS.filter(x => x.key !== e.key);
+
+  const tshirtBtns = Object.entries(TSHIRT).map(([sz,val])=>{
+    const active = STATE.manualSp[e.key] === val ? 'active' : '';
+    return `<button class="tshirt-btn ${active}" data-sp="${val}">${sz}<small>${val} SP</small></button>`;
+  }).join('');
+
+  const childHtml = children.length ? children.map(c=>{
+    const done = STATE.childDone[c.key] != null ? STATE.childDone[c.key] : c.done;
+    return `<div class="child-item ${done?'done':''}">
+      <input type="checkbox" class="child-done" data-ck="${c.key}" ${done?'checked':''}>
+      <span class="ck"><a href="${JIRA_BASE}/browse/${c.key}" target="_blank">${c.key}</a></span>
+      <span class="cs">${escapeHtml(c.summary)}</span>
+      <span class="csp">${c.sp!=null?c.sp+' SP':'—'}</span>
+    </div>`;
+  }).join('') : `<div class="backlog-empty" style="padding:10px">Sem stories-filho encontradas via JQL.</div>`;
+
+  const depOptions = otherEpics.map(x=>`<option value="${x.key}">${x.key} · ${escapeHtml(x.summary.slice(0,40))}</option>`).join('');
+  const curDeps = (STATE.dependencies[e.key]||[]);
+  const depChips = curDeps.length ? curDeps.map(d=>`<span class="badge src-manual" style="cursor:pointer" data-rmdep="${d}" title="remover">${d} ✕</span>`).join(' ') : '<span style="color:var(--kruzer-neutral-700)">nenhuma</span>';
+
+  document.getElementById('drawerBody').innerHTML = `
+    <h4>JIRA</h4>
+    <div class="dgrid">
+      <span class="lbl">Status</span><span>${e.status}</span>
+      <span class="lbl">Prioridade</span><span>${e.priority}</span>
+      <span class="lbl">Responsável</span><span>${e.key===DEDICATED.epic ? '— <span style="color:var(--kruzer-neutral-700)">(track dedicada, sem recurso)</span>' : (e.assignee || '—')}</span>
+      <span class="lbl">Start (JIRA)</span><span>${fmtBR(e.jiraStart)}</span>
+      <span class="lbl">Due (JIRA)</span><span>${fmtBR(e.jiraDue)}</span>
+      <span class="lbl">SP do épico</span><span>${e.jiraSp!=null?e.jiraSp:'—'}</span>
+      <span class="lbl">SP rollup</span><span>${rollup!=null?rollup+' ('+children.length+' stories)':'—'}</span>
+      <span class="lbl">Estimativa (h)</span><span>${e.jiraEstimateH!=null?e.jiraEstimateH+'h':'—'}</span>
+      <span class="lbl">Labels</span><span>${e.labels.length?e.labels.join(', '):'—'}</span>
+    </div>
+
+    <h4>Estimativa efetiva</h4>
+    <div class="dgrid" style="margin-bottom:10px">
+      <span class="lbl">SP efetivo</span><span><b>${e.spSource==='placeholder'?'? ('+PLACEHOLDER_SP+' placeholder)':e.effectiveSp}</b>${e.spSource==='hours'?` <span style="color:var(--kruzer-neutral-700)">(${e.jiraEstimateH}h ÷ ${STATE.hoursPerSp} h/SP)</span>`:''}</span>
+      <span class="lbl">Fonte</span><span><span class="badge src-${e.spSource}">${e.spSource==='hours'?'horas':e.spSource}</span></span>
+    </div>
+    <div class="tshirt-row">${tshirtBtns}</div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <input type="number" id="manualSpInput" placeholder="SP manual" min="1" max="400" value="${STATE.manualSp[e.key]??''}" style="width:90px">
+      <button class="ghost" id="applyManualSp">Aplicar</button>
+      <button class="ghost" id="clearManualSp">Limpar override</button>
+    </div>
+
+    <h4>Plano</h4>
+    <div class="dgrid">
+      <span class="lbl">Local</span><span>${e.key===DEDICATED.epic ? DEDICATED.label+' (dedicada · sem recurso)' : (e.inBacklog?'Backlog':(e.trackIdx!=null?'Track '+(e.trackIdx+1):'—'))}</span>
+      <span class="lbl">Início projetado</span><span>${fmtBR(e.scheduledStart)}</span>
+      <span class="lbl">Fim projetado</span><span>${fmtBR(e.scheduledEnd)}${e.late?' <span class="badge prio-highest">atrasa due</span>':''}</span>
+      <span class="lbl">Duração</span><span>${e.scheduledStart&&e.scheduledEnd?(((e.scheduledEnd-e.scheduledStart)/(MS_DAY*7)).toFixed(1)+' sem'):'—'}</span>
+    </div>
+
+    <h4>Dependências (esse épico depende de…)</h4>
+    <div style="margin-bottom:8px">${depChips}</div>
+    <div style="display:flex;gap:8px">
+      <select class="dep-select" id="depSelect"><option value="">+ adicionar dependência…</option>${depOptions}</select>
+    </div>
+
+    <h4>Stories-filho ${children.length?'('+children.length+')':''}</h4>
+    <div class="child-list">${childHtml}</div>
+  `;
+
+  // wire drawer interactions
+  document.querySelectorAll('.tshirt-btn').forEach(b=> b.addEventListener('click', ()=>{
+    STATE.manualSp[e.key] = +b.dataset.sp; persist(); render(); openDrawer(e.key);
+  }));
+  document.getElementById('applyManualSp').addEventListener('click', ()=>{
+    const v = +document.getElementById('manualSpInput').value;
+    if (v>0){ STATE.manualSp[e.key] = v; persist(); render(); openDrawer(e.key); toast(`${e.key}: SP manual = ${v}`); }
+  });
+  document.getElementById('clearManualSp').addEventListener('click', ()=>{
+    delete STATE.manualSp[e.key]; persist(); render(); openDrawer(e.key); toast(`${e.key}: override removido`);
+  });
+  document.getElementById('depSelect').addEventListener('change', (ev2)=>{
+    const dep = ev2.target.value; if (!dep) return;
+    const arr = STATE.dependencies[e.key] || [];
+    if (dep !== e.key && !arr.includes(dep)){ arr.push(dep); STATE.dependencies[e.key] = arr; persist(); render(); openDrawer(e.key); }
+  });
+  document.querySelectorAll('[data-rmdep]').forEach(chip=> chip.addEventListener('click', ()=>{
+    STATE.dependencies[e.key] = (STATE.dependencies[e.key]||[]).filter(d=>d!==chip.dataset.rmdep);
+    persist(); render(); openDrawer(e.key);
+  }));
+  document.querySelectorAll('.child-done').forEach(cb=> cb.addEventListener('change', ()=>{
+    STATE.childDone[cb.dataset.ck] = cb.checked; persist();
+    cb.closest('.child-item').classList.toggle('done', cb.checked);
+  }));
+
+  document.getElementById('drawer').classList.add('show');
+  document.getElementById('drawerBackdrop').classList.add('show');
+}
+function closeDrawer(){
+  drawerKey = null;
+  document.getElementById('drawer').classList.remove('show');
+  document.getElementById('drawerBackdrop').classList.remove('show');
+}
+document.addEventListener('keydown', e=>{ if (e.key==='Escape') closeDrawer(); });
+
+// ============================================================================
+// Controles do toolbar
+// ============================================================================
+function readConfigInputs(){
+  STATE.devs = clampNum(document.getElementById('devsInput').value, 1, 20, 2);
+  STATE.velocityPerDev = clampNum(document.getElementById('velInput').value, 1, 60, 15);
+  STATE.parallelTracks = clampNum(document.getElementById('tracksInput').value, 1, 6, 2);
+  STATE.horizonWeeks = clampNum(document.getElementById('horizonInput').value, 2, 52, 12);
+  STATE.hoursPerSp = clampNum(document.getElementById('hoursInput').value, 0.5, 40, DEFAULT_HOURS_PER_SP);
+}
+function syncConfigInputs(){
+  document.getElementById('devsInput').value = STATE.devs;
+  document.getElementById('velInput').value = STATE.velocityPerDev;
+  document.getElementById('tracksInput').value = STATE.parallelTracks;
+  document.getElementById('horizonInput').value = STATE.horizonWeeks;
+  document.getElementById('hoursInput').value = STATE.hoursPerSp;
+  document.getElementById('whatIfToggle').checked = STATE.whatIfMode;
+}
+['devsInput','velInput','tracksInput','horizonInput','hoursInput'].forEach(id=>{
+  document.getElementById(id).addEventListener('change', ()=>{ readConfigInputs(); persist(); render(); });
+});
+document.getElementById('whatIfToggle').addEventListener('change', (e)=>{
+  STATE.whatIfMode = e.target.checked; // não persiste (loadState força false)
+  render();
+  toast(STATE.whatIfMode ? 'What-if ON — épicos comprometidos destravados' : 'What-if OFF');
+});
+document.getElementById('resetBtn').addEventListener('click', ()=>{
+  if (!confirm('Resetar todos os overrides locais (ordem, tracks, T-shirt sizes, dependências) e voltar ao estado base do JIRA?')) return;
+  localStorage.removeItem(LS.current);
+  STATE = defaultState();
+  readConfigInputs(); // mantém config de squad do toolbar? não — usa defaults
+  STATE = defaultState();
+  syncConfigInputs();
+  render();
+  toast('Overrides limpos — estado base do JIRA restaurado');
+});
+document.getElementById('refreshBtn').addEventListener('click', ()=> loadData(true));
+
+// cenários salvos
+function refreshScenarioSelect(){
+  const sel = document.getElementById('scenarioSelect');
+  const saved = loadSavedScenarios();
+  sel.innerHTML = `<option value="__current">Atual (não salvo)</option>` +
+    saved.map((s,i)=>`<option value="${i}">${escapeHtml(s.name)}</option>`).join('');
+}
+document.getElementById('saveScenarioBtn').addEventListener('click', ()=>{
+  const name = prompt('Nome do cenário (ex: "pessimista", "FastShop priorizado"):');
+  if (!name) return;
+  const saved = loadSavedScenarios();
+  const snapshot = JSON.parse(JSON.stringify(STATE));
+  snapshot.name = name; snapshot.createdAt = new Date().toISOString();
+  saved.push(snapshot); persistSavedScenarios(saved); refreshScenarioSelect();
+  document.getElementById('scenarioSelect').value = String(saved.length-1);
+  toast(`Cenário "${name}" salvo`);
+});
+document.getElementById('scenarioSelect').addEventListener('change', (e)=>{
+  const v = e.target.value;
+  if (v === '__current'){ STATE = loadState(); }
+  else {
+    const saved = loadSavedScenarios();
+    const s = saved[+v];
+    if (s){ STATE = Object.assign(defaultState(), JSON.parse(JSON.stringify(s))); STATE.whatIfMode = false; persist(); }
+  }
+  syncConfigInputs(); render();
+  toast('Cenário carregado');
+});
+
+// export PNG (html2canvas lazy)
+document.getElementById('exportBtn').addEventListener('click', async ()=>{
+  const btn = document.getElementById('exportBtn');
+  btn.disabled = true; const old = btn.textContent; btn.textContent = 'Gerando…';
+  try {
+    if (!window.html2canvas){
+      await new Promise((res,rej)=>{
+        const s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
+        s.onload = res; s.onerror = ()=>rej(new Error('falha ao carregar html2canvas'));
+        document.head.appendChild(s);
+      });
+    }
+    const target = document.getElementById('boardSection');
+    const canvas = await html2canvas(target, { backgroundColor: '#ffffff', scale: 2, scrollX: 0, scrollY: 0, windowWidth: target.scrollWidth+40 });
+    const ts = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+    const a = document.createElement('a');
+    a.download = `vena-capacity-${ts}.png`;
+    a.href = canvas.toDataURL('image/png');
+    a.click();
+    toast('PNG exportado');
+  } catch(err){ toast('Erro no export: '+err.message); }
+  finally { btn.disabled = false; btn.textContent = old; }
+});
+
+// ============================================================================
+// Carregamento de dados
+// ============================================================================
+async function loadData(isRefresh){
+  document.getElementById('errorBox').innerHTML = '';
+  const btn = document.getElementById('refreshBtn');
+  if (isRefresh){ btn.disabled = true; btn.textContent = 'Atualizando…'; }
+  else { document.getElementById('loadingBox').style.display = ''; document.getElementById('content').style.display = 'none'; }
+  try {
+    // 1) épicos não-resolvidos
+    const epicJql = `project = ${PROJECT} AND issuetype = Epic AND resolution is EMPTY ORDER BY rank ASC`;
+    const epicIssues = await KruzerAPI.fetchAll({ jql: epicJql, fields: EPIC_FIELDS });
+    EPICS = epicIssues.map(normalizeEpic);
+
+    // 2) stories-filho (rollup de SP). JQL "Epic Link" in (...) — testado no handoff.
+    CHILDREN_BY_EPIC = {};
+    if (EPICS.length){
+      const keys = EPICS.map(e=>e.key);
+      let childIssues = [];
+      try {
+        const inList = keys.map(k=>`"${k}"`).join(',');
+        const childJql = `project = ${PROJECT} AND "Epic Link" in (${inList})`;
+        childIssues = await KruzerAPI.fetchAll({ jql: childJql, fields: CHILD_FIELDS });
+      } catch(e){
+        // fallback: parent in (...) caso o campo "Epic Link" não exista nesse projeto
+        try {
+          const childJql2 = `project = ${PROJECT} AND parent in (${keys.join(',')})`;
+          childIssues = await KruzerAPI.fetchAll({ jql: childJql2, fields: CHILD_FIELDS });
+        } catch(e2){ childIssues = []; }
+      }
+      childIssues.map(normalizeChild).forEach(c=>{
+        if (!c.parentKey) return;
+        (CHILDREN_BY_EPIC[c.parentKey] = CHILDREN_BY_EPIC[c.parentKey] || []).push(c);
+      });
+    }
+
+    // 3) merge com estado local (preserva overrides)
+    if (!STATE) STATE = loadState();
+    // remove de overrides épicos que não existem mais
+    const liveKeys = new Set(EPICS.map(e=>e.key));
+    STATE.backlog = STATE.backlog.filter(k=>liveKeys.has(k));
+    Object.keys(STATE.trackAssignments).forEach(k=>{ if(!liveKeys.has(k)) delete STATE.trackAssignments[k]; });
+
+    syncConfigInputs();
+    refreshScenarioSelect();
+    document.getElementById('loadingBox').style.display = 'none';
+    document.getElementById('toolbar').style.display = '';
+    document.getElementById('content').style.display = '';
+    render();
+  } catch (e){
+    document.getElementById('loadingBox').style.display = 'none';
+    document.getElementById('errorBox').innerHTML = `<div class="error"><b>Falha ao carregar dados:</b> ${escapeHtml(e.message)}</div>`;
+  } finally {
+    if (isRefresh){ btn.disabled = false; btn.textContent = 'Atualizar dados'; }
+  }
+}
+
+STATE = loadState();
+loadData(false);
+</script>
+</body>
+</html>
