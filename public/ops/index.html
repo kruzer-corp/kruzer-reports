@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kruzer Ops — Painel executivo</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/shared/tokens.css">
+<!--
+  Kruzer Ops — Painel executivo (Camada 0 do roadmap "controle de operação").
+  Persona: C-level. Leitura de 30s. Sem persistência: 100% derivado de JQL ao vivo.
+  Regras de risco (fixadas — handoff HANDOFF_OPS_CONTROL.md, sessão 2026-06-25):
+    · Atraso: épico não-Done com duedate < hoje. Crítico se >7d, alto 1-7d.
+    · Bloqueio: status contém "bloque" e updated < hoje-5d. Crítico >10d.
+    · WIP: assignee com >=3 épicos In Progress. Crítico 4+.
+    · Sem estimativa: épico aberto sem Story Points (VENA).
+    · SLA KRZR: ticket Highest aberto >1d ou High aberto >3d.
+    · Sustain: card informativo (caixa-preta, depende de Camada Sustain).
+  Threshold-driven, não capacity-driven: a Camada 1 (D1) destrava o cruzamento com
+  schedule publicado do planner pra ligar "projeção > due".
+-->
+<style>
+/* Tokens vivem em /shared/tokens.css. Aqui só overrides locais. */
+.container { padding: 16px 20px 40px; max-width: 1500px; margin: 0 auto; }
+.back { font-size: 12px; color: var(--kruzer-primary); text-decoration: none; margin-bottom: 8px; display: inline-block; }
+.back:hover { text-decoration: underline; }
+
+.header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; flex-wrap: wrap; }
+.header h1 { margin: 0 0 4px; font-size: 26px; font-weight: 700; letter-spacing: -0.01em; }
+.header .sub { color: var(--kruzer-navy-300); font-size: 13px; }
+.header .meta { font-size: 11px; color: var(--kruzer-neutral-700); margin-top: 6px; }
+.controls { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+button { font-family: inherit; font-size: 13px; padding: 8px 14px; border: 1px solid var(--kruzer-neutral-300); border-radius: 8px; background: #fff; color: var(--kruzer-navy); cursor: pointer; }
+button.primary { background: var(--kruzer-primary); color: #fff; border-color: var(--kruzer-primary); font-weight: 600; }
+button.primary:hover { background: var(--kruzer-primary-700); }
+button:disabled { opacity: 0.6; cursor: wait; }
+
+.section { background: #fff; border: 1px solid var(--kruzer-neutral-300); border-radius: 10px; padding: 18px 20px; margin-bottom: 16px; box-shadow: var(--shadow); }
+.section h2 { margin: 0 0 4px; font-size: 17px; font-weight: 600; }
+.section .sub { font-size: 12px; color: var(--kruzer-neutral-700); margin-bottom: 14px; }
+
+/* Banda 1 — Saúde por cliente (cards-semáforo) */
+.health-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+@media (max-width: 1100px) { .health-grid { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); } }
+.health-card { position: relative; background: #fff; border: 1px solid var(--kruzer-neutral-300); border-left: 5px solid var(--kruzer-neutral-500); border-radius: 10px; padding: 16px 18px 14px; text-decoration: none; color: inherit; transition: transform .12s, box-shadow .12s; box-shadow: var(--shadow); }
+.health-card:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(11,16,32,.10); }
+.health-card.s-ok { border-left-color: var(--kruzer-success); }
+.health-card.s-warn { border-left-color: var(--kruzer-warning); background: linear-gradient(180deg, #FFFBEB 0%, #fff 60%); }
+.health-card.s-crit { border-left-color: var(--kruzer-error); background: linear-gradient(180deg, #FEF2F2 0%, #fff 60%); }
+.health-card .h-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.health-card .h-name { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+.health-card .h-name small { font-size: 11px; font-weight: 500; color: var(--kruzer-neutral-700); margin-left: 4px; letter-spacing: 0; }
+.health-card .h-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.health-card.s-ok .h-dot { background: var(--kruzer-success); }
+.health-card.s-warn .h-dot { background: var(--kruzer-warning); }
+.health-card.s-crit .h-dot { background: var(--kruzer-error); }
+.health-card .h-reason { font-size: 12.5px; color: var(--kruzer-navy); line-height: 1.5; min-height: 38px; }
+.health-card .h-reason strong { font-weight: 700; }
+.health-card .h-foot { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--kruzer-neutral-300); font-size: 10.5px; color: var(--kruzer-neutral-700); display: flex; justify-content: space-between; gap: 8px; }
+.health-card .h-foot .pill { background: var(--kruzer-neutral-100); padding: 2px 8px; border-radius: 999px; }
+
+/* Banda 2 — Riscos top */
+.risk-list { display: flex; flex-direction: column; gap: 8px; }
+.risk-row { display: grid; grid-template-columns: 82px 92px 1fr auto; gap: 14px; align-items: center; padding: 12px 14px; border: 1px solid var(--kruzer-neutral-300); border-left-width: 4px; border-radius: 8px; background: #fff; transition: background .12s; }
+.risk-row:hover { background: var(--kruzer-neutral-100); }
+.risk-row.crit { border-left-color: var(--kruzer-error); }
+.risk-row.high { border-left-color: var(--kruzer-warning); }
+.risk-row.info { border-left-color: var(--kruzer-primary); }
+.risk-row .chip { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; padding: 4px 8px; border-radius: 4px; text-align: center; white-space: nowrap; }
+.risk-row.crit .chip { background: var(--kruzer-error); color: #fff; }
+.risk-row.high .chip { background: var(--kruzer-warning); color: #fff; }
+.risk-row.info .chip { background: var(--kruzer-primary-100); color: var(--kruzer-primary-700); }
+.risk-row .proj { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 4px; text-align: center; color: #fff; }
+.risk-row .proj.FST { background: var(--fst); }
+.risk-row .proj.VENA { background: var(--vena); }
+.risk-row .proj.DCT { background: var(--dct); }
+.risk-row .proj.J4PM { background: var(--j4pm); }
+.risk-row .proj.KRZR { background: var(--krzr); }
+.risk-row .body .title { font-size: 13.5px; font-weight: 600; color: var(--kruzer-navy); margin-bottom: 2px; }
+.risk-row .body .title a { color: inherit; text-decoration: none; }
+.risk-row .body .title a:hover { color: var(--kruzer-primary); }
+.risk-row .body .meta { font-size: 11.5px; color: var(--kruzer-navy-300); }
+.risk-row .metric { font-size: 12.5px; font-weight: 600; color: var(--kruzer-navy); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.risk-empty { padding: 24px; text-align: center; color: var(--kruzer-success); font-weight: 600; font-size: 14px; background: linear-gradient(180deg, #ECFDF5 0%, #fff 70%); border-radius: 8px; border: 1px solid #D1FAE5; }
+
+/* Banda 3 — Marcos próximos (mini-gantt 4 semanas) */
+.miles-wrap { overflow-x: auto; border: 1px solid var(--kruzer-neutral-300); border-radius: 8px; }
+.miles-svg { display: block; }
+.miles-empty { padding: 24px; text-align: center; color: var(--kruzer-neutral-700); font-size: 13px; }
+
+/* Banda 4 — Drill */
+.drill-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+.drill-tile { display: block; padding: 12px 14px; background: #fff; border: 1px solid var(--kruzer-neutral-300); border-radius: 8px; text-decoration: none; color: inherit; transition: border-color .12s, transform .12s; }
+.drill-tile:hover { border-color: var(--kruzer-primary); transform: translateY(-1px); }
+.drill-tile .t-tag { display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 6px; }
+.drill-tile .t-name { font-size: 13px; font-weight: 600; color: var(--kruzer-navy); }
+.drill-tile .t-sub { font-size: 11px; color: var(--kruzer-neutral-700); margin-top: 2px; }
+
+.loading { padding: 60px 20px; text-align: center; color: var(--kruzer-neutral-700); }
+.loading .spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid var(--kruzer-neutral-300); border-top-color: var(--kruzer-primary); border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 8px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.error { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; padding: 12px 16px; border-radius: 8px; margin-bottom: 12px; font-size: 13px; }
+a { color: var(--kruzer-primary); }
+</style>
+</head>
+<body>
+<div class="container">
+  <a href="/" class="back">← Todos os dashboards</a>
+  <div class="header">
+    <div>
+      <h1>Kruzer Ops · Painel executivo</h1>
+      <div class="sub">Saúde da operação em uma tela. Atualizado ao vivo do JIRA.</div>
+      <div class="meta" id="metaLine">—</div>
+    </div>
+    <div class="controls">
+      <button class="primary" id="refreshBtn">Atualizar dados</button>
+    </div>
+  </div>
+
+  <div id="errorBox"></div>
+  <div id="loadingBox" class="loading"><span class="spinner"></span>Cruzando dados de FST, VENA, DCT, J4PM e KRZR…</div>
+
+  <div id="content" style="display:none">
+    <!-- Banda 1 — Saúde por cliente -->
+    <section class="section">
+      <h2>Saúde por cliente</h2>
+      <div class="sub">Semáforo derivado de atraso, bloqueio prolongado, WIP excessivo, falta de estimativa e SLA. Clique para abrir o detalhe.</div>
+      <div class="health-grid" id="healthGrid"></div>
+    </section>
+
+    <!-- Banda 2 — Riscos -->
+    <section class="section">
+      <h2>Top riscos agora</h2>
+      <div class="sub">Lista priorizada por severidade. Crítico = ação imediata; Alto = mitigar nesta semana.</div>
+      <div class="risk-list" id="riskList"></div>
+    </section>
+
+    <!-- Banda 3 — Marcos próximos -->
+    <section class="section">
+      <h2>Marcos próximos · 4 semanas</h2>
+      <div class="sub">Épicos com Due Date nas próximas 4 semanas, agrupados por cliente. Vermelho = projeção em risco. Cinza = sem estimativa.</div>
+      <div class="miles-wrap"><svg id="milesSvg" class="miles-svg" xmlns="http://www.w3.org/2000/svg"></svg></div>
+      <div id="milesEmpty" class="miles-empty" style="display:none">Nenhum marco nas próximas 4 semanas.</div>
+    </section>
+
+    <!-- Banda 4 — Drill -->
+    <section class="section">
+      <h2>Abrir detalhe</h2>
+      <div class="sub">Dashboards específicos por squad e visão cross-projeto.</div>
+      <div class="drill-grid">
+        <a class="drill-tile" href="/timeline/"><span class="t-tag" style="background:#EDE9FE;color:#5B21B6">CROSS</span><div class="t-name">Timeline · Épicos por recurso</div><div class="t-sub">FST · VENA · DCT · J4PM</div></a>
+        <a class="drill-tile" href="/fst/"><span class="t-tag" style="background:#FEF3C7;color:#92400E">FST</span><div class="t-name">FastShop · Status report</div><div class="t-sub">Demandas, capacity, follow-ups</div></a>
+        <a class="drill-tile" href="/fst/capacity"><span class="t-tag" style="background:#FEF3C7;color:#92400E">FST</span><div class="t-name">FastShop · Capacity planner</div><div class="t-sub">Esforço em horas, what-if</div></a>
+        <a class="drill-tile" href="/vena/roadmap"><span class="t-tag" style="background:#E0F2FE;color:#075985">VENA</span><div class="t-name">Venâncio · Status report</div><div class="t-sub">Roadmap consolidado</div></a>
+        <a class="drill-tile" href="/vena/capacity"><span class="t-tag" style="background:#E0F2FE;color:#075985">VENA</span><div class="t-name">Venâncio · Capacity planner</div><div class="t-sub">Esforço em story points</div></a>
+        <a class="drill-tile" href="/vena/"><span class="t-tag" style="background:#E0F2FE;color:#075985">VENA</span><div class="t-name">Venâncio · Dev</div><div class="t-sub">Throughput, blocked, aging</div></a>
+        <a class="drill-tile" href="/krzr/"><span class="t-tag" style="background:#EAEEFA;color:#1D317C">KRZR</span><div class="t-name">Service Desk</div><div class="t-sub">Open, lead time, aging</div></a>
+        <a class="drill-tile" href="/krzr/hml"><span class="t-tag" style="background:#FEF9C3;color:#854D0E">HML</span><div class="t-name">KRZR v2 (ITIL)</div><div class="t-sub">Matriz SLA, breach, CSV</div></a>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script src="/shared/api.js"></script>
+<script>
+// ─── Configuração ────────────────────────────────────────────────────────────
+const JIRA_BASE = 'https://kruzer.atlassian.net';
+const EPIC_PROJECTS = ['FST', 'VENA', 'DCT', 'J4PM'];
+const PROJ_LABEL = { FST: 'FastShop', VENA: 'Venâncio', DCT: 'Decathlon', J4PM: 'Pague Menos', KRZR: 'Service Desk' };
+const PROJ_COLOR = { FST: '#F79009', VENA: '#3151CE', DCT: '#14B8A6', J4PM: '#DB2777', KRZR: '#6B47C7' };
+const EPIC_FIELDS = ['summary','status','assignee','duedate','created','updated','resolutiondate','customfield_10015','customfield_10016','timeoriginalestimate','project'];
+const KRZR_FIELDS = ['summary','status','statusCategory','priority','created','resolutiondate','updated'];
+
+// Thresholds (handoff sessão 2026-06-25 — fixados)
+const TH = {
+  LATE_CRIT_DAYS: 7,           // > 7 dias estourado → crítico
+  BLOCK_DAYS: 5,               // ≥ 5 dias parado em bloqueio → alto
+  BLOCK_CRIT_DAYS: 10,         // ≥ 10 → crítico
+  WIP_HIGH: 3,                 // 3 épicos In Progress → alto
+  WIP_CRIT: 4,                 // 4+ → crítico
+  KRZR_HIGHEST_DAYS: 1,        // Highest aberto > 1d → alto
+  KRZR_HIGH_DAYS: 3,           // High aberto > 3d → alto
+  MILES_WEEKS: 4,              // janela do mini-gantt
+};
+const MS_DAY = 86400000;
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+function parseDate(s){ if(!s) return null; const d = new Date(s.length===10?s+'T00:00:00':s); return isNaN(d)?null:d; }
+function daysBetween(a, b){ if(!a||!b) return null; return Math.floor((b.getTime()-a.getTime())/MS_DAY); }
+function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function fmtBR(d){ if(!d) return '—'; return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`; }
+
+// Status helpers
+function isDone(name){ return /done|cancel|expired|duplicat|hyper.?care/i.test(name||''); }
+function isBlocked(name){ return /bloque|blocked|impediment/i.test(name||''); }
+function isInProgress(name, cat){
+  if (cat && /in progress|indeterminate/i.test(cat)) return true;
+  return /in.?progress|doing|desenvolvendo|em desenvolvimento|execução|hands.?on/i.test(name||'');
+}
+
+// ─── Normalização ────────────────────────────────────────────────────────────
+function normalizeEpic(issue){
+  const f = issue.fields || {};
+  const proj = f.project?.key || (issue.key||'').split('-')[0];
+  const statusName = f.status?.name || '—';
+  const statusCat = f.status?.statusCategory?.name || '';
+  const sp = f.customfield_10016;
+  const sec = f.timeoriginalestimate; // segundos — usado pelo FST como horas estimadas
+  let name = (f.summary||'').replace(/^([A-Z]*\d[\w]*|P\d|Onda\s*\d|Done)\s*\|\s*/i, '').trim() || (f.summary||'');
+  return {
+    key: issue.key, url: `${JIRA_BASE}/browse/${issue.key}`,
+    project: proj, summary: f.summary||'', name,
+    assignee: f.assignee?.displayName || 'Sem responsável',
+    statusName, statusCat,
+    blocked: isBlocked(statusName),
+    inProgress: isInProgress(statusName, statusCat),
+    done: !!f.resolutiondate || isDone(statusName),
+    due: parseDate(f.duedate),
+    start: parseDate(f.customfield_10015),
+    created: parseDate(f.created),
+    updated: parseDate(f.updated),
+    sp: (typeof sp === 'number') ? sp : null,
+    hours: (typeof sec === 'number' && sec > 0) ? Math.round(sec/3600) : null,
+  };
+}
+function normalizeTicket(issue){
+  const f = issue.fields || {};
+  const created = parseDate(f.created);
+  const resolved = parseDate(f.resolutiondate);
+  const updated = parseDate(f.updated);
+  const statusName = f.status?.name || '—';
+  const statusCat = f.status?.statusCategory?.name || '';
+  return {
+    key: issue.key, url: `${JIRA_BASE}/browse/${issue.key}`,
+    summary: f.summary || '',
+    statusName, statusCat,
+    priority: f.priority?.name || '—',
+    created, resolved, updated,
+    isOpen: !resolved && !/done/i.test(statusCat),
+    ageDays: created ? daysBetween(created, new Date()) : null,
+  };
+}
+
+// ─── Schedules publicados (D1, via /api/state) ──────────────────────────────
+// Permite o sinal "atraso projetado" (capacity > due) — destrava com Camada 1.
+async function loadPublishedSchedule(scope) {
+  try {
+    const res = await fetch(`/api/state/${encodeURIComponent(scope)}/schedule`);
+    if (res.status === 404) return null;
+    if (!res.ok) return null;
+    const data = await res.json();
+    return (data && data.value && data.value.v === 1 && Array.isArray(data.value.lanes)) ? data.value : null;
+  } catch { return null; }
+}
+// Mapeia épico-key → {scheduledEnd, dueISO, late} a partir dos lanes publicados.
+function indexScheduleByKey(schedule) {
+  const idx = {};
+  if (!schedule) return idx;
+  (schedule.lanes || []).forEach(lane => {
+    (lane.items || []).forEach(it => {
+      if (it.key) idx[it.key] = { scheduledEnd: it.end ? new Date(it.end) : null, dueISO: it.dueISO ? new Date(it.dueISO) : null, late: !!it.late };
+    });
+  });
+  return idx;
+}
+
+// ─── Risk assessment ─────────────────────────────────────────────────────────
+function assessRisks(epics, tickets, schedIdx){
+  const today = new Date(); today.setHours(0,0,0,0);
+  const risks = [];
+
+  // Atraso — épico não-Done com due < hoje
+  epics.forEach(e => {
+    if (e.done || !e.due) return;
+    const diff = Math.floor((today - e.due)/MS_DAY);
+    if (diff <= 0) return;
+    const severity = diff > TH.LATE_CRIT_DAYS ? 'crit' : 'high';
+    risks.push({
+      type: 'ATRASO', severity,
+      project: e.project, key: e.key, url: e.url, name: e.name,
+      metric: `${diff}d estourado`,
+      sortKey: diff,
+    });
+  });
+
+  // Atraso PROJETADO — capacity engine prevê fim > due acordado (G1, Camada 1).
+  // Lê do schedule publicado em D1 (via /api/state). Sem schedule, esse sinal não
+  // aparece. Não duplica "ATRASO" puro (que olha due passado): aqui due ainda no
+  // futuro mas a projeção já estoura.
+  if (schedIdx) {
+    epics.forEach(e => {
+      if (e.done || !e.due) return;
+      // se já estourou (atraso real), já entrou na regra acima — pula
+      if (e.due < today) return;
+      const info = schedIdx[e.key];
+      if (!info || !info.scheduledEnd) return;
+      if (info.scheduledEnd <= e.due) return;
+      const overshoot = Math.floor((info.scheduledEnd - e.due)/MS_DAY);
+      if (overshoot < 1) return;
+      const severity = overshoot > TH.LATE_CRIT_DAYS ? 'crit' : 'high';
+      risks.push({
+        type: 'ATRASO PROJETADO', severity,
+        project: e.project, key: e.key, url: e.url, name: e.name,
+        metric: `proj. +${overshoot}d além do due`,
+        sortKey: overshoot,
+      });
+    });
+  }
+
+  // Bloqueio prolongado — status bloqueado E updated < hoje - N dias (proxy de "parado")
+  epics.forEach(e => {
+    if (e.done || !e.blocked || !e.updated) return;
+    const stale = Math.floor((today - e.updated)/MS_DAY);
+    if (stale < TH.BLOCK_DAYS) return;
+    const severity = stale >= TH.BLOCK_CRIT_DAYS ? 'crit' : 'high';
+    risks.push({
+      type: 'BLOQUEIO', severity,
+      project: e.project, key: e.key, url: e.url, name: e.name,
+      metric: `${stale}d sem update`,
+      sortKey: stale,
+    });
+  });
+
+  // WIP excessivo — agregado por assignee
+  const byAssignee = {};
+  epics.forEach(e => {
+    if (e.done || !e.inProgress || e.assignee === 'Sem responsável') return;
+    (byAssignee[e.assignee] = byAssignee[e.assignee] || []).push(e);
+  });
+  Object.entries(byAssignee).forEach(([assignee, arr]) => {
+    if (arr.length < TH.WIP_HIGH) return;
+    const severity = arr.length >= TH.WIP_CRIT ? 'crit' : 'high';
+    const projs = [...new Set(arr.map(e => e.project))];
+    risks.push({
+      type: 'WIP', severity,
+      project: projs[0], key: assignee, url: null, name: assignee,
+      metric: `${arr.length} épicos · ${projs.join('·')}`,
+      sortKey: arr.length,
+    });
+  });
+
+  // Sem estimativa — VENA mede em Story Points, FST em horas (G2).
+  const noEstVena = epics.filter(e => !e.done && e.project === 'VENA' && e.sp == null && e.inProgress);
+  if (noEstVena.length) {
+    risks.push({
+      type: 'SEM ESTIMATIVA', severity: 'info',
+      project: 'VENA', key: '', url: null, name: `${noEstVena.length} épico(s) em andamento sem SP`,
+      metric: noEstVena.slice(0,3).map(e => e.key).join(', ') + (noEstVena.length > 3 ? '…' : ''),
+      sortKey: noEstVena.length,
+    });
+  }
+  const noEstFst = epics.filter(e => !e.done && e.project === 'FST' && e.hours == null && e.inProgress);
+  if (noEstFst.length) {
+    risks.push({
+      type: 'SEM ESTIMATIVA', severity: 'info',
+      project: 'FST', key: '', url: null, name: `${noEstFst.length} épico(s) em andamento sem horas`,
+      metric: noEstFst.slice(0,3).map(e => e.key).join(', ') + (noEstFst.length > 3 ? '…' : ''),
+      sortKey: noEstFst.length,
+    });
+  }
+
+  // SLA KRZR — tickets Highest abertos > 1d ou High > 3d
+  const krzrBreach = tickets.filter(t => {
+    if (!t.isOpen || t.ageDays == null) return false;
+    const p = String(t.priority).toLowerCase();
+    if (/(highest|critical|p0)/.test(p) && t.ageDays > TH.KRZR_HIGHEST_DAYS) return true;
+    if (/(high|p1)/.test(p) && t.ageDays > TH.KRZR_HIGH_DAYS) return true;
+    return false;
+  });
+  if (krzrBreach.length) {
+    const severity = krzrBreach.length >= 3 ? 'crit' : 'high';
+    risks.push({
+      type: 'SLA KRZR', severity,
+      project: 'KRZR', key: '', url: '/krzr/hml', name: `${krzrBreach.length} ticket(s) alta prioridade fora do SLA`,
+      metric: krzrBreach.slice(0,2).map(t => `${t.key} · ${t.priority}`).join(' · '),
+      sortKey: krzrBreach.length * 10,
+    });
+  }
+
+  // Sustain — caixa-preta (informativo permanente até Camada de intake)
+  risks.push({
+    type: 'SUSTAIN', severity: 'info',
+    project: 'FST', key: '', url: '/fst/', name: 'Sustain ainda é caixa-preta',
+    metric: 'sem intake estruturado · risco operacional',
+    sortKey: 0,
+  });
+
+  // Ordena por severidade depois por sortKey
+  const sevOrder = { crit: 0, high: 1, info: 2 };
+  risks.sort((a, b) => (sevOrder[a.severity] - sevOrder[b.severity]) || (b.sortKey - a.sortKey));
+  return risks;
+}
+
+// ─── Saúde por projeto ───────────────────────────────────────────────────────
+function projectHealth(project, risks, epics, tickets){
+  const proj = project;
+  const projRisks = risks.filter(r => r.project === proj);
+  const crit = projRisks.filter(r => r.severity === 'crit').length;
+  const high = projRisks.filter(r => r.severity === 'high').length;
+  const info = projRisks.filter(r => r.severity === 'info').length;
+
+  let status = 's-ok';
+  if (crit > 0) status = 's-crit';
+  else if (high >= 2) status = 's-crit';
+  else if (high === 1 || info >= 2) status = 's-warn';
+
+  // Contagens base
+  let openCount, dueNextN;
+  if (proj === 'KRZR') {
+    openCount = tickets.filter(t => t.isOpen).length;
+    dueNextN = tickets.filter(t => {
+      if (!t.isOpen) return false;
+      const p = String(t.priority).toLowerCase();
+      return /(highest|critical|p0|high|p1)/.test(p);
+    }).length;
+  } else {
+    const projEpics = epics.filter(e => e.project === proj && !e.done);
+    openCount = projEpics.length;
+    const today = new Date(); today.setHours(0,0,0,0);
+    const horizon = new Date(today.getTime() + TH.MILES_WEEKS*7*MS_DAY);
+    dueNextN = projEpics.filter(e => e.due && e.due >= today && e.due <= horizon).length;
+  }
+
+  // Razão em uma frase
+  const reasonParts = [];
+  if (crit) reasonParts.push(`<strong>${crit}</strong> crítico${crit>1?'s':''}`);
+  if (high) reasonParts.push(`<strong>${high}</strong> alto${high>1?'s':''}`);
+  if (info && !crit && !high) reasonParts.push(`<strong>${info}</strong> atenção`);
+  const reason = reasonParts.length
+    ? reasonParts.join(' · ')
+    : (status === 's-ok' ? 'Sem riscos detectados.' : 'Saudável.');
+
+  return {
+    project: proj, label: PROJ_LABEL[proj], color: PROJ_COLOR[proj],
+    status, reason, openCount, dueNextN, crit, high, info,
+  };
+}
+
+// ─── Renderers ───────────────────────────────────────────────────────────────
+function renderHealthGrid(healths){
+  const labelOpen = proj => proj === 'KRZR' ? 'tickets abertos' : 'épicos abertos';
+  const labelDue = proj => proj === 'KRZR' ? 'alta prioridade' : 'due 4 sem.';
+  const linkOf = proj => proj === 'KRZR' ? '/krzr/' : (proj === 'FST' ? '/fst/' : (proj === 'VENA' ? '/vena/roadmap' : `/timeline/?proj=${proj}`));
+  const html = healths.map(h => `
+    <a class="health-card ${h.status}" href="${linkOf(h.project)}">
+      <div class="h-top">
+        <div class="h-name">${h.project} <small>· ${escapeHtml(h.label)}</small></div>
+        <div class="h-dot"></div>
+      </div>
+      <div class="h-reason">${h.reason}</div>
+      <div class="h-foot">
+        <span class="pill">${h.openCount} ${labelOpen(h.project)}</span>
+        <span class="pill">${h.dueNextN} ${labelDue(h.project)}</span>
+      </div>
+    </a>
+  `).join('');
+  document.getElementById('healthGrid').innerHTML = html;
+}
+
+function renderRisks(risks){
+  const list = document.getElementById('riskList');
+  if (!risks.length) { list.innerHTML = '<div class="risk-empty">Nenhum risco detectado. Operação saudável.</div>'; return; }
+  // Top 8 mais relevantes; Sustain sempre por último.
+  const top = risks.slice(0, 8);
+  list.innerHTML = top.map(r => {
+    const titleHtml = r.url
+      ? `<a href="${r.url}" ${r.url.startsWith('http') ? 'target="_blank"' : ''}>${r.key ? `<strong>${r.key}</strong> · ` : ''}${escapeHtml(r.name)}</a>`
+      : `${r.key ? `<strong>${escapeHtml(r.key)}</strong> · ` : ''}${escapeHtml(r.name)}`;
+    return `
+      <div class="risk-row ${r.severity}">
+        <div class="chip">${r.type}</div>
+        <div class="proj ${r.project}">${r.project}</div>
+        <div class="body">
+          <div class="title">${titleHtml}</div>
+          <div class="meta">${escapeHtml(PROJ_LABEL[r.project] || '')}</div>
+        </div>
+        <div class="metric">${escapeHtml(r.metric)}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderMilestones(epics){
+  const svg = document.getElementById('milesSvg');
+  const empty = document.getElementById('milesEmpty');
+  const today = new Date(); today.setHours(0,0,0,0);
+  const horizon = new Date(today.getTime() + TH.MILES_WEEKS*7*MS_DAY);
+  // janela vai de hoje até horizon (4 semanas)
+  const items = epics.filter(e => !e.done && e.due && e.due >= today && e.due <= horizon);
+  if (!items.length) { svg.innerHTML = ''; svg.setAttribute('height', 0); empty.style.display = ''; return; }
+  empty.style.display = 'none';
+
+  // Agrupa por projeto
+  const byProj = {};
+  items.forEach(e => (byProj[e.project] = byProj[e.project] || []).push(e));
+  const projs = EPIC_PROJECTS.filter(p => byProj[p]);
+
+  // Layout
+  const wrap = document.querySelector('.miles-wrap');
+  const W = Math.max(900, wrap.clientWidth || 1100);
+  const LEFT = 200, TOP = 36, ROW = 26, GH = 22, PAD = 16;
+  const timeW = W - LEFT - PAD;
+  const totalDays = TH.MILES_WEEKS * 7;
+  const xd = d => LEFT + (d - today)/MS_DAY * (timeW / totalDays);
+
+  let totalH = TOP;
+  projs.forEach(p => { totalH += GH + byProj[p].length * ROW; });
+  totalH += PAD;
+
+  let body = '';
+  // Eixo de semanas
+  for (let w = 0; w <= TH.MILES_WEEKS; w++) {
+    const d = new Date(today.getTime() + w*7*MS_DAY);
+    const x = xd(d);
+    body += `<line x1="${x.toFixed(1)}" y1="${TOP-8}" x2="${x.toFixed(1)}" y2="${totalH-PAD}" stroke="#E3E3ED" stroke-width="${w===0?1.5:0.6}"/>`;
+    body += `<text x="${(x+4).toFixed(1)}" y="${TOP-14}" font-size="10" fill="#48507D" font-weight="${w===0?700:500}">${w===0?'Hoje':'Sem +' + w}</text>`;
+    body += `<text x="${(x+4).toFixed(1)}" y="${TOP-2}" font-size="9" fill="#989DAD">${fmtBR(d)}</text>`;
+  }
+
+  // Linhas por projeto
+  let y = TOP;
+  projs.forEach(p => {
+    body += `<rect x="0" y="${y}" width="${W}" height="${GH}" fill="#F4F4F8"/>`;
+    body += `<text x="12" y="${y + GH/2 + 4}" font-size="12" font-weight="700" fill="${PROJ_COLOR[p]}">${p}</text>`;
+    body += `<text x="${12 + (p.length*8 + 12)}" y="${y + GH/2 + 4}" font-size="11" fill="#989DAD">${PROJ_LABEL[p]} · ${byProj[p].length}</text>`;
+    y += GH;
+    byProj[p].sort((a,b) => a.due - b.due).forEach(e => {
+      const x = xd(e.due);
+      const isLate = e.due < today; // não deveria entrar aqui, mas defensivo
+      const projColor = PROJ_COLOR[p];
+      // marca = diamante centrado em x, com nome à esquerda e key
+      const cy = y + ROW/2;
+      // label esquerda
+      body += `<text x="12" y="${cy + 4}" font-size="11" font-weight="600" fill="#1D317C">${e.key}</text>`;
+      const nm = e.name.length > 22 ? e.name.slice(0,21)+'…' : e.name;
+      body += `<text x="74" y="${cy + 4}" font-size="11" fill="#232534">${escapeHtml(nm)}</text>`;
+      // barra fina hoje→due (visual de "quanto falta")
+      const x0 = LEFT;
+      const barColor = isLate ? '#F04438' : projColor;
+      body += `<rect x="${x0}" y="${cy - 3}" width="${Math.max(2, x - x0).toFixed(1)}" height="6" rx="3" fill="${barColor}" opacity="0.25"/>`;
+      // marcador diamante na due
+      body += `<polygon points="${x.toFixed(1)},${cy-7} ${(x+7).toFixed(1)},${cy} ${x.toFixed(1)},${cy+7} ${(x-7).toFixed(1)},${cy}" fill="${barColor}" stroke="#fff" stroke-width="1.5"/>`;
+      // data
+      body += `<text x="${(x + 12).toFixed(1)}" y="${cy + 4}" font-size="10" fill="#48507D" font-variant-numeric="tabular-nums">${fmtBR(e.due)}</text>`;
+      // linha separadora
+      body += `<line x1="0" y1="${y+ROW}" x2="${W}" y2="${y+ROW}" stroke="#E3E3ED" stroke-width="0.5"/>`;
+      y += ROW;
+    });
+  });
+
+  svg.setAttribute('viewBox', `0 0 ${W} ${totalH}`);
+  svg.setAttribute('width', W);
+  svg.setAttribute('height', totalH);
+  svg.innerHTML = body;
+}
+
+// ─── Pipeline ────────────────────────────────────────────────────────────────
+async function loadAndRender(){
+  document.getElementById('errorBox').innerHTML = '';
+  document.getElementById('loadingBox').style.display = '';
+  document.getElementById('content').style.display = 'none';
+  const btn = document.getElementById('refreshBtn'); btn.disabled = true; btn.textContent = 'Atualizando…';
+  try {
+    // Paralelo: épicos dos 4 projetos + tickets KRZR + schedules publicados (D1).
+    // Schedules vêm do /api/state — se D1 não estiver configurado, retornam null
+    // e o sinal "ATRASO PROJETADO" simplesmente não aparece (degradação graciosa).
+    const epicJql = `project in (${EPIC_PROJECTS.join(',')}) AND issuetype = Epic AND statusCategory != Done`;
+    const krzrJql = `project = KRZR AND resolution is EMPTY ORDER BY priority DESC, created DESC`;
+    const [epicsRaw, ticketsRaw, venaSched, fstSched] = await Promise.all([
+      KruzerAPI.fetchAll({ jql: epicJql, fields: EPIC_FIELDS }),
+      KruzerAPI.fetchAll({ jql: krzrJql, fields: KRZR_FIELDS, maxPages: 10 }),
+      loadPublishedSchedule('vena-capacity'),
+      loadPublishedSchedule('fst-capacity'),
+    ]);
+    const epics = epicsRaw.map(normalizeEpic);
+    const tickets = ticketsRaw.map(normalizeTicket);
+    const schedIdx = { ...indexScheduleByKey(venaSched), ...indexScheduleByKey(fstSched) };
+
+    const risks = assessRisks(epics, tickets, schedIdx);
+    const healths = [...EPIC_PROJECTS, 'KRZR'].map(p => projectHealth(p, risks, epics, tickets));
+
+    renderHealthGrid(healths);
+    renderRisks(risks);
+    renderMilestones(epics);
+
+    document.getElementById('loadingBox').style.display = 'none';
+    document.getElementById('content').style.display = '';
+    document.getElementById('metaLine').textContent =
+      `${epics.length} épicos · ${tickets.length} tickets KRZR · atualizado ${new Date().toLocaleString('pt-BR')}`;
+
+    // Re-render mini-gantt quando a largura assentar
+    requestAnimationFrame(() => renderMilestones(epics));
+  } catch (e) {
+    document.getElementById('loadingBox').style.display = 'none';
+    document.getElementById('errorBox').innerHTML = `<div class="error"><b>Falha ao carregar dados:</b> ${escapeHtml(e.message)}</div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Atualizar dados';
+  }
+}
+
+document.getElementById('refreshBtn').addEventListener('click', loadAndRender);
+let _rz; window.addEventListener('resize', () => { clearTimeout(_rz); _rz = setTimeout(() => loadAndRender(), 300); });
+loadAndRender();
+</script>
+</body>
+</html>
