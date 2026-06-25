@@ -17,18 +17,12 @@
 <script src="https://cdn.jsdelivr.net/npm/gridjs@5.0.2/dist/gridjs.umd.js"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/gridjs@5.0.2/dist/theme/mermaid.min.css">
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+<script src="/shared/state.js"></script>
+<script src="/shared/capacity.js"></script>
+<link rel="stylesheet" href="/shared/tokens.css">
 <style>
-:root {
-  color-scheme: light;
-  --kruzer-primary: #3151CE; --kruzer-primary-100: #EAEEFA; --kruzer-primary-700: #1D317C;
-  --kruzer-navy: #232534; --kruzer-navy-300: #48507D; --kruzer-neutral-100: #F4F4F8;
-  --kruzer-neutral-300: #E3E3ED; --kruzer-neutral-500: #C6C9D9; --kruzer-neutral-700: #989DAD;
-  --kruzer-success: #12B76A; --kruzer-warning: #F79009; --kruzer-error: #F04438;
-  --shadow: 0 1px 2px rgba(11,16,32,.04), 0 4px 12px rgba(11,16,32,.05);
-  --px-per-sp: 3.2; /* px por story point — escala visual do esforço */
-}
-* { box-sizing: border-box; }
-body { margin: 0; font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif; background: var(--kruzer-neutral-100); color: var(--kruzer-navy); font-size: 14px; line-height: 1.5; }
+/* Tokens vivem em /shared/tokens.css. Override local: --px-per-sp (escala do bloco). */
+:root { --px-per-sp: 3.2; }
 .container { padding: 16px 20px 40px; max-width: 1640px; margin: 0 auto; }
 .back { font-size: 12px; color: var(--kruzer-primary); text-decoration: none; margin-bottom: 8px; display: inline-block; }
 .back:hover { text-decoration: underline; }
@@ -384,7 +378,7 @@ const STATUS_MAP = {
 };
 const PRIO_RANK = { 'Highest':0, 'High':1, 'Medium':2, 'Low':3, 'Lowest':4 };
 
-function parseDate(s){ if(!s) return null; const d = new Date(s); return isNaN(d) ? null : d; }
+function parseDate(s){ if(!s) return null; const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(s) ? s+'T00:00:00' : s); return isNaN(d) ? null : d; } // date-only → meia-noite LOCAL (evita shift de fuso)
 function startOfDay(d){ const x=new Date(d); x.setHours(0,0,0,0); return x; }
 function addDays(d,n){ const x=new Date(d); x.setDate(x.getDate()+n); return x; }
 function fmtBR(d){ return d ? d.toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'2-digit'}) : '—'; }
@@ -425,31 +419,42 @@ function defaultState(){
   };
 }
 
+// Estado e cenários salvos passam por KruzerState (D1 + cache local).
+// Imports one-shot dos legacy keys preservam continuidade pros usuários atuais.
+KruzerState.importLegacyKey(LS.current, 'vena-capacity', 'scenario:current');
+KruzerState.importLegacyKey(LS.saved,   'vena-capacity', 'scenarios');
+
 function loadState(){
-  try {
-    const raw = localStorage.getItem(LS.current);
-    if (raw){
-      const s = JSON.parse(raw);
-      // schema antigo → descarta overrides (reseta projeções) e usa defaults novos
-      if (s.schemaVersion !== SCHEMA_VERSION) { localStorage.removeItem(LS.current); return defaultState(); }
-      s.whatIfMode = false;
-      return Object.assign(defaultState(), s);
-    }
-  } catch(e){ /* corrompido — ignora */ }
+  const r = KruzerState.read('vena-capacity', 'scenario:current');
+  const s = r && r.value;
+  if (s && typeof s === 'object'){
+    if (s.schemaVersion !== SCHEMA_VERSION) { KruzerState.delete('vena-capacity', 'scenario:current'); return defaultState(); }
+    s.whatIfMode = false;
+    return Object.assign(defaultState(), s);
+  }
   return defaultState();
 }
 function persist(){
   clearTimeout(saveTimer);
   saveTimer = setTimeout(()=>{
-    try { localStorage.setItem(LS.current, JSON.stringify(STATE)); } catch(e){}
+    const cur = KruzerState.read('vena-capacity', 'scenario:current');
+    KruzerState.write('vena-capacity', 'scenario:current', STATE, { expectedVersion: cur.version })
+      .catch(e => console.warn('state save failed:', e.message));
   }, 300);
 }
 function loadSavedScenarios(){
-  try { return JSON.parse(localStorage.getItem(LS.saved) || '[]'); } catch(e){ return []; }
+  const r = KruzerState.read('vena-capacity', 'scenarios');
+  return Array.isArray(r && r.value) ? r.value : [];
 }
 function persistSavedScenarios(list){
-  try { localStorage.setItem(LS.saved, JSON.stringify(list)); } catch(e){}
+  const cur = KruzerState.read('vena-capacity', 'scenarios');
+  KruzerState.write('vena-capacity', 'scenarios', list, { expectedVersion: cur.version })
+    .catch(e => console.warn('scenarios save failed:', e.message));
 }
+// Boot: puxa estado mais novo do servidor (não trava UI; updates re-renderizam via subscribe)
+KruzerState.sync('vena-capacity', 'scenario:current');
+KruzerState.sync('vena-capacity', 'scenarios');
+KruzerState.syncSchedule && KruzerCapacity.syncSchedule('vena');
 
 // ============================================================================
 // Normalização do JIRA
@@ -633,21 +638,28 @@ function computeSchedule(){
 // ============================================================================
 // Publish — grava o cronograma calculado pro Status Report (/vena/roadmap)
 // renderizar EXATAMENTE o mesmo plano (espelho real, não recálculo).
+// IO + helpers movidos pra /shared/capacity.js (Fase B do refactor 2026-06-25).
 // ============================================================================
-const PUBLISH_KEY = 'kruzer:vena-capacity:schedule';
-const BLK_HEX = { 's-dev':'#12B76A','s-refin':'#3151CE','s-warn':'#F79009','s-neutral':'#C6C9D9','s-backlog':'#48507D','s-block':'#F04438' };
+const BLK_HEX = KruzerCapacity.BLK_HEX;
 function publishSchedule(sched){
-  const cleanName = s => String(s||'').replace(/^(DMND\d+|P\d|Onda\s*\d+|Done)\s*\|\s*/i,'').trim();
-  const itemize = e => ({
-    key: e.key, url: e.url, name: cleanName(e.summary),
-    effort: e.effectiveSp, placeholder: e.spSource === 'placeholder',
-    color: BLK_HEX[(STATUS_MAP[e.status]||{}).blk] || '#48507D',
-    statusLabel: e.status,
-    start: e.scheduledStart ? e.scheduledStart.toISOString() : null,
-    end: e.scheduledEnd ? e.scheduledEnd.toISOString() : null,
-    dueISO: e.jiraDue ? startOfDay(e.jiraDue).toISOString() : null,
-    late: !!e.late,
-  });
+  const cleanName = KruzerCapacity.cleanName;
+  const itemize = e => {
+    // Estado atual: começa na Start date real e termina na Due date real (gerida no
+    // acompanhamento). Cai pro agendamento do capacity só quando não há data real.
+    const ds = e.jiraStart ? startOfDay(e.jiraStart) : e.scheduledStart;
+    let de = e.jiraDue ? startOfDay(e.jiraDue) : e.scheduledEnd;
+    if (ds && de && de < ds) de = (e.scheduledEnd && e.scheduledEnd > ds) ? e.scheduledEnd : addDays(ds, 1);
+    return {
+      key: e.key, url: e.url, name: cleanName(e.summary),
+      effort: e.effectiveSp, placeholder: e.spSource === 'placeholder',
+      color: BLK_HEX[(STATUS_MAP[e.status]||{}).blk] || '#48507D',
+      statusLabel: e.status,
+      start: ds ? ds.toISOString() : null,
+      end: de ? de.toISOString() : null,
+      dueISO: e.jiraDue ? startOfDay(e.jiraDue).toISOString() : null,
+      late: !!e.late,
+    };
+  };
   const lanes = [];
   if (sched.dedEpic) lanes.push({ label: `${DEDICATED.label} (dedicada)`, dedicated:true, items:[itemize(sched.dedEpic)] });
   sched.tracks.forEach((items, i) => lanes.push({ label:`Track ${i+1}`, dedicated:false, items: items.map(itemize) }));
@@ -657,7 +669,7 @@ function publishSchedule(sched){
     params: { devs:STATE.devs, velocityPerDev:STATE.velocityPerDev, parallelTracks:STATE.parallelTracks, horizonWeeks:STATE.horizonWeeks, squad:sched.squad, throughputPerTrack:sched.throughputPerTrack, dedThroughput: sched.dedEpic ? (sched.dedThroughput || 0) : 0 },
     lanes, backlogCount: STATE.backlog.length, doneCount: sched.epics.filter(e=>e.done).length,
   };
-  try { localStorage.setItem(PUBLISH_KEY, JSON.stringify(payload)); } catch {}
+  KruzerCapacity.publishSchedule('vena', payload);
 }
 
 // ============================================================================

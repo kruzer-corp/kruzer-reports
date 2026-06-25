@@ -5,18 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Timeline — Épicos FST × VENA por recurso</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/shared/tokens.css">
 <style>
-:root {
-  color-scheme: light;
-  --kruzer-primary: #3151CE; --kruzer-primary-100: #EAEEFA; --kruzer-primary-700: #1D317C;
-  --kruzer-navy: #232534; --kruzer-navy-300: #48507D; --kruzer-neutral-100: #F4F4F8;
-  --kruzer-neutral-300: #E3E3ED; --kruzer-neutral-500: #C6C9D9; --kruzer-neutral-700: #989DAD;
-  --kruzer-success: #12B76A; --kruzer-warning: #F79009; --kruzer-error: #F04438;
-  --fst: #F79009; --vena: #3151CE;
-  --shadow: 0 1px 2px rgba(11,16,32,.04), 0 4px 12px rgba(11,16,32,.05);
-}
-* { box-sizing: border-box; }
-body { margin: 0; font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif; background: var(--kruzer-neutral-100); color: var(--kruzer-navy); font-size: 14px; line-height: 1.5; }
+/* Tokens vivem em /shared/tokens.css. */
 .container { padding: 16px 20px 40px; max-width: 1500px; margin: 0 auto; }
 .back { font-size: 12px; color: var(--kruzer-primary); text-decoration: none; margin-bottom: 8px; display: inline-block; }
 .back:hover { text-decoration: underline; }
@@ -31,8 +22,7 @@ button.primary { background: var(--kruzer-primary); color: #fff; border-color: v
 button.primary:hover { background: var(--kruzer-primary-700); }
 button:disabled { opacity: 0.6; cursor: wait; }
 
-.kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 18px; }
-@media (max-width: 760px) { .kpis { grid-template-columns: repeat(2, 1fr); } }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 18px; }
 .kpi { background: #fff; border: 1px solid var(--kruzer-neutral-300); border-radius: 8px; padding: 14px 18px; box-shadow: var(--shadow); border-top-width: 3px; border-top-color: var(--kruzer-navy-300); }
 .kpi.k-fst { border-top-color: var(--fst); }
 .kpi.k-vena { border-top-color: var(--vena); }
@@ -48,6 +38,8 @@ button:disabled { opacity: 0.6; cursor: wait; }
 .legend-swatch { width: 16px; height: 11px; border-radius: 2px; display: inline-block; }
 .legend-swatch.fst { background: var(--fst); }
 .legend-swatch.vena { background: var(--vena); }
+.legend-swatch.dct { background: var(--dct); }
+.legend-swatch.j4pm { background: var(--j4pm); }
 .legend-swatch.blocked { background: #fff; border: 2px solid var(--kruzer-error); }
 .legend-swatch.est { background: repeating-linear-gradient(45deg, var(--kruzer-neutral-500), var(--kruzer-neutral-500) 3px, #fff 3px, #fff 6px); }
 .legend-swatch.today { width: 2px; height: 14px; background: var(--kruzer-error); border-radius: 0; }
@@ -112,14 +104,14 @@ a:hover { text-decoration: underline; }
     </div>
     <div class="controls">
       <div class="control"><label for="projFilter">Projeto</label>
-        <select id="projFilter"><option value="all">FST + VENA</option><option value="FST">Só FST</option><option value="VENA">Só VENA</option></select>
+        <select id="projFilter"><option value="all">Todos os projetos</option><option value="FST">FST · FastShop</option><option value="VENA">VENA · Venâncio</option><option value="DCT">DCT · Decathlon</option><option value="J4PM">J4PM · Pague Menos</option></select>
       </div>
       <div class="control"><label>&nbsp;</label><button class="primary" id="refreshBtn">Atualizar dados</button></div>
     </div>
   </div>
 
   <div id="errorBox"></div>
-  <div id="loadingBox" class="loading"><span class="spinner"></span>Cruzando épicos de FST e VENA…</div>
+  <div id="loadingBox" class="loading"><span class="spinner"></span>Cruzando épicos de FST, VENA, DCT e J4PM…</div>
 
   <div id="content" style="display:none">
     <div class="kpis" id="kpis"></div>
@@ -130,6 +122,8 @@ a:hover { text-decoration: underline; }
       <div class="legend">
         <span class="legend-item"><span class="legend-swatch fst"></span> FST</span>
         <span class="legend-item"><span class="legend-swatch vena"></span> VENA</span>
+        <span class="legend-item"><span class="legend-swatch dct"></span> DCT</span>
+        <span class="legend-item"><span class="legend-swatch j4pm"></span> J4PM</span>
         <span class="legend-item"><span class="legend-swatch blocked"></span> Bloqueado</span>
         <span class="legend-item"><span class="legend-swatch est"></span> Data estimada</span>
         <span class="legend-item"><span class="legend-swatch today"></span> Hoje</span>
@@ -161,7 +155,8 @@ a:hover { text-decoration: underline; }
 const JIRA_BASE = 'https://kruzer.atlassian.net';
 const FIELDS = ['summary','status','assignee','duedate','created','resolutiondate','labels','customfield_10015','project'];
 const MS_DAY = 86400000;
-const PROJ_COLOR = { FST: '#F79009', VENA: '#3151CE' };
+const PROJ_COLOR = { FST: '#F79009', VENA: '#3151CE', DCT: '#14B8A6', J4PM: '#DB2777' };
+const PROJECTS = ['FST', 'VENA', 'DCT', 'J4PM'];
 
 function parseDate(s){ if(!s) return null; const d = new Date(s.length === 10 ? s + 'T00:00:00' : s); return isNaN(d) ? null : d; }
 function fmt(d){ return d ? `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}` : '—'; }
@@ -210,14 +205,15 @@ function selected(){
 
 function renderKPIs(plotted){
   const resources = new Set(plotted.map(e => e.assignee));
-  const nFst = plotted.filter(e => e.project === 'FST').length;
-  const nVena = plotted.filter(e => e.project === 'VENA').length;
   const c = document.getElementById('kpis');
-  c.innerHTML =
+  let html =
     `<div class="kpi"><div class="label">Épicos rodando</div><div class="value">${plotted.length}</div></div>` +
-    `<div class="kpi"><div class="label">Recursos</div><div class="value">${resources.size}</div></div>` +
-    `<div class="kpi k-fst"><div class="label">FST</div><div class="value">${nFst}</div></div>` +
-    `<div class="kpi k-vena"><div class="label">VENA</div><div class="value">${nVena}</div></div>`;
+    `<div class="kpi"><div class="label">Recursos</div><div class="value">${resources.size}</div></div>`;
+  PROJECTS.forEach(p => {
+    const n = plotted.filter(e => e.project === p).length;
+    html += `<div class="kpi" style="border-top-color:${PROJ_COLOR[p]}"><div class="label">${p}</div><div class="value">${n}</div></div>`;
+  });
+  c.innerHTML = html;
 }
 
 function renderGantt(){
@@ -372,7 +368,7 @@ async function loadAndRender(){
   document.getElementById('content').style.display = 'none';
   const btn = document.getElementById('refreshBtn'); btn.disabled = true; btn.textContent = 'Atualizando…';
   try {
-    const jql = `project in (FST, VENA) AND issuetype = Epic ORDER BY created DESC`;
+    const jql = `project in (FST, VENA, DCT, J4PM) AND issuetype = Epic ORDER BY created DESC`;
     const issues = await KruzerAPI.fetchAll({ jql, fields: FIELDS });
     RAW = issues.map(normalize);
     document.getElementById('loadingBox').style.display = 'none';
@@ -380,7 +376,7 @@ async function loadAndRender(){
     renderGantt();
     requestAnimationFrame(renderGantt); // re-mede a largura após o layout assentar
     document.getElementById('subtitle').textContent =
-      `${RAW.length} épicos lidos (FST + VENA) • atualizado ${new Date().toLocaleString('pt-BR')}`;
+      `${RAW.length} épicos lidos (FST · VENA · DCT · J4PM) • atualizado ${new Date().toLocaleString('pt-BR')}`;
   } catch (e) {
     document.getElementById('loadingBox').style.display = 'none';
     document.getElementById('errorBox').innerHTML = `<div class="error"><b>Falha ao carregar dados:</b> ${escapeHtml(e.message)}</div>`;
