@@ -45,6 +45,17 @@ export default {
       return handleUpdateIssue(request, env);
     }
 
+    // 2d. Estado compartilhado (D1) — Camada 1 do roadmap "controle de operação".
+    // Substitui localStorage por-navegador como fonte de verdade pra remarks,
+    // followups, cenários de capacity, schedule publicado e config de risco.
+    if (url.pathname.startsWith('/api/state/')) {
+      return handleStateRoute(request, env, url);
+    }
+    if (url.pathname === '/api/audit') {
+      if (request.method !== 'GET') return jsonError(405, 'Use GET');
+      return handleAuditList(request, env, url);
+    }
+
     // 3. Healthcheck simples
     if (url.pathname === '/api/health') {
       return new Response(JSON.stringify({ ok: true, ts: new Date().toISOString() }), {
@@ -222,4 +233,167 @@ function jsonError(status, message) {
     status,
     headers: { 'Content-Type': 'application/json' },
   });
+}
+
+function jsonOk(body, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+  });
+}
+
+// ─── /api/state — Camada 1: persistência D1 ─────────────────────────────────
+// Rotas:
+//   GET    /api/state/:scope            → lista chaves do escopo
+//   GET    /api/state/:scope/:key       → lê uma chave
+//   PUT    /api/state/:scope/:key       → upsert (body: {value, expectedVersion?})
+//   DELETE /api/state/:scope/:key       → remove
+//
+// Concorrência: optimistic. Cliente manda `expectedVersion`. Se o registro existe
+// e tem versão diferente, retorna 409 + estado atual. Sem expectedVersion = força.
+// updated_by é o usuário do Basic Auth (Camada 3 substitui por identidade real).
+async function handleStateRoute(request, env, url) {
+  if (!env.STATE_DB) return jsonError(503, 'STATE_DB binding not configured');
+  // Path: /api/state/<scope>(/<key>)?
+  const rest = url.pathname.slice('/api/state/'.length);
+  const parts = rest.split('/').filter(Boolean).map(decodeURIComponent);
+  if (!parts.length) return jsonError(400, 'Missing scope');
+  const [scope, ...keyParts] = parts;
+  const key = keyParts.join('/'); // permite key com '/' (ex.: 'scenario/current')
+
+  if (!key && request.method === 'GET') return handleStateList(env, scope);
+  if (!key) return jsonError(400, 'Missing key');
+
+  switch (request.method) {
+    case 'GET':    return handleStateGet(env, scope, key);
+    case 'PUT':    return handleStatePut(request, env, scope, key);
+    case 'DELETE': return handleStateDelete(request, env, scope, key);
+    default: return jsonError(405, 'Use GET, PUT or DELETE');
+  }
+}
+
+async function handleStateList(env, scope) {
+  try {
+    const rs = await env.STATE_DB
+      .prepare('SELECT key, version, updated_at, updated_by FROM state WHERE scope = ? ORDER BY key')
+      .bind(scope)
+      .all();
+    return jsonOk({ scope, items: rs.results || [] });
+  } catch (e) {
+    return jsonError(500, `D1 list failed: ${e.message}`);
+  }
+}
+
+async function handleStateGet(env, scope, key) {
+  try {
+    const row = await env.STATE_DB
+      .prepare('SELECT value, version, updated_at, updated_by FROM state WHERE scope = ? AND key = ?')
+      .bind(scope, key)
+      .first();
+    if (!row) return jsonError(404, 'not found');
+    let value;
+    try { value = JSON.parse(row.value); } catch { value = null; }
+    return jsonOk({ scope, key, value, version: row.version, updated_at: row.updated_at, updated_by: row.updated_by });
+  } catch (e) {
+    return jsonError(500, `D1 get failed: ${e.message}`);
+  }
+}
+
+async function handleStatePut(request, env, scope, key) {
+  let body;
+  try { body = await request.json(); } catch { return jsonError(400, 'Invalid JSON body'); }
+  if (!body || typeof body !== 'object' || !('value' in body)) {
+    return jsonError(400, 'Missing "value"');
+  }
+  const expectedVersion = body.expectedVersion;
+  const valueJson = JSON.stringify(body.value);
+  const now = new Date().toISOString();
+  const user = env.DASHBOARD_USER || 'anonymous';
+
+  try {
+    // Lê estado atual (sob a mesma "transação lógica" — D1 não tem transactions multi-statement
+    // confiáveis, mas as duas operações são sequenciais e idempotentes pro caso de race).
+    const cur = await env.STATE_DB
+      .prepare('SELECT value, version FROM state WHERE scope = ? AND key = ?')
+      .bind(scope, key)
+      .first();
+
+    if (cur && typeof expectedVersion === 'number' && cur.version !== expectedVersion) {
+      // Conflito: cliente está editando uma versão antiga.
+      let curValue;
+      try { curValue = JSON.parse(cur.value); } catch { curValue = null; }
+      return jsonOk({ error: 'version conflict', current: { value: curValue, version: cur.version } }, 409);
+    }
+
+    const oldVersion = cur ? cur.version : 0;
+    const newVersion = oldVersion + 1;
+    const oldValue = cur ? cur.value : null;
+
+    // Upsert
+    await env.STATE_DB
+      .prepare(`INSERT INTO state (scope, key, value, version, updated_at, updated_by)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(scope, key) DO UPDATE SET
+                  value = excluded.value,
+                  version = excluded.version,
+                  updated_at = excluded.updated_at,
+                  updated_by = excluded.updated_by`)
+      .bind(scope, key, valueJson, newVersion, now, user)
+      .run();
+
+    // Audit
+    await env.STATE_DB
+      .prepare(`INSERT INTO audit_log (scope, key, action, old_value, new_value, old_version, new_version, updated_by, ts)
+                VALUES (?, ?, 'set', ?, ?, ?, ?, ?, ?)`)
+      .bind(scope, key, oldValue, valueJson, oldVersion || null, newVersion, user, now)
+      .run();
+
+    return jsonOk({ scope, key, version: newVersion, updated_at: now, updated_by: user });
+  } catch (e) {
+    return jsonError(500, `D1 put failed: ${e.message}`);
+  }
+}
+
+async function handleStateDelete(request, env, scope, key) {
+  const now = new Date().toISOString();
+  const user = env.DASHBOARD_USER || 'anonymous';
+  try {
+    const cur = await env.STATE_DB
+      .prepare('SELECT value, version FROM state WHERE scope = ? AND key = ?')
+      .bind(scope, key)
+      .first();
+    if (!cur) return new Response(null, { status: 204 });
+
+    await env.STATE_DB.prepare('DELETE FROM state WHERE scope = ? AND key = ?').bind(scope, key).run();
+    await env.STATE_DB
+      .prepare(`INSERT INTO audit_log (scope, key, action, old_value, new_value, old_version, new_version, updated_by, ts)
+                VALUES (?, ?, 'delete', ?, NULL, ?, NULL, ?, ?)`)
+      .bind(scope, key, cur.value, cur.version, user, now)
+      .run();
+    return new Response(null, { status: 204 });
+  } catch (e) {
+    return jsonError(500, `D1 delete failed: ${e.message}`);
+  }
+}
+
+// /api/audit?scope=X&limit=50 → histórico das mudanças.
+async function handleAuditList(request, env, url) {
+  if (!env.STATE_DB) return jsonError(503, 'STATE_DB binding not configured');
+  const scope = url.searchParams.get('scope');
+  const limit = clamp(parseInt(url.searchParams.get('limit') || '50', 10), 1, 500);
+  try {
+    let rs;
+    if (scope) {
+      rs = await env.STATE_DB
+        .prepare('SELECT id, scope, key, action, old_version, new_version, updated_by, ts FROM audit_log WHERE scope = ? ORDER BY ts DESC LIMIT ?')
+        .bind(scope, limit).all();
+    } else {
+      rs = await env.STATE_DB
+        .prepare('SELECT id, scope, key, action, old_version, new_version, updated_by, ts FROM audit_log ORDER BY ts DESC LIMIT ?')
+        .bind(limit).all();
+    }
+    return jsonOk({ scope, items: rs.results || [] });
+  } catch (e) {
+    return jsonError(500, `D1 audit failed: ${e.message}`);
+  }
 }

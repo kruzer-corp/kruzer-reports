@@ -2,7 +2,8 @@ name = "kruzer-dashboards"
 main = "src/worker.js"
 compatibility_date = "2024-12-01"
 
-# Serve arquivos estáticos do public/ via binding ASSETS
+# ─── Config base (vale pra `wrangler deploy` sem --env, que é o atual prod) ───
+# Serve arquivos estáticos do public/ via binding ASSETS.
 # html_handling = "auto-trailing-slash" garante que /krzr/ → krzr/index.html
 # e /krzr/hml → krzr/hml.html (sem precisar do .html no link).
 [assets]
@@ -19,3 +20,41 @@ run_worker_first = true
 # Logs durante desenvolvimento
 [observability]
 enabled = true
+
+# ─── D1 prod (Camada 1 do roadmap de controle de operação) ─────────────────────
+# Estado vivo compartilhado: remarks, followups, cenários de capacity, schedule
+# publicado e config de risco. Substitui o localStorage por-navegador.
+#
+# Setup local (uma vez):
+#   wrangler d1 create kruzer-state
+#   # copie o database_id de saída pro campo abaixo
+#   wrangler d1 execute kruzer-state --file=migrations/0001_init.sql
+#   wrangler d1 execute kruzer-state --file=migrations/0001_init.sql --remote
+[[d1_databases]]
+binding = "STATE_DB"
+database_name = "kruzer-state"
+database_id = "REPLACE_AFTER_RUNNING_d1_create"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Environment: HML (homologação)
+# URL: https://kruzer-dashboards-hml.matheus-mereb.workers.dev
+# D1 isolado: kruzer-state-hml (não compartilha dado com prod)
+# Deploy: `npm run deploy:hml`  (ou `wrangler deploy --env hml`)
+# ═══════════════════════════════════════════════════════════════════════════════
+[env.hml]
+name = "kruzer-dashboards-hml"
+
+[env.hml.assets]
+directory = "./public"
+binding = "ASSETS"
+html_handling = "auto-trailing-slash"
+not_found_handling = "404-page"
+run_worker_first = true
+
+[env.hml.observability]
+enabled = true
+
+[[env.hml.d1_databases]]
+binding = "STATE_DB"
+database_name = "kruzer-state-hml"
+database_id = "REPLACE_AFTER_RUNNING_d1_create_hml"

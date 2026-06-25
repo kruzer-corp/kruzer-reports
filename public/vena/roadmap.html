@@ -5,17 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>VENA — Status Report de Épicos</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/shared/tokens.css">
 <style>
-:root {
-  color-scheme: light;
-  --kruzer-primary: #3151CE; --kruzer-primary-100: #EAEEFA; --kruzer-primary-700: #1D317C;
-  --kruzer-navy: #232534; --kruzer-navy-300: #48507D; --kruzer-neutral-100: #F4F4F8;
-  --kruzer-neutral-300: #E3E3ED; --kruzer-neutral-500: #C6C9D9; --kruzer-neutral-700: #989DAD;
-  --kruzer-success: #12B76A; --kruzer-warning: #F79009; --kruzer-error: #F04438;
-  --shadow: 0 1px 2px rgba(11,16,32,.04), 0 4px 12px rgba(11,16,32,.05);
-}
-* { box-sizing: border-box; }
-body { margin: 0; font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif; background: var(--kruzer-neutral-100); color: var(--kruzer-navy); font-size: 14px; line-height: 1.5; }
+/* Tokens vivem em /shared/tokens.css. */
 .container { padding: 16px 20px 40px; max-width: 1400px; margin: 0 auto; }
 .back { font-size: 12px; color: var(--kruzer-primary); text-decoration: none; margin-bottom: 8px; display: inline-block; }
 .back:hover { text-decoration: underline; }
@@ -309,7 +301,7 @@ button.ghost:hover { background: var(--kruzer-neutral-100); }
     <!-- Timeline real — cronograma por capacity -->
     <section class="section">
       <h2>Timeline de execução — cronograma por capacity</h2>
-      <div class="sub">Cronograma projetado a partir de hoje pelo <a href="/vena/capacity">planejador de Capacity do VENA</a>: o esforço (horas estimadas no JIRA) vira duração e é empacotado sequencialmente por track. <span id="ganttMeta">—</span> · reflete o cenário salvo no planejador.</div>
+      <div class="sub">Estado atual: épicos em andamento começam na <b>Start date</b> real e terminam na <b>Due date</b> acordada (gerida no acompanhamento). Sem datas reais, o <a href="/vena/capacity">planejador de Capacity do VENA</a> projeta início/fim pelo esforço. <span id="ganttMeta">—</span></div>
       <div class="legend">
         <span class="legend-item"><span class="legend-swatch" style="background:#12B76A"></span> Hyper Care</span>
         <span class="legend-item"><span class="legend-swatch" style="background:#3151CE"></span> Em Execução</span>
@@ -335,6 +327,8 @@ button.ghost:hover { background: var(--kruzer-neutral-100); }
 <div class="toast" id="toast"></div>
 
 <script src="/shared/api.js"></script>
+<script src="/shared/state.js"></script>
+<script src="/shared/capacity.js"></script>
 <script>
 const PROJECT = 'VENA', JIRA_BASE = 'https://kruzer.atlassian.net';
 const FIELDS = ['summary','status','priority','issuetype','created','resolutiondate','labels','duedate','description','customfield_10015','timeoriginalestimate','aggregatetimeoriginalestimate'];
@@ -467,14 +461,21 @@ function parseDescDate(desc, field){
   return m ? `${m[3]}-${m[2]}-${m[1]}` : '';
 }
 
-// ---- Remarks (localStorage) ----
+// ---- Remarks (KruzerState — D1 + cache local; migra de REMARK_STORE legacy) ----
+KruzerState.importLegacyKey(REMARK_STORE, 'vena-roadmap', 'remarks');
 function loadRemarks(){
-  try { return JSON.parse(localStorage.getItem(REMARK_STORE) || '{}'); } catch { return {}; }
+  const r = KruzerState.read('vena-roadmap', 'remarks');
+  return (r && r.value && typeof r.value === 'object') ? r.value : {};
 }
 function saveRemarks(obj){
-  try { localStorage.setItem(REMARK_STORE, JSON.stringify(obj)); } catch {}
+  const cur = KruzerState.read('vena-roadmap', 'remarks');
+  KruzerState.write('vena-roadmap', 'remarks', obj, { expectedVersion: cur.version })
+    .catch(e => console.warn('remarks save failed:', e.message));
 }
 let REMARK_OVERRIDES = loadRemarks();
+// Sincroniza do servidor (e re-render no callback do listener)
+KruzerState.sync('vena-roadmap', 'remarks').then(() => { REMARK_OVERRIDES = loadRemarks(); });
+KruzerState.subscribe('vena-roadmap', 'remarks', () => { REMARK_OVERRIDES = loadRemarks(); if (typeof render === 'function') render(); });
 function remarkFor(issue){
   if (Object.prototype.hasOwnProperty.call(REMARK_OVERRIDES, issue.key)) return REMARK_OVERRIDES[issue.key];
   return issue.remarkDefault || '';
@@ -743,8 +744,8 @@ function computeSchedule(){
     const { h, src } = effortH(e, P);
     const o = {
       ...e, effortH:h, effortSrc:src,
-      jiraStartD: e.startDate ? startOfDay(new Date(e.startDate)) : null,
-      jiraDueD: e.dueDate ? startOfDay(new Date(e.dueDate)) : null,
+      jiraStartD: e.startDate ? startOfDay(new Date(e.startDate + 'T00:00:00')) : null,
+      jiraDueD: e.dueDate ? startOfDay(new Date(e.dueDate + 'T00:00:00')) : null,
       trackIdx: P.trackAssignments[e.key]?.trackIdx ?? null,
       orderInTrack: P.trackAssignments[e.key]?.orderInTrack ?? 0,
       inBacklog: P.backlog.includes(e.key),
@@ -779,12 +780,10 @@ function computeSchedule(){
 }
 
 // Cronograma publicado pelo planner (fonte da verdade). Espelho real, sem recálculo.
-const PUBLISH_KEY = 'kruzer:vena-capacity:schedule';
+// IO movido pra /shared/capacity.js (Fase B do refactor 2026-06-25).
 function readPublishedSchedule(){
-  let raw; try { raw = localStorage.getItem(PUBLISH_KEY); } catch { return null; }
-  if (!raw) return null;
-  let s; try { s = JSON.parse(raw); } catch { return null; }
-  if (!s || s.v !== 1 || !Array.isArray(s.lanes)) return null;
+  const s = KruzerCapacity.readPublishedSchedule('vena');
+  if (!s) return null;
   const D = x => x ? new Date(x) : null;
   const unit = s.unit || 'h';
   const groups = s.lanes.map(L => ({
@@ -804,11 +803,14 @@ function localPlan(){
   const sched = computeSchedule();
   const groups = sched.tracks.map((items, i) => ({
     label: `Track ${i+1}`, dedicated:false,
-    items: items.filter(e=>e.scheduledStart).map(e => ({
-      key:e.key, url:e.url, name:e.name, start:e.scheduledStart, end:e.scheduledEnd,
-      color: BUCKET_COLOR[e.bucket] || '#48507D', effort: e.effortH, placeholder: e.effortSrc==='placeholder',
-      statusLabel: (bucketById(e.bucket)||{}).label || '', late: e.late, dueD: e.jiraDueD,
-    })),
+    items: items.filter(e=>e.scheduledStart).map(e => {
+      const ds = e.jiraStartD || e.scheduledStart;
+      let de = e.jiraDueD || e.scheduledEnd;
+      if (ds && de && de < ds) de = (e.scheduledEnd && e.scheduledEnd > ds) ? e.scheduledEnd : addDays(ds, 1);
+      return { key:e.key, url:e.url, name:e.name, start:ds, end:de,
+        color: BUCKET_COLOR[e.bucket] || '#48507D', effort: e.effortH, placeholder: e.effortSrc==='placeholder',
+        statusLabel: (bucketById(e.bucket)||{}).label || '', late: e.late, dueD: e.jiraDueD };
+    }),
   })).filter(g=>g.items.length);
   return { source:'local', unit:'h', today: sched.today, horizonEnd: sched.horizonEnd,
     params: { devs:sched.P.devs, velocityPerDev:sched.P.velocityPerDev, parallelTracks:sched.P.parallelTracks, horizonWeeks:sched.P.horizonWeeks, squad:sched.squad, throughputPerTrack:sched.throughputPerTrack, dedThroughput:0 },
@@ -841,8 +843,12 @@ function renderGantt(){
   if (!allItems.length){ svg.innerHTML=''; svg.setAttribute('height',0); return; }
 
   const today = plan.today;
-  const minD = startOfDay(addDays(today, -3));
+  // Inclui starts reais no passado (épicos em andamento começam na Start date).
+  // Piso em 1º de abril pra limitar espaço morto; barras anteriores ficam cortadas (‹).
+  const starts = allItems.map(it => it.start.getTime());
   const ends = allItems.map(it => it.end.getTime());
+  const aprFloor = new Date(today.getFullYear(), 3, 1).getTime();
+  const minD = new Date(Math.max(Math.min(Math.min(...starts) - 3*MS_DAY, today.getTime() - 3*MS_DAY), aprFloor));
   const horizonMs = plan.horizonEnd ? plan.horizonEnd.getTime() : Math.max(...ends);
   const maxD = new Date(Math.max(horizonMs, ...ends) + 4*MS_DAY);
   const totalDays = Math.max(1, (maxD - minD)/MS_DAY);
@@ -886,7 +892,9 @@ function renderGantt(){
     body += `<text class="g-group-meta" x="200" y="${y+GH/2+4}">${items.length} épicos · ${sumEff}${U} · → ${fmtShort(lastEnd)}</text>`;
     y += GH;
     items.forEach(e=>{
-      const bx = xd(e.start), bw = Math.max(6, xd(e.end)-xd(e.start));
+      const sx = xd(e.start), ex = xd(e.end);
+      const clampedLeft = sx < LEFT;
+      const bx = Math.max(sx, LEFT), bw = Math.max(6, ex - bx);
       const by = y + (ROW-18)/2;
       const fill = e.placeholder ? 'url(#hh)' : e.color;
       const stroke = e.late ? '#F04438' : 'none', sw = e.late ? 2 : 0;
@@ -898,7 +906,8 @@ function renderGantt(){
         + ` data-key="${e.key}" data-name="${escapeHtml(e.name)}" data-status="${escapeHtml(e.statusLabel)}"`
         + ` data-eff="${effLabel(e)}" data-start="${fmtShort(e.start)}" data-end="${fmtShort(e.end)}"`
         + ` data-due="${e.dueD?fmtShort(e.dueD):''}" data-late="${e.late?'1':''}" data-url="${e.url}"/>`;
-      if (bw > 46) body += `<text class="g-barlabel" x="${(bx+6).toFixed(1)}" y="${by+13}" ${e.placeholder?'fill="#232534"':''}>${effLabel(e)}</text>`;
+      if (clampedLeft && bw > 16) body += `<polyline points="${(bx+8).toFixed(1)},${by+3} ${(bx+3).toFixed(1)},${by+9} ${(bx+8).toFixed(1)},${by+15}" fill="none" stroke="#fff" stroke-width="1.5"/>`;
+      if (bw > 46) body += `<text class="g-barlabel" x="${(bx+(clampedLeft?14:6)).toFixed(1)}" y="${by+13}" ${e.placeholder?'fill="#232534"':''}>${effLabel(e)}</text>`;
       y += ROW;
     });
   });
@@ -1002,9 +1011,20 @@ const FU_CATS = [
   { id:'out', label:'Outro',      color:'#989DAD' },
 ];
 const fuCat = id => FU_CATS.find(c => c.id === id) || FU_CATS[3];
-function loadFollowups(){ try { return JSON.parse(localStorage.getItem(FOLLOWUP_STORE) || '[]'); } catch { return []; } }
-function saveFollowups(){ try { localStorage.setItem(FOLLOWUP_STORE, JSON.stringify(FOLLOWUPS)); } catch {} }
+// Followups (KruzerState — D1 + cache local; migra de FOLLOWUP_STORE legacy)
+KruzerState.importLegacyKey(FOLLOWUP_STORE, 'vena-roadmap', 'followups');
+function loadFollowups(){
+  const r = KruzerState.read('vena-roadmap', 'followups');
+  return Array.isArray(r && r.value) ? r.value : [];
+}
+function saveFollowups(){
+  const cur = KruzerState.read('vena-roadmap', 'followups');
+  KruzerState.write('vena-roadmap', 'followups', FOLLOWUPS, { expectedVersion: cur.version })
+    .catch(e => console.warn('followups save failed:', e.message));
+}
 let FOLLOWUPS = loadFollowups();
+KruzerState.sync('vena-roadmap', 'followups').then(() => { FOLLOWUPS = loadFollowups(); if (typeof renderFollowups === 'function') renderFollowups(); });
+KruzerState.subscribe('vena-roadmap', 'followups', () => { FOLLOWUPS = loadFollowups(); if (typeof renderFollowups === 'function') renderFollowups(); });
 
 function renderFollowups(){
   const el = document.getElementById('fuList');
