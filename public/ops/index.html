@@ -9,13 +9,23 @@
 <!--
   Kruzer Ops — Painel executivo (Camada 0 do roadmap "controle de operação").
   Persona: C-level. Leitura de 30s. Sem persistência: 100% derivado de JQL ao vivo.
-  Regras de risco (fixadas — handoff HANDOFF_OPS_CONTROL.md, sessão 2026-06-25):
+
+  Escopo dos projetos-cliente (semáforo + riscos + marcos): FST, VENA, DCT.
+  · J4PM (Pague Menos) está fora do escopo por enquanto — basta re-adicionar em
+    EPIC_PROJECTS pra voltar.
+  · KRZR NÃO é projeto-cliente: é o Service Desk de sustentação (vertical de
+    serviços), com dinâmica/metodologia/KPIs próprios. Tem banda separada
+    (renderKrzrDesk) com indicadores de SLA/fila/aging — não entra no semáforo de
+    projetos nem na lista de riscos de roadmap.
+
+  Regras de risco dos projetos-cliente (fixadas — HANDOFF_OPS_CONTROL.md, 2026-06-25):
     · Atraso: épico não-Done com duedate < hoje. Crítico se >7d, alto 1-7d.
     · Bloqueio: status contém "bloque" e updated < hoje-5d. Crítico >10d.
     · WIP: assignee com >=3 épicos In Progress. Crítico 4+.
-    · Sem estimativa: épico aberto sem Story Points (VENA).
-    · SLA KRZR: ticket Highest aberto >1d ou High aberto >3d.
+    · Sem estimativa: épico em andamento sem Story Points (VENA) / horas (FST).
+    · Sem due: épico em andamento sem duedate acordada (lacuna de gestão).
     · Sustain: card informativo (caixa-preta, depende de Camada Sustain).
+  KRZR (banda própria): SLA = Highest aberto >1d ou High aberto >3d; aging da fila.
   Threshold-driven, não capacity-driven: a Camada 1 (D1) destrava o cruzamento com
   schedule publicado do planner pra ligar "projeção > due".
 -->
@@ -40,8 +50,27 @@ button:disabled { opacity: 0.6; cursor: wait; }
 .section .sub { font-size: 12px; color: var(--kruzer-neutral-700); margin-bottom: 14px; }
 
 /* Banda 1 — Saúde por cliente (cards-semáforo) */
-.health-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+.health-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 @media (max-width: 1100px) { .health-grid { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); } }
+
+/* Banda Service Desk — KRZR (vertical de serviços / sustentação, KPIs próprios) */
+.krzr-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border: 1px solid var(--kruzer-neutral-300); border-left: 5px solid var(--kruzer-neutral-500); border-radius: 10px; margin-bottom: 12px; }
+.krzr-head.s-ok { border-left-color: var(--kruzer-success); background: linear-gradient(180deg, #ECFDF5 0%, #fff 70%); }
+.krzr-head.s-warn { border-left-color: var(--kruzer-warning); background: linear-gradient(180deg, #FFFBEB 0%, #fff 70%); }
+.krzr-head.s-crit { border-left-color: var(--kruzer-error); background: linear-gradient(180deg, #FEF2F2 0%, #fff 70%); }
+.krzr-statline { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px; color: var(--kruzer-navy); }
+.krzr-head .h-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.krzr-head.s-ok .h-dot { background: var(--kruzer-success); }
+.krzr-head.s-warn .h-dot { background: var(--kruzer-warning); }
+.krzr-head.s-crit .h-dot { background: var(--kruzer-error); }
+.krzr-open { font-size: 12px; font-weight: 600; white-space: nowrap; text-decoration: none; }
+.krzr-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+.krzr-kpi { background: #fff; border: 1px solid var(--kruzer-neutral-300); border-radius: 8px; padding: 12px 14px; border-top: 3px solid var(--krzr); }
+.krzr-kpi.bad { border-top-color: var(--kruzer-error); }
+.krzr-kpi .kv { font-size: 24px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; color: var(--kruzer-navy); }
+.krzr-kpi .kl { font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--kruzer-neutral-700); font-weight: 600; margin-top: 4px; }
+.krzr-prio { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 12px; font-size: 12px; color: var(--kruzer-navy-300); }
+.krzr-prio span b { color: var(--kruzer-navy); font-variant-numeric: tabular-nums; }
 .health-card { position: relative; background: #fff; border: 1px solid var(--kruzer-neutral-300); border-left: 5px solid var(--kruzer-neutral-500); border-radius: 10px; padding: 16px 18px 14px; text-decoration: none; color: inherit; transition: transform .12s, box-shadow .12s; box-shadow: var(--shadow); }
 .health-card:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(11,16,32,.10); }
 .health-card.s-ok { border-left-color: var(--kruzer-success); }
@@ -118,20 +147,27 @@ a { color: var(--kruzer-primary); }
   </div>
 
   <div id="errorBox"></div>
-  <div id="loadingBox" class="loading"><span class="spinner"></span>Cruzando dados de FST, VENA, DCT, J4PM e KRZR…</div>
+  <div id="loadingBox" class="loading"><span class="spinner"></span>Cruzando dados de FST, VENA, DCT e o Service Desk KRZR…</div>
 
   <div id="content" style="display:none">
-    <!-- Banda 1 — Saúde por cliente -->
+    <!-- Banda 1 — Saúde dos projetos-cliente -->
     <section class="section">
-      <h2>Saúde por cliente</h2>
-      <div class="sub">Semáforo derivado de atraso, bloqueio prolongado, WIP excessivo, falta de estimativa e SLA. Clique para abrir o detalhe.</div>
+      <h2>Saúde dos projetos-cliente</h2>
+      <div class="sub">Semáforo derivado de atraso, bloqueio prolongado, WIP excessivo e falta de estimativa/due. Clique para abrir o detalhe. <em>Escopo atual: FST · VENA · DCT.</em></div>
       <div class="health-grid" id="healthGrid"></div>
+    </section>
+
+    <!-- Banda Service Desk — KRZR (sustentação, vertical de serviços) -->
+    <section class="section">
+      <h2>Service Desk · KRZR <small style="font-size:12px;font-weight:500;color:var(--kruzer-neutral-700)">— sustentação · vertical de serviços</small></h2>
+      <div class="sub">Consolida demandas de sustentação de todos os clientes da vertical de serviços. Dinâmica e KPIs próprios (SLA, fila, aging) — não é roadmap de projeto.</div>
+      <div id="krzrDesk"></div>
     </section>
 
     <!-- Banda 2 — Riscos -->
     <section class="section">
       <h2>Top riscos agora</h2>
-      <div class="sub">Lista priorizada por severidade. Crítico = ação imediata; Alto = mitigar nesta semana.</div>
+      <div class="sub">Riscos dos projetos-cliente, priorizados por severidade. Crítico = ação imediata; Alto = mitigar nesta semana. (SLA do KRZR fica na banda Service Desk acima.)</div>
       <div class="risk-list" id="riskList"></div>
     </section>
 
@@ -148,7 +184,7 @@ a { color: var(--kruzer-primary); }
       <h2>Abrir detalhe</h2>
       <div class="sub">Dashboards específicos por squad e visão cross-projeto.</div>
       <div class="drill-grid">
-        <a class="drill-tile" href="/timeline/"><span class="t-tag" style="background:#EDE9FE;color:#5B21B6">CROSS</span><div class="t-name">Timeline · Épicos por recurso</div><div class="t-sub">FST · VENA · DCT · J4PM</div></a>
+        <a class="drill-tile" href="/timeline/"><span class="t-tag" style="background:#EDE9FE;color:#5B21B6">CROSS</span><div class="t-name">Timeline · Épicos por recurso</div><div class="t-sub">FST · VENA · DCT</div></a>
         <a class="drill-tile" href="/fst/"><span class="t-tag" style="background:#FEF3C7;color:#92400E">FST</span><div class="t-name">FastShop · Status report</div><div class="t-sub">Demandas, capacity, follow-ups</div></a>
         <a class="drill-tile" href="/fst/capacity"><span class="t-tag" style="background:#FEF3C7;color:#92400E">FST</span><div class="t-name">FastShop · Capacity planner</div><div class="t-sub">Esforço em horas, what-if</div></a>
         <a class="drill-tile" href="/vena/roadmap"><span class="t-tag" style="background:#E0F2FE;color:#075985">VENA</span><div class="t-name">Venâncio · Status report</div><div class="t-sub">Roadmap consolidado</div></a>
@@ -165,7 +201,10 @@ a { color: var(--kruzer-primary); }
 <script>
 // ─── Configuração ────────────────────────────────────────────────────────────
 const JIRA_BASE = 'https://kruzer.atlassian.net';
-const EPIC_PROJECTS = ['FST', 'VENA', 'DCT', 'J4PM'];
+// Projetos-cliente no escopo do semáforo/riscos/marcos. J4PM fora por enquanto;
+// KRZR não entra aqui (é Service Desk, tem banda própria). Re-adicione J4PM aqui
+// pra trazê-lo de volta ao escopo de roadmap.
+const EPIC_PROJECTS = ['FST', 'VENA', 'DCT'];
 const PROJ_LABEL = { FST: 'FastShop', VENA: 'Venâncio', DCT: 'Decathlon', J4PM: 'Pague Menos', KRZR: 'Service Desk' };
 const PROJ_COLOR = { FST: '#F79009', VENA: '#3151CE', DCT: '#14B8A6', J4PM: '#DB2777', KRZR: '#6B47C7' };
 const EPIC_FIELDS = ['summary','status','assignee','duedate','created','updated','resolutiondate','customfield_10015','customfield_10016','timeoriginalestimate','project'];
@@ -359,23 +398,21 @@ function assessRisks(epics, tickets, schedIdx){
     });
   }
 
-  // SLA KRZR — tickets Highest abertos > 1d ou High > 3d
-  const krzrBreach = tickets.filter(t => {
-    if (!t.isOpen || t.ageDays == null) return false;
-    const p = String(t.priority).toLowerCase();
-    if (/(highest|critical|p0)/.test(p) && t.ageDays > TH.KRZR_HIGHEST_DAYS) return true;
-    if (/(high|p1)/.test(p) && t.ageDays > TH.KRZR_HIGH_DAYS) return true;
-    return false;
-  });
-  if (krzrBreach.length) {
-    const severity = krzrBreach.length >= 3 ? 'crit' : 'high';
+  // Sem due — épico em andamento sem data de entrega acordada (lacuna de gestão).
+  // Por projeto-cliente, espelhando "sem estimativa".
+  EPIC_PROJECTS.forEach(p => {
+    const noDue = epics.filter(e => !e.done && e.project === p && e.inProgress && !e.due);
+    if (!noDue.length) return;
     risks.push({
-      type: 'SLA KRZR', severity,
-      project: 'KRZR', key: '', url: '/krzr/hml', name: `${krzrBreach.length} ticket(s) alta prioridade fora do SLA`,
-      metric: krzrBreach.slice(0,2).map(t => `${t.key} · ${t.priority}`).join(' · '),
-      sortKey: krzrBreach.length * 10,
+      type: 'SEM DUE', severity: 'info',
+      project: p, key: '', url: null, name: `${noDue.length} épico(s) em andamento sem due`,
+      metric: noDue.slice(0,3).map(e => e.key).join(', ') + (noDue.length > 3 ? '…' : ''),
+      sortKey: noDue.length,
     });
-  }
+  });
+
+  // SLA KRZR NÃO entra aqui: KRZR é Service Desk (sustentação), tratado na banda
+  // própria renderKrzrDesk() com indicadores de SLA/fila/aging próprios.
 
   // Sustain — caixa-preta (informativo permanente até Camada de intake)
   risks.push({
@@ -404,22 +441,12 @@ function projectHealth(project, risks, epics, tickets){
   else if (high >= 2) status = 's-crit';
   else if (high === 1 || info >= 2) status = 's-warn';
 
-  // Contagens base
-  let openCount, dueNextN;
-  if (proj === 'KRZR') {
-    openCount = tickets.filter(t => t.isOpen).length;
-    dueNextN = tickets.filter(t => {
-      if (!t.isOpen) return false;
-      const p = String(t.priority).toLowerCase();
-      return /(highest|critical|p0|high|p1)/.test(p);
-    }).length;
-  } else {
-    const projEpics = epics.filter(e => e.project === proj && !e.done);
-    openCount = projEpics.length;
-    const today = new Date(); today.setHours(0,0,0,0);
-    const horizon = new Date(today.getTime() + TH.MILES_WEEKS*7*MS_DAY);
-    dueNextN = projEpics.filter(e => e.due && e.due >= today && e.due <= horizon).length;
-  }
+  // Contagens base (projetos-cliente medem em épicos; KRZR tem banda própria).
+  const projEpics = epics.filter(e => e.project === proj && !e.done);
+  const openCount = projEpics.length;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const horizon = new Date(today.getTime() + TH.MILES_WEEKS*7*MS_DAY);
+  const dueNextN = projEpics.filter(e => e.due && e.due >= today && e.due <= horizon).length;
 
   // Razão em uma frase
   const reasonParts = [];
@@ -554,6 +581,53 @@ function renderMilestones(epics){
   svg.innerHTML = body;
 }
 
+// ─── Service Desk KRZR (banda própria, KPIs de sustentação) ──────────────────
+// KRZR não é projeto-cliente: é o Service Desk da vertical de serviços. Seu
+// "semáforo" é guiado por SLA (Highest/High) e aging da fila — não por roadmap.
+function krzrDeskData(tickets){
+  const open = tickets.filter(t => t.isOpen);
+  const isHighest = t => /(highest|critical|p0)/.test(String(t.priority).toLowerCase());
+  const isHigh = t => /(high|p1)/.test(String(t.priority).toLowerCase());
+  const breaches = open.filter(t => t.ageDays != null && (
+    (isHighest(t) && t.ageDays > TH.KRZR_HIGHEST_DAYS) ||
+    (isHigh(t) && t.ageDays > TH.KRZR_HIGH_DAYS)
+  ));
+  const highestBreach = breaches.some(isHighest);
+  const aging7 = open.filter(t => t.ageDays != null && t.ageDays > 7);
+  const maxAge = open.reduce((m, t) => Math.max(m, t.ageDays || 0), 0);
+  const order = ['Highest','High','Medium','Low','Lowest'];
+  const byPrio = {};
+  open.forEach(t => { const p = t.priority || '—'; byPrio[p] = (byPrio[p] || 0) + 1; });
+  const prios = Object.entries(byPrio).sort((a, b) => {
+    const ia = order.indexOf(a[0]), ib = order.indexOf(b[0]);
+    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+  });
+  let status = 's-ok';
+  if (breaches.length >= 3 || highestBreach) status = 's-crit';
+  else if (breaches.length >= 1 || aging7.length >= 5) status = 's-warn';
+  return { open, breaches, aging7, maxAge, prios, status };
+}
+
+function renderKrzrDesk(tickets){
+  const d = krzrDeskData(tickets);
+  const statusText = d.status === 's-crit' ? 'Crítico — SLA estourado'
+    : d.status === 's-warn' ? 'Atenção — SLA pressionado'
+    : 'Operação saudável';
+  const prioHtml = d.prios.map(([p, n]) => `<span>${escapeHtml(p)}: <b>${n}</b></span>`).join('');
+  document.getElementById('krzrDesk').innerHTML =
+    `<div class="krzr-head ${d.status}">
+      <div class="krzr-statline"><span class="h-dot"></span>${statusText}</div>
+      <a class="krzr-open" href="/krzr/hml">Abrir matriz SLA →</a>
+    </div>
+    <div class="krzr-kpis">
+      <div class="krzr-kpi"><div class="kv">${d.open.length}</div><div class="kl">Fila aberta</div></div>
+      <div class="krzr-kpi ${d.breaches.length ? 'bad' : ''}"><div class="kv">${d.breaches.length}</div><div class="kl">Fora de SLA</div></div>
+      <div class="krzr-kpi"><div class="kv">${d.aging7.length}</div><div class="kl">Aging &gt; 7d</div></div>
+      <div class="krzr-kpi"><div class="kv">${d.maxAge}d</div><div class="kl">Mais antigo</div></div>
+    </div>` +
+    (d.prios.length ? `<div class="krzr-prio"><span style="font-weight:600;color:var(--kruzer-neutral-700)">Por prioridade:</span>${prioHtml}</div>` : '');
+}
+
 // ─── Pipeline ────────────────────────────────────────────────────────────────
 async function loadAndRender(){
   document.getElementById('errorBox').innerHTML = '';
@@ -577,9 +651,10 @@ async function loadAndRender(){
     const schedIdx = { ...indexScheduleByKey(venaSched), ...indexScheduleByKey(fstSched) };
 
     const risks = assessRisks(epics, tickets, schedIdx);
-    const healths = [...EPIC_PROJECTS, 'KRZR'].map(p => projectHealth(p, risks, epics, tickets));
+    const healths = EPIC_PROJECTS.map(p => projectHealth(p, risks, epics, tickets));
 
     renderHealthGrid(healths);
+    renderKrzrDesk(tickets);
     renderRisks(risks);
     renderMilestones(epics);
 

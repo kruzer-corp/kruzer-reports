@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Timeline — Épicos FST × VENA por recurso</title>
+<title>Timeline — Épicos por recurso</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/shared/tokens.css">
 <style>
@@ -26,6 +26,7 @@ button:disabled { opacity: 0.6; cursor: wait; }
 .kpi { background: #fff; border: 1px solid var(--kruzer-neutral-300); border-radius: 8px; padding: 14px 18px; box-shadow: var(--shadow); border-top-width: 3px; border-top-color: var(--kruzer-navy-300); }
 .kpi.k-fst { border-top-color: var(--fst); }
 .kpi.k-vena { border-top-color: var(--vena); }
+.kpi.k-nodue { border-top-color: #B45309; }
 .kpi .label { font-size: 11px; text-transform: uppercase; color: var(--kruzer-neutral-700); font-weight: 600; letter-spacing: 0.5px; margin-bottom: 4px; }
 .kpi .value { font-size: 28px; font-weight: 700; line-height: 1; }
 
@@ -43,6 +44,7 @@ button:disabled { opacity: 0.6; cursor: wait; }
 .legend-swatch.blocked { background: #fff; border: 2px solid var(--kruzer-error); }
 .legend-swatch.est { background: repeating-linear-gradient(45deg, var(--kruzer-neutral-500), var(--kruzer-neutral-500) 3px, #fff 3px, #fff 6px); }
 .legend-swatch.today { width: 2px; height: 14px; background: var(--kruzer-error); border-radius: 0; }
+.legend-swatch.nodue { background: #B45309; border-radius: 50%; width: 11px; height: 11px; }
 
 .gantt-wrap { overflow-x: auto; border: 1px solid var(--kruzer-neutral-300); border-radius: 6px; }
 .gantt-svg { display: block; }
@@ -104,14 +106,17 @@ a:hover { text-decoration: underline; }
     </div>
     <div class="controls">
       <div class="control"><label for="projFilter">Projeto</label>
-        <select id="projFilter"><option value="all">Todos os projetos</option><option value="FST">FST · FastShop</option><option value="VENA">VENA · Venâncio</option><option value="DCT">DCT · Decathlon</option><option value="J4PM">J4PM · Pague Menos</option></select>
+        <select id="projFilter"><option value="all">Todos os projetos</option><option value="FST">FST · FastShop</option><option value="VENA">VENA · Venâncio</option><option value="DCT">DCT · Decathlon</option></select>
+      </div>
+      <div class="control"><label for="resFilter">Recurso</label>
+        <select id="resFilter"><option value="all">Todos os recursos</option></select>
       </div>
       <div class="control"><label>&nbsp;</label><button class="primary" id="refreshBtn">Atualizar dados</button></div>
     </div>
   </div>
 
   <div id="errorBox"></div>
-  <div id="loadingBox" class="loading"><span class="spinner"></span>Cruzando épicos de FST, VENA, DCT e J4PM…</div>
+  <div id="loadingBox" class="loading"><span class="spinner"></span>Cruzando épicos de FST, VENA e DCT…</div>
 
   <div id="content" style="display:none">
     <div class="kpis" id="kpis"></div>
@@ -123,9 +128,9 @@ a:hover { text-decoration: underline; }
         <span class="legend-item"><span class="legend-swatch fst"></span> FST</span>
         <span class="legend-item"><span class="legend-swatch vena"></span> VENA</span>
         <span class="legend-item"><span class="legend-swatch dct"></span> DCT</span>
-        <span class="legend-item"><span class="legend-swatch j4pm"></span> J4PM</span>
         <span class="legend-item"><span class="legend-swatch blocked"></span> Bloqueado</span>
         <span class="legend-item"><span class="legend-swatch est"></span> Data estimada</span>
+        <span class="legend-item"><span class="legend-swatch nodue"></span> Sem due</span>
         <span class="legend-item"><span class="legend-swatch today"></span> Hoje</span>
       </div>
       <div class="gantt-wrap"><svg id="ganttSvg" class="gantt-svg" xmlns="http://www.w3.org/2000/svg"></svg></div>
@@ -155,8 +160,9 @@ a:hover { text-decoration: underline; }
 const JIRA_BASE = 'https://kruzer.atlassian.net';
 const FIELDS = ['summary','status','assignee','duedate','created','resolutiondate','labels','customfield_10015','project'];
 const MS_DAY = 86400000;
-const PROJ_COLOR = { FST: '#F79009', VENA: '#3151CE', DCT: '#14B8A6', J4PM: '#DB2777' };
-const PROJECTS = ['FST', 'VENA', 'DCT', 'J4PM'];
+const PROJ_COLOR = { FST: '#F79009', VENA: '#3151CE', DCT: '#14B8A6' };
+const PROJECTS = ['FST', 'VENA', 'DCT'];
+const NODUE_COLOR = '#B45309'; // marcador "sem due" — âmbar escuro, distinto das cores de projeto
 
 function parseDate(s){ if(!s) return null; const d = new Date(s.length === 10 ? s + 'T00:00:00' : s); return isNaN(d) ? null : d; }
 function fmt(d){ return d ? `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}` : '—'; }
@@ -200,15 +206,31 @@ function windowFor(ep, today){
 
 function selected(){
   const pf = document.getElementById('projFilter').value;
-  return RAW.filter(ep => pf === 'all' || ep.project === pf);
+  const rf = document.getElementById('resFilter').value;
+  return RAW.filter(ep => (pf === 'all' || ep.project === pf) && (rf === 'all' || ep.assignee === rf));
+}
+
+// Popula o filtro de recurso com os assignees do escopo de projeto atual,
+// preservando a seleção anterior se ainda existir.
+function populateResourceFilter(){
+  const pf = document.getElementById('projFilter').value;
+  const sel = document.getElementById('resFilter');
+  const prev = sel.value;
+  const res = [...new Set(RAW.filter(ep => pf === 'all' || ep.project === pf).map(e => e.assignee))]
+    .sort((a, b) => a.localeCompare(b, 'pt'));
+  sel.innerHTML = '<option value="all">Todos os recursos</option>' +
+    res.map(r => `<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('');
+  sel.value = res.includes(prev) ? prev : 'all';
 }
 
 function renderKPIs(plotted){
   const resources = new Set(plotted.map(e => e.assignee));
+  const noDue = selected().filter(e => !e.resolved && !e.due).length;
   const c = document.getElementById('kpis');
   let html =
     `<div class="kpi"><div class="label">Épicos rodando</div><div class="value">${plotted.length}</div></div>` +
-    `<div class="kpi"><div class="label">Recursos</div><div class="value">${resources.size}</div></div>`;
+    `<div class="kpi"><div class="label">Recursos</div><div class="value">${resources.size}</div></div>` +
+    `<div class="kpi k-nodue"><div class="label">Sem due</div><div class="value">${noDue}</div></div>`;
   PROJECTS.forEach(p => {
     const n = plotted.filter(e => e.project === p).length;
     html += `<div class="kpi" style="border-top-color:${PROJ_COLOR[p]}"><div class="label">${p}</div><div class="value">${n}</div></div>`;
@@ -308,12 +330,15 @@ function renderGantt(){
       body += `<line class="g-rowsep" x1="0" y1="${y+ROW}" x2="${W}" y2="${y+ROW}"/>`;
       // barra
       const dur = Math.round((ep.e - ep.s)/MS_DAY);
+      const noDue = !ep.due;
       body += `<rect class="gantt-bar" x="${bx.toFixed(1)}" y="${by}" width="${bw.toFixed(1)}" height="18" rx="4" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"` +
         ` data-key="${ep.key}" data-name="${escapeHtml(ep.name)}" data-proj="${ep.project}" data-status="${escapeHtml(ep.statusName)}" data-assignee="${escapeHtml(ep.assignee)}"` +
-        ` data-start="${fmt(ep.s)}" data-end="${fmt(ep.e)}" data-dur="${dur}" data-est="${est?(ep.estStart?'início estimado':'fim estimado'):''}" data-url="${ep.url}"/>`;
+        ` data-start="${fmt(ep.s)}" data-end="${fmt(ep.e)}" data-dur="${dur}" data-due="${noDue?'não definido':fmt(ep.due)}" data-nodue="${noDue?'1':''}" data-est="${est?(ep.estStart?'início estimado':'fim estimado'):''}" data-url="${ep.url}"/>`;
       // Indicador ‹ quando a barra foi cortada na borda esquerda (começou antes de abril).
       if (clampedLeft && bw > 16) body += `<polyline points="${(bx+8).toFixed(1)},${by+3} ${(bx+3).toFixed(1)},${by+9} ${(bx+8).toFixed(1)},${by+15}" fill="none" stroke="#fff" stroke-width="1.5"/>`;
       if (bw > 42) body += `<text class="g-barlabel" x="${(bx+(clampedLeft?14:6)).toFixed(1)}" y="${by+13}">${dur}d</text>`;
+      // Marcador "sem due": círculo âmbar no fim da barra (entrega sem data acordada no JIRA).
+      if (noDue) body += `<circle cx="${(bx+bw).toFixed(1)}" cy="${(by+9).toFixed(1)}" r="4.5" fill="${NODUE_COLOR}" stroke="#fff" stroke-width="1.5"/>`;
       y += ROW;
     });
   });
@@ -349,6 +374,7 @@ function wireTooltips(){
         `<span class="lbl">Recurso</span><span>${d.assignee}</span>` +
         `<span class="lbl">Início</span><span>${d.start}</span>` +
         `<span class="lbl">Fim</span><span>${d.end}</span>` +
+        `<span class="lbl">Due</span><span${d.nodue ? ' style="color:#B45309;font-weight:600"' : ''}>${d.due}</span>` +
         `<span class="lbl">Duração</span><span>${d.dur} dias</span>` +
         (d.est ? `<span class="lbl">⚠</span><span>${d.est}</span>` : '') +
         `</div>`;
@@ -368,15 +394,16 @@ async function loadAndRender(){
   document.getElementById('content').style.display = 'none';
   const btn = document.getElementById('refreshBtn'); btn.disabled = true; btn.textContent = 'Atualizando…';
   try {
-    const jql = `project in (FST, VENA, DCT, J4PM) AND issuetype = Epic ORDER BY created DESC`;
+    const jql = `project in (FST, VENA, DCT) AND issuetype = Epic ORDER BY created DESC`;
     const issues = await KruzerAPI.fetchAll({ jql, fields: FIELDS });
     RAW = issues.map(normalize);
+    populateResourceFilter();
     document.getElementById('loadingBox').style.display = 'none';
     document.getElementById('content').style.display = '';
     renderGantt();
     requestAnimationFrame(renderGantt); // re-mede a largura após o layout assentar
     document.getElementById('subtitle').textContent =
-      `${RAW.length} épicos lidos (FST · VENA · DCT · J4PM) • atualizado ${new Date().toLocaleString('pt-BR')}`;
+      `${RAW.length} épicos lidos (FST · VENA · DCT) • atualizado ${new Date().toLocaleString('pt-BR')}`;
   } catch (e) {
     document.getElementById('loadingBox').style.display = 'none';
     document.getElementById('errorBox').innerHTML = `<div class="error"><b>Falha ao carregar dados:</b> ${escapeHtml(e.message)}</div>`;
@@ -386,7 +413,8 @@ async function loadAndRender(){
 }
 
 document.getElementById('refreshBtn').addEventListener('click', loadAndRender);
-document.getElementById('projFilter').addEventListener('change', renderGantt);
+document.getElementById('projFilter').addEventListener('change', () => { populateResourceFilter(); renderGantt(); });
+document.getElementById('resFilter').addEventListener('change', renderGantt);
 let _rz; window.addEventListener('resize', () => { clearTimeout(_rz); _rz = setTimeout(() => { if (RAW.length) renderGantt(); }, 150); });
 loadAndRender();
 </script>
