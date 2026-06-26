@@ -1,12 +1,19 @@
 // Cloudflare Worker — Kruzer Dashboards
 // Responsabilidades:
-//  1. Basic Auth gate (DASHBOARD_USER / DASHBOARD_PASSWORD).
+//  1. Auth com DUAS identidades:
+//     · 'admin'       → Basic Auth (DASHBOARD_USER/PASSWORD): acesso total (humanos + escrita).
+//     · 'integration' → token de integração (INSIGHTS_TOKEN) via header `Authorization: Bearer`
+//                       ou query `?token=`: SOMENTE LEITURA e SOMENTE Service Desk
+//                       (GET /api/krzr/insights, GET /api/health). Pensado pra integrações
+//                       externas (ex.: Claude do gestor) lerem dados do KRZR sem poder escrever.
 //  2. Proxy autenticado pra Atlassian Cloud REST API (rota /api/jira/jql).
-//  3. Serve arquivos estáticos do public/ (binding ASSETS).
+//  3. /api/krzr/insights — JSON agregado do Service Desk, pronto pra LLM (read-only).
+//  4. Serve arquivos estáticos do public/ (binding ASSETS).
 //
 // Secrets esperadas (via `wrangler secret put`):
 //   JIRA_EMAIL, JIRA_API_TOKEN, JIRA_CLOUD_ID,
-//   DASHBOARD_USER, DASHBOARD_PASSWORD
+//   DASHBOARD_USER, DASHBOARD_PASSWORD,
+//   INSIGHTS_TOKEN  (opcional — habilita a identidade de integração read-only)
 
 const REALM = 'Kruzer Dashboards';
 
@@ -14,8 +21,10 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    // 1. Auth gate (aplica em tudo, inclusive estáticos — protege a URL inteira)
-    if (!checkBasicAuth(request, env)) {
+    // 1. Auth gate (aplica em tudo, inclusive estáticos — protege a URL inteira).
+    //    Sem credencial válida (Basic Auth OU token de integração) → 401.
+    const identity = authIdentity(request, env);
+    if (!identity) {
       return new Response('Authentication required', {
         status: 401,
         headers: {
@@ -23,6 +32,17 @@ export default {
           'Content-Type': 'text/plain; charset=utf-8',
         },
       });
+    }
+    // Token de integração é READ-ONLY e escopado ao Service Desk: bloqueia escrita
+    // e qualquer rota fora da allow-list. Basic Auth (admin) não tem essa restrição.
+    if (identity === 'integration' && !integrationAllowed(url, request.method)) {
+      return jsonError(403, 'Token de integração: somente leitura do Service Desk. Use GET /api/krzr/insights (ou Basic Auth para acesso completo).');
+    }
+
+    // 1b. Service Desk insights — JSON agregado pronto pra LLM (read-only).
+    if (url.pathname === '/api/krzr/insights') {
+      if (request.method !== 'GET') return jsonError(405, 'Use GET');
+      return handleKrzrInsights(env);
     }
 
     // 2. API proxy
@@ -114,6 +134,124 @@ function safeEqual(a, b) {
     diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
   }
   return diff === 0;
+}
+
+// Identidade da request: 'admin' (Basic Auth) | 'integration' (token) | null.
+function authIdentity(request, env) {
+  if (checkBasicAuth(request, env)) return 'admin';
+  if (env.INSIGHTS_TOKEN) {
+    const token = bearerToken(request) || new URL(request.url).searchParams.get('token');
+    if (token && safeEqual(token, env.INSIGHTS_TOKEN)) return 'integration';
+  }
+  return null;
+}
+
+function bearerToken(request) {
+  const h = request.headers.get('Authorization') || '';
+  return h.startsWith('Bearer ') ? h.slice(7).trim() : null;
+}
+
+// Allow-list da identidade de integração: SÓ GET e SÓ Service Desk.
+function integrationAllowed(url, method) {
+  if (method !== 'GET') return false;            // read-only — nenhuma escrita
+  return url.pathname === '/api/krzr/insights' || url.pathname === '/api/health';
+}
+
+// ---------------------------------------------------------------------------
+// Busca paginada no JIRA (server-side, read-only) — reusa as credenciais do proxy.
+async function jiraSearchAll(env, jql, fields, pageSize = 100, maxPages = 6) {
+  const auth = btoa(`${env.JIRA_EMAIL}:${env.JIRA_API_TOKEN}`);
+  const apiUrl = `https://api.atlassian.com/ex/jira/${env.JIRA_CLOUD_ID}/rest/api/3/search/jql`;
+  let token, pages = 0;
+  const out = [];
+  do {
+    const body = { jql, maxResults: pageSize, fields };
+    if (token) body.nextPageToken = token;
+    const r = await fetch(apiUrl, {
+      method: 'POST',
+      headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error(`JIRA ${r.status}`);
+    const data = await r.json();
+    (data.issues || []).forEach(i => out.push(i));
+    token = data.nextPageToken;
+    pages++;
+  } while (token && pages < maxPages);
+  return out;
+}
+
+// Service Desk insights — agrega o KRZR num JSON pronto pra um LLM raciocinar.
+// Read-only: só lê do JIRA. Thresholds de SLA alinhados ao cockpit (/ops/).
+async function handleKrzrInsights(env) {
+  const MS_DAY = 86400000;
+  const now = Date.now();
+  let open, resolved;
+  try {
+    // statusCategory != Done captura a fila REALMENTE aberta. (KRZR não mantém o
+    // campo resolution, então "resolution is EMPTY" inclui Expired/Done/Canceled.)
+    open = await jiraSearchAll(env,
+      'project = KRZR AND statusCategory != Done ORDER BY priority DESC, created DESC',
+      ['summary', 'status', 'priority', 'created', 'updated', 'assignee']);
+    resolved = await jiraSearchAll(env,
+      'project = KRZR AND resolutiondate >= -30d',
+      ['resolutiondate'], 100, 3);
+  } catch (e) {
+    return jsonError(502, `JIRA fetch failed: ${e.message}`);
+  }
+
+  const tickets = open.map(it => {
+    const f = it.fields || {};
+    const created = f.created ? new Date(f.created) : null;
+    const ageDays = created ? Math.floor((now - created.getTime()) / MS_DAY) : null;
+    return {
+      key: it.key,
+      summary: f.summary || '',
+      status: f.status?.name || '—',
+      statusCategory: f.status?.statusCategory?.name || '',
+      priority: f.priority?.name || '—',
+      assignee: f.assignee?.displayName || null,
+      created: f.created || null,
+      updated: f.updated || null,
+      ageDays,
+    };
+  });
+
+  const byStatus = {}, byPriority = {};
+  tickets.forEach(t => {
+    byStatus[t.status] = (byStatus[t.status] || 0) + 1;
+    byPriority[t.priority] = (byPriority[t.priority] || 0) + 1;
+  });
+  const isHighest = p => /(highest|critical|p0)/i.test(p);
+  const isHigh = p => /(^high$|\bhigh\b|p1)/i.test(p);
+  const slaBreaches = tickets.filter(t => t.ageDays != null && (
+    (isHighest(t.priority) && t.ageDays > 1) ||
+    (isHigh(t.priority) && t.ageDays > 3)
+  ));
+  const aging = {
+    gt7:  tickets.filter(t => t.ageDays > 7).length,
+    gt14: tickets.filter(t => t.ageDays > 14).length,
+    gt30: tickets.filter(t => t.ageDays > 30).length,
+  };
+  const oldest = tickets.reduce((m, t) => (t.ageDays || 0) > (m?.ageDays || 0) ? t : m, null);
+
+  return jsonOk({
+    project: 'KRZR',
+    description: 'Kruzer Service Desk — fila aberta + agregados. SLA: Highest>1d, High>3d.',
+    generatedAt: new Date().toISOString(),
+    totals: {
+      open: tickets.length,
+      resolvedLast30d: resolved.length,
+      slaBreaches: slaBreaches.length,
+      agingGt7: aging.gt7,
+      oldestOpenDays: oldest ? oldest.ageDays : 0,
+    },
+    byStatus,
+    byPriority,
+    aging,
+    slaBreaches: slaBreaches.map(t => ({ key: t.key, priority: t.priority, ageDays: t.ageDays, summary: t.summary })),
+    tickets,
+  });
 }
 
 // ---------------------------------------------------------------------------
