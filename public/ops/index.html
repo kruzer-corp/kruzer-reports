@@ -83,7 +83,12 @@ button:disabled { opacity: 0.6; cursor: wait; }
 .health-card.s-ok .h-dot { background: var(--kruzer-success); }
 .health-card.s-warn .h-dot { background: var(--kruzer-warning); }
 .health-card.s-crit .h-dot { background: var(--kruzer-error); }
-.health-card .h-reason { font-size: 12.5px; color: var(--kruzer-navy); line-height: 1.5; min-height: 38px; }
+.health-card .h-reason { font-size: 12.5px; color: var(--kruzer-navy); line-height: 1.5; font-weight: 600; }
+.health-card .h-drivers { list-style: none; margin: 6px 0 0; padding: 0; }
+.health-card .h-drivers li { font-size: 11.5px; color: var(--kruzer-navy-300); line-height: 1.45; padding-left: 11px; position: relative; margin-bottom: 2px; }
+.health-card .h-drivers li::before { content: "›"; position: absolute; left: 0; color: var(--kruzer-neutral-500); font-weight: 700; }
+.health-card .h-decision { margin-top: 8px; font-size: 11.5px; line-height: 1.45; color: #991B1B; background: #FEF2F2; border: 1px solid #FECACA; border-radius: 6px; padding: 6px 8px; }
+.health-card .h-decision span { display: block; font-weight: 700; text-transform: uppercase; font-size: 9px; letter-spacing: 0.6px; color: var(--kruzer-error); margin-bottom: 2px; }
 .health-card .h-reason strong { font-weight: 700; }
 .health-card .h-foot { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--kruzer-neutral-300); font-size: 10.5px; color: var(--kruzer-neutral-700); display: flex; justify-content: space-between; gap: 8px; }
 .health-card .h-foot .pill { background: var(--kruzer-neutral-100); padding: 2px 8px; border-radius: 999px; }
@@ -109,6 +114,7 @@ button:disabled { opacity: 0.6; cursor: wait; }
 .risk-row .body .title a { color: inherit; text-decoration: none; }
 .risk-row .body .title a:hover { color: var(--kruzer-primary); }
 .risk-row .body .meta { font-size: 11.5px; color: var(--kruzer-navy-300); }
+.risk-row .body .meta .decide { color: var(--kruzer-error); font-weight: 600; }
 .risk-row .metric { font-size: 12.5px; font-weight: 600; color: var(--kruzer-navy); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
 .risk-empty { padding: 24px; text-align: center; color: var(--kruzer-success); font-weight: 600; font-size: 14px; background: linear-gradient(180deg, #ECFDF5 0%, #fff 70%); border-radius: 8px; border: 1px solid #D1FAE5; }
 
@@ -430,6 +436,30 @@ function assessRisks(epics, tickets, schedIdx){
   return risks;
 }
 
+// ─── Decisão executiva por tipo de risco ─────────────────────────────────────
+// No vermelho, o cockpit aponta QUAL decisão tomar — sem precisar abrir o
+// dashboard do cliente.
+const DECISION = {
+  'ATRASO':            'Repactuar prazo com o cliente ou realocar capacity',
+  'ATRASO PROJETADO':  'Rever escopo/capacity — a projeção da esteira estoura o prazo',
+  'BLOQUEIO':          'Escalar a remoção do impedimento (decisão de prioridade/recurso)',
+  'WIP':               'Redistribuir carga — concentrar o recurso em menos frentes',
+  'SEM ESTIMATIVA':    'Exigir estimativa antes de comprometer prazo',
+  'SEM DUE':           'Definir data de entrega acordada',
+  'SUSTAIN':           'Estruturar o intake do Sustain',
+};
+// Frase curta de insight por risco — o "porquê" do alerta, legível na hora.
+function riskPhrase(r){
+  const k = r.key ? `${r.key} ` : '';
+  switch (r.type) {
+    case 'ATRASO':           return `${k}atrasado · ${r.metric}`;
+    case 'ATRASO PROJETADO': return `${k}vai estourar o due · ${r.metric}`;
+    case 'BLOQUEIO':         return `${k}parado · ${r.metric}`;
+    case 'WIP':              return `sobrecarga · ${escapeHtml(r.name)} (${r.metric})`;
+    default:                 return escapeHtml(r.name);
+  }
+}
+
 // ─── Saúde por projeto ───────────────────────────────────────────────────────
 function projectHealth(project, risks, epics, tickets){
   const proj = project;
@@ -459,9 +489,17 @@ function projectHealth(project, risks, epics, tickets){
     ? reasonParts.join(' · ')
     : (status === 's-ok' ? 'Sem riscos detectados.' : 'Saudável.');
 
+  // Drivers: o que de fato puxa o alerta (top 2). Se há crítico/alto, mostra
+  // esses; senão mostra os "atenção" (info) que acenderam o amarelo.
+  const driverRisks = (crit || high) ? projRisks.filter(r => r.severity !== 'info') : projRisks;
+  const drivers = driverRisks.slice(0, 2).map(riskPhrase);
+  // No vermelho (seja por 1 crítico ou por ≥2 altos), a decisão executiva vem do
+  // risco mais relevante (projRisks já está ordenado por severidade).
+  const decision = (status === 's-crit' && projRisks[0]) ? (DECISION[projRisks[0].type] || null) : null;
+
   return {
     project: proj, label: PROJ_LABEL[proj], color: PROJ_COLOR[proj],
-    status, reason, openCount, dueNextN, crit, high, info,
+    status, reason, openCount, dueNextN, crit, high, info, drivers, decision,
   };
 }
 
@@ -477,6 +515,8 @@ function renderHealthGrid(healths){
         <div class="h-dot"></div>
       </div>
       <div class="h-reason">${h.reason}</div>
+      ${h.drivers && h.drivers.length ? `<ul class="h-drivers">${h.drivers.map(d => `<li>${d}</li>`).join('')}</ul>` : ''}
+      ${h.decision ? `<div class="h-decision"><span>Decisão</span>${escapeHtml(h.decision)}</div>` : ''}
       <div class="h-foot">
         <span class="pill">${h.openCount} ${labelOpen(h.project)}</span>
         <span class="pill">${h.dueNextN} ${labelDue(h.project)}</span>
@@ -501,7 +541,7 @@ function renderRisks(risks){
         <div class="proj ${r.project}">${r.project}</div>
         <div class="body">
           <div class="title">${titleHtml}</div>
-          <div class="meta">${escapeHtml(PROJ_LABEL[r.project] || '')}</div>
+          <div class="meta">${escapeHtml(PROJ_LABEL[r.project] || '')}${r.severity === 'crit' && DECISION[r.type] ? ` · <span class="decide">decisão: ${escapeHtml(DECISION[r.type])}</span>` : ''}</div>
         </div>
         <div class="metric">${escapeHtml(r.metric)}</div>
       </div>
@@ -642,15 +682,16 @@ async function loadAndRender(){
     // e o sinal "ATRASO PROJETADO" simplesmente não aparece (degradação graciosa).
     const epicJql = `project in (${EPIC_PROJECTS.join(',')}) AND issuetype = Epic AND statusCategory != Done`;
     const krzrJql = `project = KRZR AND resolution is EMPTY ORDER BY priority DESC, created DESC`;
-    const [epicsRaw, ticketsRaw, venaSched, fstSched] = await Promise.all([
+    const [epicsRaw, ticketsRaw, venaSched, fstSched, pgmSched] = await Promise.all([
       KruzerAPI.fetchAll({ jql: epicJql, fields: EPIC_FIELDS }),
       KruzerAPI.fetchAll({ jql: krzrJql, fields: KRZR_FIELDS, maxPages: 10 }),
       loadPublishedSchedule('vena-capacity'),
       loadPublishedSchedule('fst-capacity'),
+      loadPublishedSchedule('pgm-capacity'),
     ]);
     const epics = epicsRaw.map(normalizeEpic);
     const tickets = ticketsRaw.map(normalizeTicket);
-    const schedIdx = { ...indexScheduleByKey(venaSched), ...indexScheduleByKey(fstSched) };
+    const schedIdx = { ...indexScheduleByKey(venaSched), ...indexScheduleByKey(fstSched), ...indexScheduleByKey(pgmSched) };
 
     const risks = assessRisks(epics, tickets, schedIdx);
     const healths = EPIC_PROJECTS.map(p => projectHealth(p, risks, epics, tickets));
