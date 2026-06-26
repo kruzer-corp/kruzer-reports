@@ -1,7 +1,7 @@
-# Integração — Service Desk (KRZR) insights via token read-only
+# Integração — dashboards Kruzer via token read-only
 
-Para uma integração externa (ex.: o Claude de um gestor) ler os dados do Service
-Desk e gerar insights, **sem** poder escrever em nada.
+Para uma integração externa (ex.: o Claude de um gestor) ler os dados de **todos
+os dashboards** e gerar insights, **sem** poder escrever em nada.
 
 ## Como funciona
 
@@ -9,14 +9,25 @@ O Worker tem **duas identidades**:
 
 | Identidade | Como autentica | Acesso |
 |---|---|---|
-| **admin** (humanos) | Basic Auth (`DASHBOARD_USER`/`DASHBOARD_PASSWORD`) | total (todos os dashboards + escrita) |
-| **integration** | token `INSIGHTS_TOKEN` | **somente leitura**, **somente** `GET /api/krzr/insights` e `/api/health` |
+| **admin** (humanos) | Basic Auth (`DASHBOARD_USER`/`DASHBOARD_PASSWORD`) | total (leitura + escrita) |
+| **integration** | token `INSIGHTS_TOKEN` | **somente leitura, em todos os dashboards** |
 
-Sem credencial válida → **401**. Token tentando qualquer escrita ou qualquer rota
-fora do Service Desk → **403**. Assim, mesmo que o token vaze, ele só lê o KRZR —
-não comenta em issues, não muda due/prioridade, não toca o estado compartilhado.
+A identidade de integração pode **ler tudo**: qualquer página (`/`, `/ops/`,
+`/vena/*`, `/fst/*`, `/pgm/*`, `/krzr/*`, `/timeline/`), o endpoint agregado
+`GET /api/krzr/insights`, o proxy de leitura do JIRA (`POST /api/jira/jql`) e o
+estado compartilhado (`GET /api/state/...`). **Não pode escrever**: comentar/editar
+no JIRA (`/api/jira/comment`, `/api/jira/issue-update`) e gravar/apagar estado
+(`PUT`/`DELETE /api/state`) retornam **403**.
 
-## Endpoint
+Sem credencial válida → **401**. Assim, mesmo que o token vaze, ele é só um
+espelho **read-only** do que um usuário autenticado dos dashboards já enxerga —
+não muta nada (nem JIRA, nem estado compartilhado).
+
+> **Escopo da leitura:** o proxy `/api/jira/jql` não restringe projeto — o token
+> consegue consultar qualquer projeto que a conta de serviço JIRA enxerga. Se um
+> dia precisar limitar a projetos específicos, dá pra travar o JQL no Worker.
+
+## Service Desk (KRZR) — endpoint agregado
 
 ```
 GET /api/krzr/insights
@@ -58,6 +69,24 @@ curl "https://kruzer-dashboards.matheus-mereb.workers.dev/api/krzr/insights?toke
 - **Fila aberta** = `statusCategory != Done` (não usa `resolution`, que o KRZR não mantém).
 - **SLA**: `Highest` aberto > 1 dia ou `High` aberto > 3 dias (mesmos thresholds do cockpit `/ops/`).
 - `resolvedLast30d` é aproximado (via `resolutiondate`).
+
+## Outros dashboards (VENA, FST, PGM, DCT, portfólio)
+
+Para os demais clientes, a integração lê os dados crus do JIRA pelo **proxy de
+leitura** (mesmo header/token), e o LLM agrega:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"jql":"project = PGM AND issuetype = Epic","fields":["summary","status","priority","duedate","customfield_10015","timeoriginalestimate"],"maxResults":100}' \
+  https://kruzer-dashboards.matheus-mereb.workers.dev/api/jira/jql
+```
+
+Trocar `PGM` por `VENA`/`FST`/`DCT` (ou `project in (FST,VENA,DCT,PGM)` pra
+cross-projeto). O estado publicado pelos planners (cronograma, remarks, follow-ups)
+sai em `GET /api/state/<scope>` — ex.: `/api/state/pgm-capacity/schedule`,
+`/api/state/vena-roadmap/remarks`. Alternativamente, a integração pode **carregar
+a própria página** do dashboard (`GET /pgm/`, `/ops/`, etc.) — todas funcionam com
+o token, pois os dados carregam via o proxy já liberado.
 
 ## Como ligar no Claude do gestor
 

@@ -3,9 +3,11 @@
 //  1. Auth com DUAS identidades:
 //     · 'admin'       → Basic Auth (DASHBOARD_USER/PASSWORD): acesso total (humanos + escrita).
 //     · 'integration' → token de integração (INSIGHTS_TOKEN) via header `Authorization: Bearer`
-//                       ou query `?token=`: SOMENTE LEITURA e SOMENTE Service Desk
-//                       (GET /api/krzr/insights, GET /api/health). Pensado pra integrações
-//                       externas (ex.: Claude do gestor) lerem dados do KRZR sem poder escrever.
+//                       ou query `?token=`: SOMENTE LEITURA, em TODOS os dashboards. Pode ler
+//                       páginas, consultar JIRA (proxy /api/jira/jql) e ler estado (/api/state
+//                       GET) + /api/krzr/insights. NÃO pode escrever: comentar/editar no JIRA
+//                       nem gravar/apagar estado. Pensado pra integrações externas (ex.: o
+//                       Claude do gestor) lerem os dados sem poder mutar nada.
 //  2. Proxy autenticado pra Atlassian Cloud REST API (rota /api/jira/jql).
 //  3. /api/krzr/insights — JSON agregado do Service Desk, pronto pra LLM (read-only).
 //  4. Serve arquivos estáticos do public/ (binding ASSETS).
@@ -33,10 +35,10 @@ export default {
         },
       });
     }
-    // Token de integração é READ-ONLY e escopado ao Service Desk: bloqueia escrita
-    // e qualquer rota fora da allow-list. Basic Auth (admin) não tem essa restrição.
+    // Token de integração é READ-ONLY: lê qualquer dashboard, mas bloqueia toda
+    // escrita (JIRA comment/issue-update, state PUT/DELETE). Admin não tem restrição.
     if (identity === 'integration' && !integrationAllowed(url, request.method)) {
-      return jsonError(403, 'Token de integração: somente leitura do Service Desk. Use GET /api/krzr/insights (ou Basic Auth para acesso completo).');
+      return jsonError(403, 'Token de integração: somente leitura. Escrita (comentar/editar no JIRA, gravar estado) exige Basic Auth.');
     }
 
     // 1b. Service Desk insights — JSON agregado pronto pra LLM (read-only).
@@ -151,10 +153,15 @@ function bearerToken(request) {
   return h.startsWith('Bearer ') ? h.slice(7).trim() : null;
 }
 
-// Allow-list da identidade de integração: SÓ GET e SÓ Service Desk.
+// Allow-list da identidade de integração: READ-ONLY em toda a aplicação.
+// Libera leitura (qualquer GET + o proxy /api/jira/jql, que é POST mas só
+// consulta); bloqueia toda escrita (comentar/editar no JIRA, gravar/apagar estado).
 function integrationAllowed(url, method) {
-  if (method !== 'GET') return false;            // read-only — nenhuma escrita
-  return url.pathname === '/api/krzr/insights' || url.pathname === '/api/health';
+  const p = url.pathname;
+  if (p === '/api/jira/comment' || p === '/api/jira/issue-update') return false; // escrita JIRA
+  if (p.startsWith('/api/state/')) return method === 'GET';                       // lê estado; PUT/DELETE bloqueado
+  if (p === '/api/jira/jql') return method === 'POST';                            // proxy de leitura (search)
+  return method === 'GET';                                                        // páginas, insights, health, audit
 }
 
 // ---------------------------------------------------------------------------
