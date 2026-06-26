@@ -709,74 +709,28 @@ function effortH(epic, P){
   if (epic.estH != null && epic.estH > 0) return { h:epic.estH, src:'horas' };
   return { h:PLACEHOLDER_H, src:'placeholder' };
 }
-// Distribui épicos sem assignment nas tracks (committed→prioridade→key), respeitando overrides.
-function ensureAssignments(P){
-  const p = P.parallelTracks;
-  const inBacklog = new Set(P.backlog);
-  const ordered = ganttEpics().sort((a,b)=>{
-    if (a.committed !== b.committed) return a.committed ? -1 : 1;
-    const pa = PRIO_RANK[a.priorityTier] ?? 9, pb = PRIO_RANK[b.priorityTier] ?? 9;
-    if (pa !== pb) return pa - pb;
-    return keyNum(a.key) - keyNum(b.key);
-  });
-  let rr = 0;
-  for (const e of ordered){
-    if (inBacklog.has(e.key)){ delete P.trackAssignments[e.key]; continue; }
-    const cur = P.trackAssignments[e.key];
-    if (cur && cur.trackIdx < p) continue;
-    let trackIdx;
-    if (DEFAULT_TRACK[e.key] != null && DEFAULT_TRACK[e.key] < p) trackIdx = DEFAULT_TRACK[e.key];
-    else { trackIdx = rr % p; rr++; }
-    const orderInTrack = Object.values(P.trackAssignments).filter(a=>a.trackIdx===trackIdx).length;
-    P.trackAssignments[e.key] = { trackIdx, orderInTrack };
-  }
-  for (const k in P.trackAssignments){ if (P.trackAssignments[k].trackIdx >= p) P.trackAssignments[k].trackIdx = p - 1; }
+// Adapta o épico RAW do report pro shape da engine compartilhada.
+function adaptReportEpic(e){
+  return { ...e, isCommitted: !!e.committed, priority: e.priorityTier,
+    jiraStart: e.startDate ? startOfDay(new Date(e.startDate + 'T00:00:00')) : null,
+    jiraDue:   e.dueDate   ? startOfDay(new Date(e.dueDate   + 'T00:00:00')) : null };
 }
+// Engine de scheduling — FONTE ÚNICA em /shared/capacity.js (consolidada Fase C).
+// O report não tem track dedicada; esforço em horas via effortH. É o fallback
+// (localPlan) quando o planner ainda não publicou. Rede: scripts/capacity-golden.js.
 function computeSchedule(){
   const P = capParams();
-  ensureAssignments(P);
-  const today = startOfDay(new Date());
-  const squad = P.devs * P.velocityPerDev;
-  const throughputPerTrack = squad / P.parallelTracks;
-
-  const byKey = {};
-  const epics = ganttEpics().map(e=>{
-    const { h, src } = effortH(e, P);
-    const o = {
-      ...e, effortH:h, effortSrc:src,
-      jiraStartD: e.startDate ? startOfDay(new Date(e.startDate + 'T00:00:00')) : null,
-      jiraDueD: e.dueDate ? startOfDay(new Date(e.dueDate + 'T00:00:00')) : null,
-      trackIdx: P.trackAssignments[e.key]?.trackIdx ?? null,
-      orderInTrack: P.trackAssignments[e.key]?.orderInTrack ?? 0,
-      inBacklog: P.backlog.includes(e.key),
-      dependencies: P.dependencies[e.key] || [],
-      scheduledStart:null, scheduledEnd:null, late:false,
-    };
-    byKey[e.key] = o; return o;
-  });
-
-  const placed = epics.filter(e => !e.inBacklog && e.trackIdx != null);
-  const tracks = Array.from({length:P.parallelTracks}, ()=>[]);
-  placed.forEach(e => tracks[Math.min(e.trackIdx, P.parallelTracks-1)].push(e));
-  tracks.forEach(t => t.sort((a,b)=> a.orderInTrack - b.orderInTrack));
-
-  function scheduleSequential(track){
-    let cursor = today;
-    track.forEach(e=>{
-      let startMin = cursor;
-      if (e.committed && e.jiraStartD) startMin = new Date(Math.max(startMin.getTime(), e.jiraStartD.getTime()));
-      e.dependencies.forEach(dep=>{ const d = byKey[dep]; if (d && d.scheduledEnd) startMin = new Date(Math.max(startMin.getTime(), d.scheduledEnd.getTime())); });
-      const durDays = Math.max(1, Math.round((e.effortH / throughputPerTrack) * 7));
-      e.scheduledStart = startOfDay(startMin);
-      e.scheduledEnd = addDays(e.scheduledStart, durDays);
-      cursor = e.scheduledEnd;
-    });
-  }
-  for (let pass=0; pass<placed.length+2; pass++) tracks.forEach(scheduleSequential);
-  placed.forEach(e=>{ if (e.jiraDueD && e.scheduledEnd > e.jiraDueD) e.late = true; });
-
-  const horizonEnd = addDays(today, P.horizonWeeks*7);
-  return { P, today, squad, throughputPerTrack, tracks, placed, horizonEnd, backlogCount: epics.filter(e=>e.inBacklog).length };
+  P.whatIfMode = false;
+  const epics = ganttEpics().map(adaptReportEpic);
+  const cfg = {
+    resolveEffort: (e, st) => { const r = effortH(e, st); return { sp: r.h, source: r.src }; },
+    prioRank: PRIO_RANK, dedicatedKey: null, defaultTrack: DEFAULT_TRACK, heatmapWeeks: 26,
+  };
+  KruzerCapacity.ensureAssignments(epics, P, cfg);
+  const sched = KruzerCapacity.computeSchedule(epics, P, cfg);
+  sched.P = P;                                              // localPlan lê P.devs etc.
+  sched.backlogCount = sched.epics.filter(e => e.inBacklog).length;
+  return sched;
 }
 
 // Cronograma publicado pelo planner (fonte da verdade). Espelho real, sem recálculo.
@@ -804,12 +758,12 @@ function localPlan(){
   const groups = sched.tracks.map((items, i) => ({
     label: `Track ${i+1}`, dedicated:false,
     items: items.filter(e=>e.scheduledStart).map(e => {
-      const ds = e.jiraStartD || e.scheduledStart;
-      let de = e.jiraDueD || e.scheduledEnd;
+      const ds = e.jiraStart || e.scheduledStart;
+      let de = e.jiraDue || e.scheduledEnd;
       if (ds && de && de < ds) de = (e.scheduledEnd && e.scheduledEnd > ds) ? e.scheduledEnd : addDays(ds, 1);
       return { key:e.key, url:e.url, name:e.name, start:ds, end:de,
-        color: BUCKET_COLOR[e.bucket] || '#48507D', effort: e.effortH, placeholder: e.effortSrc==='placeholder',
-        statusLabel: (bucketById(e.bucket)||{}).label || '', late: e.late, dueD: e.jiraDueD };
+        color: BUCKET_COLOR[e.bucket] || '#48507D', effort: e.effectiveSp, placeholder: e.spSource==='placeholder',
+        statusLabel: (bucketById(e.bucket)||{}).label || '', late: e.late, dueD: e.jiraDue };
     }),
   })).filter(g=>g.items.length);
   return { source:'local', unit:'h', today: sched.today, horizonEnd: sched.horizonEnd,

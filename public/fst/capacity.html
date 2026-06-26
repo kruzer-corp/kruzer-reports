@@ -525,119 +525,23 @@ function resolveSp(epic){
 // ============================================================================
 // Layout default (quando não há override): distribui por prioridade nas tracks
 // ============================================================================
-function ensureAssignments(){
-  const p = STATE.parallelTracks;
-  // épicos já no backlog do operador ficam fora
-  const inBacklog = new Set(STATE.backlog);
-  // ordena épicos: committed primeiro, depois prioridade, depois key
-  const ordered = [...EPICS].sort((a,b)=>{
-    if (a.isCommitted !== b.isCommitted) return a.isCommitted ? -1 : 1;
-    const pa = PRIO_RANK[a.priority] ?? 9, pb = PRIO_RANK[b.priority] ?? 9;
-    if (pa !== pb) return pa - pb;
-    return keyNum(a.key) - keyNum(b.key);
-  });
-  let rr = 0;
-  for (const e of ordered){
-    if (e.key === DEDICATED.epic) { delete STATE.trackAssignments[e.key]; continue; } // vive na track dedicada
-    if (e.done) { delete STATE.trackAssignments[e.key]; continue; } // Done no JIRA → fora da esteira
-    if (inBacklog.has(e.key)) { delete STATE.trackAssignments[e.key]; continue; }
-    const cur = STATE.trackAssignments[e.key];
-    if (cur && cur.trackIdx < p) continue; // já alocado e válido p/ nº de tracks atual
-    let trackIdx;
-    if (DEFAULT_TRACK[e.key] != null && DEFAULT_TRACK[e.key] < p) trackIdx = DEFAULT_TRACK[e.key];
-    else { trackIdx = rr % p; rr++; }
-    const orderInTrack = Object.values(STATE.trackAssignments).filter(a=>a.trackIdx===trackIdx).length;
-    STATE.trackAssignments[e.key] = { trackIdx, orderInTrack };
-  }
-  // clamp: épicos em track >= p (reduziu tracks) vão p/ última track
-  for (const k in STATE.trackAssignments){
-    if (STATE.trackAssignments[k].trackIdx >= p) STATE.trackAssignments[k].trackIdx = p - 1;
-  }
+// Config da engine compartilhada pra este caller (FST: horas, sem dedicada,
+// DEFAULT_TRACK pra FST-133).
+function capacityCfg(){
+  return {
+    resolveEffort: resolveSp,          // manual → horas estimadas → placeholder
+    prioRank: PRIO_RANK,
+    dedicatedKey: DEDICATED.epic,      // sentinela __FST_NO_DEDICATED__ (nunca casa)
+    defaultTrack: DEFAULT_TRACK,
+    heatmapWeeks: HEATMAP_WEEKS,
+  };
 }
+function ensureAssignments(){ KruzerCapacity.ensureAssignments(EPICS, STATE, capacityCfg()); }
 
-// ============================================================================
-// Engine de scheduling — função pura. Esforço -> datas.
-// ============================================================================
-function computeSchedule(){
-  const today = startOfDay(new Date());
-  const squad = STATE.devs * STATE.velocityPerDev;          // SP/sem total
-  const throughputPerTrack = squad / STATE.parallelTracks;  // SP/sem por track
-
-  // monta épicos com SP efetivo
-  const byKey = {};
-  const epics = EPICS.map(e => {
-    const { sp, source } = resolveSp(e);
-    const committedLocked = e.isCommitted && !STATE.whatIfMode;
-    const o = {
-      ...e, effectiveSp: sp, spSource: source, committedLocked,
-      trackIdx: STATE.trackAssignments[e.key]?.trackIdx ?? null,
-      orderInTrack: STATE.trackAssignments[e.key]?.orderInTrack ?? 0,
-      inBacklog: STATE.backlog.includes(e.key),
-      dependencies: STATE.dependencies[e.key] || [],
-      scheduledStart: null, scheduledEnd: null, overHorizon: false, late: false,
-    };
-    byKey[e.key] = o;
-    return o;
-  });
-
-  // Track dedicada do 99Food (fora da regra): stream próprio, não consome o squad.
-  const dedEpic = byKey[DEDICATED.epic] || null;
-  if (dedEpic) dedEpic.isDedicated = true;
-  const dedThroughput = STATE.velocityPerDev; // 1 stream dedicado = velocity de uma pessoa
-
-  const placed = epics.filter(e => !e.inBacklog && e.trackIdx != null && e.key !== DEDICATED.epic && !e.done);
-  const tracks = Array.from({length: STATE.parallelTracks}, () => []);
-  placed.forEach(e => tracks[Math.min(e.trackIdx, STATE.parallelTracks-1)].push(e));
-  tracks.forEach(t => t.sort((a,b)=> a.orderInTrack - b.orderInTrack));
-
-  const horizonEnd = addDays(today, STATE.horizonWeeks * 7);
-
-  function scheduleSequential(track, perTrack){
-    let cursor = today;
-    track.forEach(e => {
-      let startMin = cursor;
-      // committed com start real e modo real: ancora no start do JIRA
-      if (e.committedLocked && e.jiraStart){
-        startMin = new Date(Math.max(startMin.getTime(), startOfDay(e.jiraStart).getTime()));
-      }
-      // dependências: começa após o fim de todas
-      e.dependencies.forEach(depKey => {
-        const dep = byKey[depKey];
-        if (dep && dep.scheduledEnd) startMin = new Date(Math.max(startMin.getTime(), dep.scheduledEnd.getTime()));
-      });
-      const durDays = Math.max(1, Math.round((e.effectiveSp / perTrack) * 7));
-      e.scheduledStart = startOfDay(startMin);
-      e.scheduledEnd = addDays(e.scheduledStart, durDays);
-      cursor = e.scheduledEnd;
-    });
-  }
-
-  // resolução de dependências entre tracks: itera até estabilizar (grafo pequeno)
-  for (let pass = 0; pass < placed.length + 2; pass++){
-    tracks.forEach(track => scheduleSequential(track, throughputPerTrack));
-    if (dedEpic) scheduleSequential([dedEpic], dedThroughput);
-  }
-
-  // lista completa do que está agendado (squad + dedicada) p/ heatmap, KPIs e flags
-  const allScheduled = dedEpic ? placed.concat([dedEpic]) : placed;
-
-  // flags de risco
-  allScheduled.forEach(e => {
-    e.overHorizon = e.scheduledStart >= horizonEnd;
-    if (e.jiraDue && e.scheduledEnd > startOfDay(e.jiraDue)) e.late = true;
-  });
-
-  // janela de tempo do board
-  let maxEnd = horizonEnd;
-  allScheduled.forEach(e => { if (e.scheduledEnd > maxEnd) maxEnd = e.scheduledEnd; });
-  const totalWeeks = Math.max(HEATMAP_WEEKS, Math.ceil((maxEnd - today)/(MS_DAY*7)) + 1);
-
-  // capacidade total inclui o stream dedicado (recurso separado)
-  const totalCapacity = squad + (dedEpic ? dedThroughput : 0);
-
-  return { today, squad, totalCapacity, throughputPerTrack, dedThroughput, tracks, dedEpic,
-           byKey, epics, placed, allScheduled, horizonEnd, totalWeeks };
-}
+// Engine de scheduling — FONTE ÚNICA em /shared/capacity.js (consolidada Fase C).
+// Esforço → datas. Variantes do FST entram via capacityCfg(). Rede de segurança:
+// scripts/capacity-golden.js (npm run test:capacity).
+function computeSchedule(){ return KruzerCapacity.computeSchedule(EPICS, STATE, capacityCfg()); }
 
 // ============================================================================
 // Publish — grava o cronograma calculado pro Status Report (/fst/) renderizar

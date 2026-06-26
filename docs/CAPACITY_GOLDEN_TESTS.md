@@ -1,26 +1,24 @@
 # Golden tests da engine de capacity
 
-**Data:** 2026-06-25
+**Data:** 2026-06-25 · **Status:** engine CONSOLIDADA (Fase C concluída).
 **Arquivos:** `scripts/capacity-golden.js` (harness), `scripts/capacity-fixtures.js` (cenários), `scripts/__goldens__/*.json` (saídas esperadas commitadas).
 
 ## Por que isso existe
 
-`computeSchedule()` — a engine que converte **esforço → cronograma** — está **duplicada** em 4 lugares:
+`computeSchedule()` — a engine que converte **esforço → cronograma** — estava **duplicada** em 4 lugares. Foi **consolidada numa engine única** em `public/shared/capacity.js` (`KruzerCapacity.ensureAssignments` / `KruzerCapacity.computeSchedule`). Estes golden tests foram a rede de segurança que **provou zero drift** na consolidação e seguem protegendo contra regressões.
 
-| Arquivo | Papel | Unidade | Particularidades |
+| Arquivo | Papel | Unidade | Como usa a engine única |
 |---|---|---|---|
-| `public/vena/capacity.html` | Planner (publica) | Story Points | rollup de filhos, conversão horas→SP (`hoursPerSp`), track dedicada 99Food (VENA-145) |
-| `public/fst/capacity.html` | Planner (publica) | Horas | sem rollup, sem dedicada, `DEFAULT_TRACK` (FST-133), prioridades P0-P3 |
-| `public/vena/roadmap.html` | Report (espelha) | — | engine **divergente** (fallback quando não há schedule publicado) |
-| `public/fst/index.html` | Report (espelha) | — | idem |
+| `public/vena/capacity.html` | Planner (publica) | Story Points | `cfg`: resolveEffort=`resolveSp` (rollup + horas→SP), dedicada 99Food (VENA-145) |
+| `public/fst/capacity.html` | Planner (publica) | Horas | `cfg`: resolveEffort=`resolveSp` (horas), sem dedicada, `DEFAULT_TRACK` (FST-133) |
+| `public/vena/roadmap.html` | Report (espelha) | Horas | `cfg`: resolveEffort=`effortH`, sem dedicada; adapta RAW→épico via `adaptReportEpic` |
+| `public/fst/index.html` | Report (espelha) | Horas | idem |
 
-O padrão **publish/mirror** esconde o risco no caso normal (o report renderiza o schedule **publicado** pelo planner no D1), mas qualquer mudança de regra precisa ser replicada manualmente, e o report cai na **própria** engine quando não há publish. Antes de **consolidar tudo numa engine única** em `shared/capacity.js`, precisamos de uma rede de segurança que prove **zero drift**.
-
-Estes golden tests **fixam o comportamento atual** da engine do planner (a canônica, que publica). São a referência contra a qual o refactor de consolidação será validado.
+A **variação por projeto** (resolução de esforço, prioridades Highest/High vs P0/P1, track dedicada, `DEFAULT_TRACK`) entra via `cfg`. O **algoritmo** de alocação em tracks, sequência, dependências e flags vive SÓ na engine compartilhada.
 
 ## Como funciona
 
-O harness **não reescreve** a engine: ele **extrai o source real** de `computeSchedule` (e dependências: `resolveSp`, `ensureAssignments`, helpers e constantes) direto do `.html`, **congela o relógio** num instante fixo, roda contra fixtures sintéticas e compara a saída normalizada (datas, durações, tracks, flags `late`/`overHorizon`, fonte do SP) com o golden commitado.
+O harness carrega a engine REAL de `shared/capacity.js`, extrai de cada caller a sua **resolução de esforço real** (`resolveSp`/`effortH`) + constantes direto do `.html`, **congela o relógio** num instante fixo, roda contra fixtures sintéticas e compara a saída normalizada (datas, durações, tracks, flags `late`/`overHorizon`, fonte do esforço) com o golden commitado.
 
 Cobertura das fixtures (cada uma exercita ramos distintos): placement round-robin, **rollup** de filhos, **horas→SP**, **placeholder**, **track dedicada**, **dependências** entre tracks, **committed-lock** com `jiraStart`, **late** (due < fim projetado) e **overHorizon**.
 
@@ -36,27 +34,22 @@ Saída em drift aponta o caminho exato, ex.:
 ❌ basic — DRIFT: epics.0.durDays: golden=13 atual=14
 ```
 
-## Como usar na consolidação (o objetivo)
+## Manutenção / mudanças futuras de regra
 
-1. **Antes de mexer:** `npm run test:capacity` deve passar (baseline verde).
-2. **Extraia** `computeSchedule` pra `shared/capacity.js`, parametrizando as dependências de closure (campo de esforço, `capacityPerWeek`, tracks dedicadas, `DEFAULT_TRACK`, `hoursPerSp`, prioridades) — VENA e FST passam sua **variante via config**, não via cópia.
-3. **Aponte** os 4 callers pra engine compartilhada.
-4. **Rode** `npm run test:capacity`. Se passar, o refactor preservou o comportamento — pode seguir. Se falhar, o diff mostra exatamente qual cronograma mudou.
+1. **Antes de mexer:** `npm run test:capacity` deve passar (baseline verde — 18 cenários: VENA/FST × planner/report).
+2. Mude a engine em `shared/capacity.js` (ou a `cfg`/`resolveEffort` de um caller).
+3. **Rode** `npm run test:capacity`. Verde = comportamento preservado. Vermelho = o diff aponta exatamente qual cronograma mudou.
+4. Quando a mudança for **intencional**, rode `npm run test:capacity:update` e **revise o diff dos goldens** no PR — toda alteração de cronograma fica explícita e revisável.
 
-> Quando uma mudança de comportamento for **intencional**, rode `test:capacity:update` e **revise o diff dos goldens** no PR — assim toda alteração de cronograma fica explícita e revisável.
+## Como a consolidação foi validada (zero drift)
 
-## Achado: planner ≠ report (a divergência a resolver)
+- **Planners:** o harness passou a rodar a engine de `shared/capacity.js` contra os goldens que já tinham sido gerados pela engine antiga in-file. Bateram **byte a byte** → `shared ≡ planner antigo`.
+- **Reports:** rodou-se a engine **antiga** do report (extraída do arquivo) contra as mesmas fixtures e comparou-se o schedule (track, datas, late, esforço) com a engine consolidada → **idêntico** nos 8 cenários.
+- **Render:** as 4 páginas foram carregadas em browser headless após a migração — board (`.lane`) e Gantt (`#ganttSvg`) renderizam, **zero erro de engine** no console.
 
-A engine do **report** (`vena/roadmap`, `fst/index`) é uma reimplementação **mais simples e divergente** da do planner:
-
-- mede em **horas** com `effortH` + `PLACEHOLDER_H` — **sem** rollup de filhos, **sem** conversão `hoursPerSp`, **sem** track dedicada;
-- usa `priorityTier` (P0-P3) e um `DEFAULT_TRACK` próprio;
-- lê params do `localStorage` (`capParams`), não do `STATE` do planner.
-
-Ou seja: **quando o report cai na própria engine** (sem schedule publicado), ele pode produzir um cronograma **diferente** do planner pros mesmos épicos. A consolidação precisa **decidir quais regras vencem** (as do planner, mais completas, são a escolha natural) e então fazer o report usar a mesma engine. Os goldens do planner são o alvo de comportamento; um próximo passo é adicionar fixtures/goldens pro report e provar a convergência.
+A divergência histórica planner≠report era no **algoritmo** (que agora é único). A diferença que **permanece de propósito** é só a **resolução de esforço**: o report mede em horas (`effortH`) porque seu dado de entrada é horas; o planner do VENA tem rollup + horas→SP porque tem esse dado. Isso é variação legítima de contexto, isolada em `cfg.resolveEffort` — não duplicação de lógica de scheduling. No caso normal o report **espelha** o schedule publicado pelo planner (D1); a engine só roda no fallback (`localPlan`).
 
 ## Limitações (honestas)
 
-- Cobre a engine do **planner** (VENA + FST). As engines dos **reports** ainda não têm goldens — é o próximo passo natural (o harness já é multi-engine; falta declarar os arquivos de report em `PLANNERS` com o mapeamento de campos deles).
 - Fixtures são **sintéticas** (não snapshot do JIRA real), por design: determinísticas e focadas nos ramos da engine.
-- A extração assume que as funções-alvo não contêm `{`/`}` dentro de string/regex/comentário (verificado hoje). Se isso mudar, o scanner em `capacity-golden.js` precisa evoluir.
+- A extração da `resolveEffort` de cada arquivo assume que essas funções não contêm `{`/`}` dentro de string/regex/comentário (verificado). Se mudar, o scanner em `capacity-golden.js` precisa evoluir.
