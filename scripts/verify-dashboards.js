@@ -21,6 +21,8 @@ const ROUTES = [
   { path: '/vena/roadmap',  name: 'VENA · Report',  selectors: ['#ganttSvg, svg', 'table, .gridjs-wrapper'] },
   { path: '/fst/',          name: 'FST · Report',   selectors: ['#ganttSvg, svg', 'table, .gridjs-wrapper'] },
   { path: '/fst/capacity',  name: 'FST · Planner',  selectors: ['.lane', '.kpi, .block, .lane-head'] },
+  { path: '/pgm/',          name: 'PGM · Report',   selectors: ['#ganttSvg, svg', 'table, .gridjs-wrapper'] },
+  { path: '/pgm/capacity',  name: 'PGM · Planner',  selectors: ['.lane', '.kpi, .block, .lane-head'] },
   { path: '/timeline/',     name: 'Cross · Gantt',  selectors: ['#ganttSvg'] },
 ];
 

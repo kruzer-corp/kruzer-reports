@@ -1,0 +1,1104 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PGM — Status Report de Demandas</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/shared/tokens.css">
+<style>
+/* Tokens vivem em /shared/tokens.css. */
+.container { padding: 16px 20px 40px; max-width: 1400px; margin: 0 auto; }
+.back { font-size: 12px; color: var(--kruzer-primary); text-decoration: none; margin-bottom: 8px; display: inline-block; }
+.back:hover { text-decoration: underline; }
+.header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; flex-wrap: wrap; }
+.header h1 { margin: 0 0 4px; font-size: 24px; font-weight: 700; letter-spacing: -0.01em; }
+.header .sub { color: var(--kruzer-navy-300); font-size: 13px; }
+.header .meta { margin-top: 8px; display: flex; gap: 24px; font-size: 12px; color: var(--kruzer-neutral-700); flex-wrap: wrap; }
+.header .meta strong { color: var(--kruzer-navy); font-weight: 500; }
+.controls { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+.control { display: flex; flex-direction: column; gap: 4px; }
+.control label { font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--kruzer-neutral-700); letter-spacing: 0.04em; }
+select, input, button { font-family: inherit; font-size: 13px; padding: 8px 12px; border: 1px solid var(--kruzer-neutral-300); border-radius: 8px; background: #fff; color: var(--kruzer-navy); cursor: pointer; }
+button.primary { background: var(--kruzer-primary); color: #fff; border-color: var(--kruzer-primary); font-weight: 600; }
+button.primary:hover { background: var(--kruzer-primary-700); }
+button:disabled { opacity: 0.6; cursor: wait; }
+
+.kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 18px; }
+@media (max-width: 900px) { .kpis { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); } }
+.kpi { background: #fff; border: 1px solid var(--kruzer-neutral-300); border-radius: 8px; padding: 14px 18px; box-shadow: var(--shadow); border-top-width: 3px; }
+.kpi.k-backlog { border-top-color: var(--kruzer-navy-300); }
+.kpi.k-estimativa { border-top-color: var(--kruzer-neutral-500); }
+.kpi.k-aprovacao { border-top-color: var(--kruzer-warning); }
+.kpi.k-execucao { border-top-color: var(--kruzer-primary); }
+.kpi.k-hyper { border-top-color: var(--kruzer-success); }
+.kpi .label { font-size: 11px; text-transform: uppercase; color: var(--kruzer-neutral-700); font-weight: 600; letter-spacing: 0.5px; margin-bottom: 4px; }
+.kpi .value { font-size: 28px; font-weight: 700; line-height: 1; }
+
+.section { background: #fff; border: 1px solid var(--kruzer-neutral-300); border-radius: 8px; padding: 24px; margin-bottom: 16px; box-shadow: var(--shadow); }
+.section h2 { margin: 0 0 4px; font-size: 18px; font-weight: 600; }
+.section .sub { font-size: 12px; color: var(--kruzer-neutral-700); margin-bottom: 16px; font-style: italic; }
+
+/* Rule box */
+.rule-box { background: var(--kruzer-primary-100); border-left: 3px solid var(--kruzer-primary); border-radius: 4px; padding: 12px 16px; margin-bottom: 16px; font-size: 12px; color: var(--kruzer-navy); line-height: 1.7; }
+.rule-box strong { font-weight: 700; }
+.rule-box code { background: #fff; padding: 1px 6px; border-radius: 3px; font-family: inherit; font-size: 11px; color: var(--kruzer-primary-700); border: 1px solid var(--kruzer-neutral-300); }
+
+/* Toolbar */
+.toolbar { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+.toolbar input[type=text] { flex: 1; min-width: 200px; cursor: text; }
+.toolbar input:focus, .toolbar select:focus { outline: none; border-color: var(--kruzer-primary); }
+
+/* Tabela */
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+thead tr { background: var(--kruzer-primary); color: #fff; text-align: left; }
+thead th { padding: 12px 16px; font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: 0.3px; white-space: nowrap; }
+tbody tr { border-bottom: 1px solid var(--kruzer-neutral-300); }
+tbody tr:not(.group-divider):nth-child(even) { background: var(--kruzer-neutral-100); }
+tbody tr:not(.group-divider):hover { background: var(--kruzer-primary-100); }
+tbody td { padding: 12px 16px; vertical-align: middle; }
+.prio-edit { -webkit-appearance: none; appearance: none; border: none; border-radius: 4px; font-size: 11px; font-weight: 700; padding: 3px 10px; cursor: pointer; text-align: center; }
+.prio-edit:focus { outline: none; box-shadow: 0 0 0 2px var(--kruzer-primary-100); }
+.prio-edit:disabled { opacity: .5; cursor: wait; }
+tbody td.key { font-weight: 500; white-space: nowrap; font-size: 12px; }
+tbody td.key a { color: var(--kruzer-primary-700); text-decoration: none; }
+tbody td.key a:hover { text-decoration: underline; }
+tbody td.name { font-weight: 500; color: var(--kruzer-navy); min-width: 260px; }
+tbody td.date { white-space: nowrap; font-variant-numeric: tabular-nums; }
+tbody td.empty { color: var(--kruzer-neutral-500); }
+
+/* Status group divider */
+tbody tr.group-divider td { background: var(--kruzer-navy); color: #fff; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding: 6px 16px; }
+tbody tr.group-divider td span.count { float: right; opacity: 0.7; font-weight: 400; }
+
+/* Remarks editáveis */
+td.remarks { min-width: 220px; }
+.remark-edit { width: 100%; min-height: 22px; border: 1px solid transparent; border-radius: 4px; padding: 4px 6px; font-family: inherit; font-size: 13px; color: var(--kruzer-navy); background: transparent; cursor: text; outline: none; line-height: 1.4; white-space: pre-wrap; word-break: break-word; }
+.remark-edit:hover { border-color: var(--kruzer-neutral-300); background: #fff; }
+.remark-edit:focus { border-color: var(--kruzer-primary); background: #fff; box-shadow: 0 0 0 2px var(--kruzer-primary-100); }
+.remark-edit:empty:before { content: "+ adicionar remark"; color: var(--kruzer-neutral-500); font-style: italic; }
+.remark-edit.dirty { border-left: 3px solid var(--kruzer-warning); }
+.remark-edit.saving { opacity: .5; }
+.due-edit { font-family: inherit; font-size: 13px; padding: 3px 6px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: var(--kruzer-navy); cursor: pointer; font-variant-numeric: tabular-nums; }
+.due-edit:hover { border-color: var(--kruzer-neutral-300); background: #fff; }
+.due-edit:focus { outline: none; border-color: var(--kruzer-primary); background: #fff; box-shadow: 0 0 0 2px var(--kruzer-primary-100); }
+.due-edit:disabled { opacity: .5; cursor: wait; }
+.due-empty { cursor: pointer; }
+.due-empty:hover { color: var(--kruzer-primary); }
+.toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--kruzer-navy); color: #fff; padding: 10px 18px; border-radius: 999px; font-size: 13px; opacity: 0; pointer-events: none; transition: all .2s; z-index: 200; box-shadow: 0 6px 20px rgba(11,16,32,.2); }
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.toast.err { background: var(--kruzer-error); }
+
+/* Badges */
+.badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 500; white-space: nowrap; }
+.badge-hyper { background: var(--kruzer-success); color: #fff; }
+.badge-execucao { background: var(--kruzer-primary); color: #fff; }
+.badge-aprovacao { background: var(--kruzer-warning); color: #fff; }
+.badge-estimativa { background: var(--kruzer-neutral-500); color: var(--kruzer-navy); }
+.badge-backlog { background: var(--kruzer-navy-300); color: #fff; }
+
+/* Priority */
+.prio { display: inline-flex; align-items: center; justify-content: center; min-width: 30px; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; }
+.prio-p0 { background: var(--kruzer-error); color: #fff; }
+.prio-p1 { background: var(--kruzer-warning); color: #fff; }
+.prio-p2 { background: var(--kruzer-primary); color: #fff; }
+.prio-p3 { background: var(--kruzer-neutral-500); color: var(--kruzer-navy); }
+
+/* Swimlane */
+.swimlane { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+@media (max-width: 1100px) { .swimlane { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); } }
+.lane { background: var(--kruzer-neutral-100); border-radius: 8px; padding: 12px; min-height: 200px; }
+.lane-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 2px solid var(--kruzer-neutral-300); }
+.lane-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; }
+.lane-count { font-size: 12px; background: #fff; border-radius: 10px; padding: 2px 8px; color: var(--kruzer-neutral-700); }
+.lane.backlog .lane-header { border-bottom-color: var(--kruzer-navy-300); }
+.lane.estimativa .lane-header { border-bottom-color: var(--kruzer-neutral-500); }
+.lane.aprovacao .lane-header { border-bottom-color: var(--kruzer-warning); }
+.lane.execucao .lane-header { border-bottom-color: var(--kruzer-primary); }
+.lane.hyper .lane-header { border-bottom-color: var(--kruzer-success); }
+.lane-card { background: #fff; border: 1px solid var(--kruzer-neutral-300); border-left: 3px solid var(--kruzer-primary); border-radius: 4px; padding: 12px; margin-bottom: 10px; }
+.lane.backlog .lane-card { border-left-color: var(--kruzer-navy-300); }
+.lane.estimativa .lane-card { border-left-color: var(--kruzer-neutral-500); }
+.lane.aprovacao .lane-card { border-left-color: var(--kruzer-warning); }
+.lane.execucao .lane-card { border-left-color: var(--kruzer-primary); }
+.lane.hyper .lane-card { border-left-color: var(--kruzer-success); }
+.lane-card .meta { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; gap: 6px; }
+.lane-card .key { font-size: 11px; color: var(--kruzer-primary-700); font-weight: 500; text-decoration: none; }
+.lane-card .key:hover { text-decoration: underline; }
+.lane-card .name { font-size: 13px; font-weight: 500; line-height: 17px; color: var(--kruzer-navy); }
+.lane-card .due { font-size: 10px; color: var(--kruzer-neutral-700); margin-top: 6px; font-variant-numeric: tabular-nums; }
+.lane-card .due.urgent { color: var(--kruzer-error); font-weight: 700; }
+
+/* Sustain */
+.section.sustain { border-left: 4px solid var(--kruzer-error); background: linear-gradient(180deg, #FFF5F5 0%, #fff 60%); }
+.section.sustain h2 { color: var(--kruzer-error); }
+.section.sustain h2::before { content: "⚠ "; }
+.section.sustain p { font-size: 14px; line-height: 1.6; color: var(--kruzer-navy); margin: 0 0 12px; }
+.section.sustain ul { margin: 12px 0 12px 32px; padding: 0; }
+.section.sustain ul li { margin-bottom: 8px; font-size: 13px; color: var(--kruzer-navy); }
+.section.sustain .risk-callout { margin-top: 16px; padding: 12px 16px; background: var(--kruzer-error); color: #fff; border-radius: 4px; font-size: 13px; font-weight: 500; }
+.section.sustain .risk-callout strong { font-weight: 700; }
+
+.footer { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--kruzer-neutral-300); font-size: 11px; color: var(--kruzer-neutral-700); display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.footer .brand { font-weight: 500; color: var(--kruzer-navy); }
+
+.loading { padding: 60px 20px; text-align: center; color: var(--kruzer-neutral-700); }
+.loading .spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid var(--kruzer-neutral-300); border-top-color: var(--kruzer-primary); border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 8px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.error { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; padding: 12px 16px; border-radius: 8px; margin-bottom: 12px; font-size: 13px; }
+a { color: var(--kruzer-primary); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* Botão ghost + export */
+button.ghost { background: #fff; }
+button.ghost:hover { background: var(--kruzer-neutral-100); }
+.exporting .export-hide { display: none !important; }
+
+/* Acompanhamentos & to-do (seção de destaque, editável) */
+.section.followups { border-left: 4px solid var(--kruzer-primary); }
+.fu-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.fu-head h2 { margin: 0; font-size: 18px; font-weight: 600; }
+.fu-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.fu-item { display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; border: 1px solid var(--kruzer-neutral-300); border-radius: 8px; background: #fff; }
+.fu-item.done { opacity: .6; }
+.fu-item.done .fu-text { text-decoration: line-through; }
+.fu-done { margin-top: 3px; width: 16px; height: 16px; cursor: pointer; flex: none; accent-color: var(--kruzer-primary); }
+.fu-cat { flex: none; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 999px; border: none; color: #fff; cursor: pointer; -webkit-appearance: none; appearance: none; text-align: center; }
+/* Chip estático usado só no export (html2canvas renderiza <select> mal) */
+.fu-cat-print { display: none; flex: none; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; padding: 4px 12px; border-radius: 999px; color: #fff; line-height: 1; }
+.exporting .fu-cat { display: none; }
+.exporting .fu-cat-print { display: inline-flex; }
+.fu-text { flex: 1; min-height: 22px; outline: none; line-height: 1.5; padding: 2px 4px; border-radius: 4px; word-break: break-word; }
+.fu-text:focus { background: var(--kruzer-primary-100); box-shadow: inset 0 0 0 1px var(--kruzer-primary); }
+.fu-text:empty:before { content: "Escreva o acompanhamento…"; color: var(--kruzer-neutral-500); }
+.fu-del { flex: none; background: none; border: none; color: var(--kruzer-neutral-500); font-size: 18px; cursor: pointer; line-height: 1; padding: 0 4px; }
+.fu-del:hover { color: var(--kruzer-error); }
+.fu-empty { font-size: 13px; color: var(--kruzer-neutral-700); padding: 8px 4px; }
+
+/* Timeline real (Gantt por capacity) */
+.legend { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 12px; font-size: 12px; color: var(--kruzer-navy-300); }
+.legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.legend-swatch { width: 16px; height: 11px; border-radius: 2px; display: inline-block; flex: none; }
+.legend-swatch.hh { background: repeating-linear-gradient(45deg, var(--kruzer-neutral-500), var(--kruzer-neutral-500) 3px, #fff 3px, #fff 6px); }
+.legend-swatch.today { width: 2px; height: 14px; background: var(--kruzer-error); border-radius: 0; }
+.gantt-wrap { overflow-x: auto; border: 1px solid var(--kruzer-neutral-300); border-radius: 6px; }
+.gantt-svg { display: block; }
+.gantt-bar { cursor: pointer; transition: opacity 0.15s; }
+.gantt-bar:hover { opacity: 0.82; }
+.g-group-band { fill: var(--kruzer-neutral-100); }
+.g-group-name { font-size: 12px; font-weight: 700; fill: var(--kruzer-navy); }
+.g-group-meta { font-size: 11px; fill: var(--kruzer-neutral-700); }
+.g-key { font-size: 11px; font-weight: 600; fill: var(--kruzer-primary-700); }
+.g-name { font-size: 11px; fill: var(--kruzer-navy); }
+.g-axis { font-size: 10px; fill: var(--kruzer-neutral-700); }
+.g-axis.bold { font-size: 11px; fill: var(--kruzer-navy); font-weight: 600; }
+.g-grid-month { stroke: var(--kruzer-neutral-500); stroke-width: 1; }
+.g-today { stroke: var(--kruzer-error); stroke-width: 2; stroke-dasharray: 4 4; }
+.g-barlabel { font-size: 10px; fill: #fff; font-weight: 600; pointer-events: none; }
+.g-rowsep { stroke: var(--kruzer-neutral-300); stroke-width: 0.5; }
+.note { font-size: 12px; color: var(--kruzer-neutral-700); margin-top: 12px; }
+.tooltip { position: fixed; background: #fff; border: 1px solid var(--kruzer-neutral-300); border-radius: 6px; padding: 10px 12px; box-shadow: 0 6px 20px rgba(11,16,32,.12); font-size: 12px; max-width: 320px; pointer-events: none; opacity: 0; transition: opacity 0.1s; z-index: 100; }
+.tooltip.show { opacity: 1; }
+.tooltip .t-title { font-weight: 600; margin-bottom: 4px; color: var(--kruzer-navy); }
+.tooltip .t-meta { color: var(--kruzer-navy-300); margin-bottom: 6px; }
+.tooltip .t-grid { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; }
+.tooltip .t-grid .lbl { color: var(--kruzer-neutral-700); font-size: 11px; }
+
+@media print {
+  body { background: #fff; }
+  .back, .controls, .toolbar { display: none; }
+  .section { box-shadow: none; break-inside: avoid; }
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <a href="/" class="back export-hide">← Todos os dashboards</a>
+  <div class="header">
+    <div>
+      <h1>Status Report — Pague Menos</h1>
+      <div class="sub">Controle consolidado de épicos (PGM · Painel 4.0) com status, prazos, prioridades e remarks editáveis.</div>
+      <div class="meta">
+        <span><strong>Total de demandas:</strong> <span id="metaTotal">—</span></span>
+        <span><strong>Última atualização:</strong> <span id="metaUpdated">—</span></span>
+        <span><strong>Fonte:</strong> JIRA · project = PGM (épicos)</span>
+      </div>
+    </div>
+    <div class="controls export-hide">
+      <div class="control"><label>&nbsp;</label><button class="ghost" id="exportBtn">⬇ Exportar PDF</button></div>
+      <div class="control"><label>&nbsp;</label><button class="primary" id="refreshBtn">Atualizar dados</button></div>
+    </div>
+  </div>
+
+  <section class="section followups" id="followups">
+    <div class="fu-head">
+      <h2>Acompanhamentos &amp; to-do</h2>
+      <button class="ghost export-hide" id="fuAdd">+ Adicionar</button>
+    </div>
+    <div class="sub">Follow-ups pontuais adjacentes aos projetos — demandas de operação, acordos gerenciais, assuntos financeiros, etc. Editável e salvo neste navegador; entra no snapshot exportado.</div>
+    <div class="fu-list" id="fuList"></div>
+  </section>
+
+  <div id="errorBox"></div>
+  <div id="loadingBox" class="loading"><span class="spinner"></span>Carregando demandas Pague Menos…</div>
+
+  <div id="content" style="display:none">
+    <!-- KPIs (do mais inicial → conclusão) -->
+    <div class="kpis" id="kpis"></div>
+
+    <!-- Tabela -->
+    <section class="section">
+      <h2>Tabela de controle</h2>
+      <div class="sub">Ordenada por status (do mais próximo de conclusão ao mais inicial) e, dentro de cada status, por Priority e Due Date.</div>
+
+      <div class="rule-box">
+        <strong>Como os campos são derivados do JIRA (ao vivo):</strong>
+        <code>Status</code> vem das labels do épico (em-execucao, hyper-care, aguardando-aprovacao, aguardando-estimativa, backlog), com fallback pro status nativo.
+        <code>Priority</code> mapeia a prioridade do JIRA: Highest → <code>P0</code>, High → <code>P1</code>, Medium → <code>P2</code>, Low → <code>P3</code>.
+        <code>Start</code> vem do campo Start date. <code>Due Date</code> é <b>editável na tabela</b> e grava direto no campo Due do épico no JIRA.
+        <code>Remarks</code> é editável: ao sair do campo, <b>adiciona um comentário</b> no épico do JIRA (e mantém o texto salvo localmente para exibição).
+      </div>
+
+      <div class="toolbar export-hide">
+        <input type="text" id="search" placeholder="Buscar por Key, DMND ou Name..." />
+        <select id="filter-status">
+          <option value="">Todos os status</option>
+          <option value="hyper">Hyper Care</option>
+          <option value="execucao">Em Execução</option>
+          <option value="aprovacao">Aguardando Aprovação</option>
+          <option value="estimativa">Aguardando Estimativa</option>
+          <option value="backlog">Backlog</option>
+        </select>
+        <select id="filter-prio">
+          <option value="">Todas as priorities</option>
+          <option value="P0">P0</option>
+          <option value="P1">P1</option>
+          <option value="P2">P2</option>
+          <option value="P3">P3</option>
+        </select>
+      </div>
+
+      <div class="table-wrap">
+        <table id="tbl">
+          <thead>
+            <tr>
+              <th>Key</th>
+              <th>DMND</th>
+              <th>Name</th>
+              <th>Status</th>
+              <th>Priority</th>
+              <th>Start Date</th>
+              <th>Due Date</th>
+              <th>Remarks</th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Timeline real — cronograma por capacity -->
+    <section class="section">
+      <h2>Timeline de execução — cronograma por capacity</h2>
+      <div class="sub">Estado atual: épicos em andamento começam na <b>Start date</b> real e terminam na <b>Due date</b> acordada (gerida no acompanhamento). Sem datas reais, o <a href="/pgm/capacity">planejador de Capacity da Pague Menos</a> projeta início/fim pelo esforço. <span id="ganttMeta">—</span></div>
+      <div class="legend">
+        <span class="legend-item"><span class="legend-swatch" style="background:#12B76A"></span> Hyper Care</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:#3151CE"></span> Em Execução</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:#F79009"></span> Ag. Aprovação</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:#C6C9D9"></span> Ag. Estimativa</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:#48507D"></span> Backlog</span>
+        <span class="legend-item"><span class="legend-swatch hh"></span> Sem estimativa</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:#fff;border:2px solid #F04438"></span> Estoura due JIRA</span>
+        <span class="legend-item"><span class="legend-swatch today"></span> Hoje</span>
+      </div>
+      <div class="gantt-wrap" id="ganttWrap"><svg id="ganttSvg" class="gantt-svg" xmlns="http://www.w3.org/2000/svg"></svg></div>
+      <div class="note" id="ganttNote"></div>
+    </section>
+
+    <div class="footer">
+      <span class="brand">Kruzer · Status Report</span>
+      <span id="footerGen">—</span>
+    </div>
+  </div>
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+<div class="toast" id="toast"></div>
+
+<script src="/shared/api.js"></script>
+<script src="/shared/state.js"></script>
+<script src="/shared/capacity.js"></script>
+<script>
+const PROJECT = 'PGM', JIRA_BASE = 'https://kruzer.atlassian.net';
+const FIELDS = ['summary','status','priority','issuetype','created','resolutiondate','labels','duedate','description','customfield_10015','timeoriginalestimate','aggregatetimeoriginalestimate'];
+const REMARK_STORE = 'pgm-remarks-v1';
+
+// Buckets de status, do mais maduro (conclusão) ao mais inicial.
+const BUCKETS = [
+  { id:'hyper',      label:'Hyper Care',           badgeCls:'badge-hyper',      laneCls:'hyper',      labelMatch:'hyper-care' },
+  { id:'execucao',   label:'Em Execução',          badgeCls:'badge-execucao',   laneCls:'execucao',   labelMatch:'em-execucao' },
+  { id:'aprovacao',  label:'Aguardando Aprovação', badgeCls:'badge-aprovacao',  laneCls:'aprovacao',  labelMatch:'aguardando-aprovacao' },
+  { id:'estimativa', label:'Aguardando Estimativa',badgeCls:'badge-estimativa', laneCls:'estimativa', labelMatch:'aguardando-estimativa' },
+  { id:'backlog',    label:'Backlog',              badgeCls:'badge-backlog',    laneCls:'backlog',    labelMatch:'backlog' },
+];
+const bucketById = id => BUCKETS.find(b => b.id === id);
+// Ordem da tabela (top→down): conclusão → início.
+const TABLE_ORDER = ['hyper','execucao','aprovacao','estimativa','backlog'];
+// Ordem da swimlane / KPIs (esq→dir): início → conclusão.
+const LANE_ORDER = ['backlog','estimativa','aprovacao','execucao','hyper'];
+
+// JIRA priority name → P-tier.
+function priorityTier(p){
+  const n = (p||'').toLowerCase();
+  if (n.includes('highest')) return 'P0';
+  if (n.includes('high'))    return 'P1';
+  if (n.includes('medium'))  return 'P2';
+  if (n.includes('low'))     return 'P3';
+  return 'P3';
+}
+
+// Texto de status (planilha/JIRA) → bucket id.
+function statusTextToBucket(txt){
+  const s = (txt||'').toLowerCase();
+  if (s.includes('hyper'))                       return 'hyper';
+  if (s.includes('execu'))                       return 'execucao';
+  if (s.includes('aprova'))                      return 'aprovacao';
+  if (s.includes('estimativa'))                  return 'estimativa';
+  if (s.includes('backlog'))                     return 'backlog';
+  return null;
+}
+
+// Resolve bucket: labels → status da descrição (planilha) → status nativo JIRA.
+function resolveBucket(issue){
+  const labels = issue.labels || [];
+  for (const b of BUCKETS) if (labels.includes(b.labelMatch)) return b.id;
+  const fromDesc = statusTextToBucket(parseField(issue.description, 'Status'));
+  if (fromDesc) return fromDesc;
+  const s = (issue.statusName||'').toLowerCase();
+  if (s.includes('progress') || s.includes('review') || s.includes('execu')) return 'execucao';
+  if (s.includes('done') || s.includes('conclu') || s.includes('closed'))    return 'hyper';
+  return 'backlog';
+}
+
+// Extrai "**Campo:** valor" da descrição (texto plano). Ignora travessão "—".
+function parseField(desc, field){
+  if (!desc) return '';
+  const re = new RegExp('\\*\\*' + field + '[^:]*:\\*\\*\\s*(.+)');
+  const m = desc.match(re);
+  if (!m) return '';
+  const v = m[1].trim();
+  return (v === '—' || v === '-') ? '' : v;
+}
+
+// description pode vir como string ou ADF. Reduz a texto plano.
+function descToText(d){
+  if (!d) return '';
+  if (typeof d === 'string') return d;
+  // ADF: concatena textos recursivamente.
+  let out = '';
+  (function walk(node){
+    if (!node) return;
+    if (Array.isArray(node)) return node.forEach(walk);
+    if (node.type === 'text' && node.text) {
+      const strong = (node.marks || []).some(m => m.type === 'strong');
+      out += strong ? `**${node.text}**` : node.text; // preserva negrito → casa com parseField
+    }
+    if (node.type === 'hardBreak' || node.type === 'paragraph') out += '\n';
+    if (node.content) walk(node.content);
+  })(d);
+  return out;
+}
+
+function fmtDate(iso){
+  if (!iso) return '';
+  const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return '';
+  return `${m[3]}/${m[2]}/${m[1]}`;
+}
+
+function escapeHtml(s){
+  return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function normalize(issue){
+  const f = issue.fields || {};
+  const descText = descToText(f.description);
+  const out = {
+    key: issue.key,
+    url: `${JIRA_BASE}/browse/${issue.key}`,
+    summary: f.summary || '',
+    statusName: f.status?.name || '—',
+    priority: f.priority?.name || '—',
+    priorityTier: priorityTier(f.priority?.name),
+    labels: f.labels || [],
+    description: descText,
+    startDate: f.customfield_10015 || parseDescDate(descText, 'Start'),
+    dueDate: f.duedate || parseDescDate(descText, 'Due'),
+  };
+  // DMND code + nome limpo.
+  const dm = out.summary.match(/^(DMND\d+)\s*\|\s*(.*)$/);
+  out.dmnd = dm ? dm[1] : '';
+  out.name = dm ? dm[2].trim() : out.summary;
+  out.bucket = resolveBucket(out);
+  out.remarkDefault = parseField(descText, 'Remarks');
+  // Insumos de capacity (mesmos do /pgm/capacity): esforço em horas + flag "committed".
+  const estSec = (f.timeoriginalestimate != null && f.timeoriginalestimate > 0) ? f.timeoriginalestimate
+               : ((f.aggregatetimeoriginalestimate != null && f.aggregatetimeoriginalestimate > 0) ? f.aggregatetimeoriginalestimate : null);
+  out.estH = estSec != null ? Math.round(estSec / 3600 * 10) / 10 : null;
+  out.committed = !!out.startDate || out.bucket === 'execucao';
+  out.done = (f.status?.statusCategory?.key === 'done'); // Done no JIRA → fora do cálculo da esteira
+  return out;
+}
+
+// Start/Due podem vir "DD/MM/YYYY" na descrição; converte pra ISO pra unificar fmtDate.
+function parseDescDate(desc, field){
+  const v = parseField(desc, field);
+  const m = v.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : '';
+}
+
+// ---- Remarks (KruzerState — D1 + cache local; migra de REMARK_STORE legacy) ----
+KruzerState.importLegacyKey(REMARK_STORE, 'pgm-report', 'remarks');
+function loadRemarks(){
+  const r = KruzerState.read('pgm-report', 'remarks');
+  return (r && r.value && typeof r.value === 'object') ? r.value : {};
+}
+function saveRemarks(obj){
+  const cur = KruzerState.read('pgm-report', 'remarks');
+  KruzerState.write('pgm-report', 'remarks', obj, { expectedVersion: cur.version })
+    .catch(e => console.warn('remarks save failed:', e.message));
+}
+let REMARK_OVERRIDES = loadRemarks();
+KruzerState.sync('pgm-report', 'remarks').then(() => { REMARK_OVERRIDES = loadRemarks(); });
+KruzerState.subscribe('pgm-report', 'remarks', () => { REMARK_OVERRIDES = loadRemarks(); if (typeof render === 'function') render(); });
+function remarkFor(issue){
+  if (Object.prototype.hasOwnProperty.call(REMARK_OVERRIDES, issue.key)) return REMARK_OVERRIDES[issue.key];
+  return issue.remarkDefault || '';
+}
+
+let RAW = [];
+
+// ---- Render ----
+function renderKPIs(){
+  const counts = {}; BUCKETS.forEach(b => counts[b.id] = 0);
+  RAW.forEach(i => counts[i.bucket]++);
+  const c = document.getElementById('kpis'); c.innerHTML = '';
+  LANE_ORDER.forEach(id => {
+    const b = bucketById(id);
+    c.innerHTML += `<div class="kpi k-${id}"><div class="label">${b.label}</div><div class="value">${counts[id]}</div></div>`;
+  });
+}
+
+// Rank de prioridade: P0=0 (maior) … P3=3 (menor). Sem || pra não tratar P0 (0) como falsy.
+function prioRank(t){ const n = parseInt(String(t||'').slice(1)); return isNaN(n) ? 9 : n; }
+function sortWithin(arr){
+  return arr.sort((a,b) => {
+    const pa = prioRank(a.priorityTier), pb = prioRank(b.priorityTier);
+    if (pa !== pb) return pa - pb; // maior prioridade (P0) primeiro
+    const da = a.dueDate || '9999', db = b.dueDate || '9999';
+    return da < db ? -1 : da > db ? 1 : 0;
+  });
+}
+
+function renderTable(){
+  const grouped = {}; TABLE_ORDER.forEach(id => grouped[id] = []);
+  RAW.forEach(i => grouped[i.bucket].push(i));
+  TABLE_ORDER.forEach(id => sortWithin(grouped[id]));
+
+  const tb = document.getElementById('tbody'); tb.innerHTML = '';
+  TABLE_ORDER.forEach(id => {
+    const items = grouped[id]; if (!items.length) return;
+    const b = bucketById(id);
+    const dv = document.createElement('tr');
+    dv.className = 'group-divider'; dv.dataset.bucket = id;
+    dv.innerHTML = `<td colspan="8">${b.label} <span class="count">${items.length} ${items.length === 1 ? 'demanda' : 'demandas'}</span></td>`;
+    tb.appendChild(dv);
+
+    items.forEach(i => {
+      const tr = document.createElement('tr');
+      tr.dataset.bucket = i.bucket; tr.dataset.prio = i.priorityTier;
+      tr.dataset.text = `${i.key} ${i.dmnd} ${i.name}`.toLowerCase();
+      const start = fmtDate(i.startDate), due = fmtDate(i.dueDate);
+      tr.innerHTML =
+        `<td class="key"><a href="${i.url}" target="_blank" rel="noopener">${i.key}</a></td>` +
+        `<td class="key">${i.dmnd || '<span class="empty">—</span>'}</td>` +
+        `<td class="name">${escapeHtml(i.name)}</td>` +
+        `<td><span class="badge ${b.badgeCls}">${b.label}</span></td>` +
+        `<td><select class="prio-edit prio-${i.priorityTier.toLowerCase()}" data-key="${i.key}" title="Editar prioridade → grava no JIRA">${['P0','P1','P2','P3'].map(p=>`<option value="${p}" ${p===i.priorityTier?'selected':''}>${p}</option>`).join('')}</select></td>` +
+        `<td class="date">${start || '<span class="empty">—</span>'}</td>` +
+        `<td class="date">${ (i.dueDate||'').slice(0,10)
+            ? `<input type="date" class="due-edit" data-key="${i.key}" value="${(i.dueDate||'').slice(0,10)}" title="Editar Due Date → grava no épico do JIRA">`
+            : `<span class="empty due-empty" data-key="${i.key}" role="button" tabindex="0" title="Definir Due Date → grava no épico do JIRA">—</span>` }</td>` +
+        `<td class="remarks"><div class="remark-edit" contenteditable="true" data-key="${i.key}" title="Editar remark → adiciona comentário no épico do JIRA">${escapeHtml(remarkFor(i))}</div></td>`;
+      tb.appendChild(tr);
+    });
+  });
+  wireRemarkEditors();
+  wireDueEditors();
+  wirePrioEditors();
+  applyFilter();
+}
+
+function wireRemarkEditors(){
+  document.querySelectorAll('.remark-edit').forEach(el => {
+    const key = el.dataset.key;
+    const issue = RAW.find(x => x.key === key);
+    const markDirty = () => {
+      const cur = el.innerText.trim();
+      const isOverride = Object.prototype.hasOwnProperty.call(REMARK_OVERRIDES, key) && REMARK_OVERRIDES[key] !== (issue?.remarkDefault || '');
+      el.classList.toggle('dirty', isOverride || (cur !== (issue?.remarkDefault || '') && Object.prototype.hasOwnProperty.call(REMARK_OVERRIDES, key)));
+    };
+    el.addEventListener('focus', () => { el.dataset.baseline = el.innerText.trim(); });
+    el.addEventListener('blur', async () => {
+      const cur = el.innerText.replace(/ /g, ' ').trim();
+      if (cur === (issue?.remarkDefault || '')) {
+        delete REMARK_OVERRIDES[key]; // voltou ao default → não guarda override
+      } else {
+        REMARK_OVERRIDES[key] = cur;
+      }
+      saveRemarks(REMARK_OVERRIDES);
+      markDirty();
+      // Comentário no JIRA quando o texto mudou e não está vazio.
+      const baseline = el.dataset.baseline || '';
+      if (cur && cur !== baseline) {
+        el.classList.add('saving');
+        try { await KruzerAPI.addComment(key, `📋 Remark (Status Report): ${cur}`); toast(`Comentário adicionado em ${key}`); }
+        catch (e) { toast(`Falha ao comentar em ${key}: ${e.message}`, true); }
+        finally { el.classList.remove('saving'); }
+      }
+    });
+    el.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); el.blur(); } });
+    markDirty();
+  });
+}
+
+// Due Date editável → grava no campo Due Date do épico no JIRA.
+// Sem valor, mostra o mesmo "—" do Start Date (não o placeholder dd/mm/yyyy);
+// clicar no "—" abre o date-picker.
+function wireDueInput(inp){
+  inp.addEventListener('change', async () => {
+    const key = inp.dataset.key;
+    const issue = RAW.find(x => x.key === key);
+    const val = inp.value || null; // 'YYYY-MM-DD' ou null
+    inp.disabled = true;
+    try {
+      await KruzerAPI.updateDueDate(key, val);
+      if (issue) issue.dueDate = val || '';
+      toast(`Due Date de ${key} ${val ? 'atualizado → ' + fmtDate(val) : 'limpo'} no JIRA`);
+      if (!val) inp.replaceWith(makeDueEmpty(key)); // limpou → volta pro "—"
+    } catch (e) {
+      toast(`Falha ao atualizar Due de ${key}: ${e.message}`, true);
+    } finally {
+      inp.disabled = false;
+    }
+  });
+  // abriu o picker mas saiu sem escolher data → volta pro "—"
+  inp.addEventListener('blur', () => { if (!inp.value) inp.replaceWith(makeDueEmpty(inp.dataset.key)); });
+}
+function makeDueInput(key, value){
+  const inp = document.createElement('input');
+  inp.type = 'date'; inp.className = 'due-edit'; inp.dataset.key = key; inp.value = value || '';
+  inp.title = 'Editar Due Date → grava no épico do JIRA';
+  wireDueInput(inp);
+  return inp;
+}
+function wireDueEmpty(span){
+  const open = () => {
+    const inp = makeDueInput(span.dataset.key, '');
+    span.replaceWith(inp);
+    inp.focus();
+    if (inp.showPicker) { try { inp.showPicker(); } catch {} }
+  };
+  span.addEventListener('click', open);
+  span.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
+}
+function makeDueEmpty(key){
+  const span = document.createElement('span');
+  span.className = 'empty due-empty'; span.dataset.key = key; span.setAttribute('role', 'button'); span.tabIndex = 0;
+  span.title = 'Definir Due Date → grava no épico do JIRA'; span.textContent = '—';
+  wireDueEmpty(span);
+  return span;
+}
+function wireDueEditors(){
+  document.querySelectorAll('.due-edit').forEach(wireDueInput);
+  document.querySelectorAll('.due-empty').forEach(wireDueEmpty);
+}
+
+// Priority editável → grava no campo Priority do épico no JIRA.
+const TIER_TO_JIRA = { P0:'Highest', P1:'High', P2:'Medium', P3:'Low' };
+function wirePrioEditors(){
+  document.querySelectorAll('.prio-edit').forEach(sel => {
+    sel.addEventListener('change', async () => {
+      const key = sel.dataset.key;
+      const issue = RAW.find(x => x.key === key);
+      const tier = sel.value;
+      const name = TIER_TO_JIRA[tier] || 'Medium';
+      sel.disabled = true;
+      try {
+        await KruzerAPI.updatePriority(key, name);
+        if (issue) { issue.priorityTier = tier; issue.priority = name; }
+        sel.className = `prio-edit prio-${tier.toLowerCase()}`;
+        const tr = sel.closest('tr'); if (tr) tr.dataset.prio = tier;
+        toast(`Prioridade de ${key} → ${tier} (${name}) no JIRA`);
+      } catch (e) {
+        toast(`Falha ao mudar prioridade de ${key}: ${e.message}`, true);
+      } finally {
+        sel.disabled = false;
+      }
+    });
+  });
+}
+
+let _toastTimer;
+function toast(msg, isErr){
+  const t = document.getElementById('toast');
+  if (!t) return;
+  t.textContent = msg;
+  t.className = 'toast show' + (isErr ? ' err' : '');
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => { t.className = 'toast'; }, 3200);
+}
+
+// ===========================================================================
+// Timeline real — engine de capacity (réplica do /pgm/capacity, sem track dedicada).
+// Lê o MESMO cenário salvo pelo planejador (localStorage) pra unificar a visão:
+// esforço (horas) → duração → datas, empacotado por track a partir de hoje.
+// ===========================================================================
+const CAP_STATE_KEY = 'kruzer:pgm-capacity:current-scenario';
+const CAP_SCHEMA = 2;
+const PLACEHOLDER_H = 20;                 // horas nominais p/ demanda sem estimativa
+const DEFAULT_TRACK = {};   // PGM: sem override fixo de track
+const GANTT_EXCLUDE = [];                  // hides manuais (vazio: a regra é status Done no JIRA)
+// Épicos com status Done no JIRA NÃO entram no cálculo da esteira (mesma regra do /pgm/capacity).
+const ganttEpics = () => RAW.filter(e => !e.done && !GANTT_EXCLUDE.includes(e.key));
+const MS_DAY = 86400000;
+const CAP_DEFAULTS = { devs: 2, velocityPerDev: 30, parallelTracks: 2, horizonWeeks: 12 };
+const PRIO_RANK = { P0:0, P1:1, P2:2, P3:3 };
+const BUCKET_COLOR = { hyper:'#12B76A', execucao:'#3151CE', aprovacao:'#F79009', estimativa:'#C6C9D9', backlog:'#48507D' };
+const MONTHS = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+
+function loadCapState(){
+  try { const raw = localStorage.getItem(CAP_STATE_KEY); if (raw){ const s = JSON.parse(raw); if (s && s.schemaVersion === CAP_SCHEMA) return s; } } catch {}
+  return null;
+}
+function capParams(){
+  const s = loadCapState() || {};
+  return {
+    devs: s.devs ?? CAP_DEFAULTS.devs,
+    velocityPerDev: s.velocityPerDev ?? CAP_DEFAULTS.velocityPerDev,
+    parallelTracks: s.parallelTracks ?? CAP_DEFAULTS.parallelTracks,
+    horizonWeeks: s.horizonWeeks ?? CAP_DEFAULTS.horizonWeeks,
+    trackAssignments: Object.assign({}, s.trackAssignments || {}),
+    backlog: Array.isArray(s.backlog) ? s.backlog.slice() : [],
+    manualSp: s.manualSp || {},
+    dependencies: s.dependencies || {},
+  };
+}
+function startOfDay(d){ const x = new Date(d); x.setHours(0,0,0,0); return x; }
+function addDays(d,n){ const x = new Date(d); x.setDate(x.getDate()+n); return x; }
+function keyNum(k){ const n = parseInt(String(k).split('-')[1]); return isNaN(n) ? 0 : n; }
+function fmtShort(d){ return d ? `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}` : '—'; }
+function effortH(epic, P){
+  const m = P.manualSp[epic.key];
+  if (m != null && m > 0) return { h:m, src:'manual' };
+  if (epic.estH != null && epic.estH > 0) return { h:epic.estH, src:'horas' };
+  return { h:PLACEHOLDER_H, src:'placeholder' };
+}
+// Adapta o épico RAW do report pro shape da engine compartilhada.
+function adaptReportEpic(e){
+  return { ...e, isCommitted: !!e.committed, priority: e.priorityTier,
+    jiraStart: e.startDate ? startOfDay(new Date(e.startDate + 'T00:00:00')) : null,
+    jiraDue:   e.dueDate   ? startOfDay(new Date(e.dueDate   + 'T00:00:00')) : null };
+}
+// Engine de scheduling — FONTE ÚNICA em /shared/capacity.js (consolidada Fase C).
+// O report não tem track dedicada; esforço em horas via effortH. É o fallback
+// (localPlan) quando o planner ainda não publicou. Rede: scripts/capacity-golden.js.
+function computeSchedule(){
+  const P = capParams();
+  P.whatIfMode = false;
+  const epics = ganttEpics().map(adaptReportEpic);
+  const cfg = {
+    resolveEffort: (e, st) => { const r = effortH(e, st); return { sp: r.h, source: r.src }; },
+    prioRank: PRIO_RANK, dedicatedKey: null, defaultTrack: DEFAULT_TRACK, heatmapWeeks: 26,
+  };
+  KruzerCapacity.ensureAssignments(epics, P, cfg);
+  const sched = KruzerCapacity.computeSchedule(epics, P, cfg);
+  sched.P = P;                                              // localPlan lê P.devs etc.
+  sched.backlogCount = sched.epics.filter(e => e.inBacklog).length;
+  return sched;
+}
+
+// Cronograma publicado pelo planner (fonte da verdade). Espelho real, sem recálculo.
+// IO movido pra /shared/capacity.js (Fase B do refactor 2026-06-25).
+function readPublishedSchedule(){
+  const s = KruzerCapacity.readPublishedSchedule('pgm');
+  if (!s) return null;
+  const D = x => x ? new Date(x) : null;
+  const unit = s.unit || 'h';
+  const groups = s.lanes.map(L => ({
+    label: L.label, dedicated: !!L.dedicated,
+    items: (L.items||[]).filter(it => it.start && it.end).map(it => ({
+      key: it.key, url: it.url, name: it.name || it.key,
+      start: D(it.start), end: D(it.end), color: it.color || '#48507D',
+      effort: it.effort, placeholder: !!it.placeholder,
+      statusLabel: it.statusLabel || '', late: !!it.late, dueD: D(it.dueISO),
+    })),
+  })).filter(g => g.items.length);
+  return { source:'planner', unit, today: D(s.today) || startOfDay(new Date()), horizonEnd: D(s.horizonEnd),
+    params: s.params || {}, groups, backlogCount: s.backlogCount||0, doneCount: s.doneCount||0 };
+}
+// Fallback: engine local embarcada (em horas) quando o planner ainda não publicou.
+function localPlan(){
+  const sched = computeSchedule();
+  const groups = sched.tracks.map((items, i) => ({
+    label: `Track ${i+1}`, dedicated:false,
+    items: items.filter(e=>e.scheduledStart).map(e => {
+      const ds = e.jiraStart || e.scheduledStart;
+      let de = e.jiraDue || e.scheduledEnd;
+      if (ds && de && de < ds) de = (e.scheduledEnd && e.scheduledEnd > ds) ? e.scheduledEnd : addDays(ds, 1);
+      return { key:e.key, url:e.url, name:e.name, start:ds, end:de,
+        color: BUCKET_COLOR[e.bucket] || '#48507D', effort: e.effectiveSp, placeholder: e.spSource==='placeholder',
+        statusLabel: (bucketById(e.bucket)||{}).label || '', late: e.late, dueD: e.jiraDue };
+    }),
+  })).filter(g=>g.items.length);
+  return { source:'local', unit:'h', today: sched.today, horizonEnd: sched.horizonEnd,
+    params: { devs:sched.P.devs, velocityPerDev:sched.P.velocityPerDev, parallelTracks:sched.P.parallelTracks, horizonWeeks:sched.P.horizonWeeks, squad:sched.squad, throughputPerTrack:sched.throughputPerTrack, dedThroughput:0 },
+    groups, backlogCount: sched.backlogCount, doneCount: RAW.filter(e=>e.done).length };
+}
+
+function renderGantt(){
+  const plan = readPublishedSchedule() || localPlan();
+  const svg = document.getElementById('ganttSvg');
+  const groups = plan.groups;
+  const allItems = groups.flatMap(g => g.items);
+  const unit = plan.unit, U = unit === 'SP' ? ' SP' : 'h';
+  const effLabel = it => it.placeholder ? '?' : `${it.effort}${U}`;
+  const pa = plan.params || {};
+
+  const metaUnit = unit === 'SP' ? 'SP/sem' : 'h/sem';
+  let metaTxt = '';
+  if (pa.squad != null) {
+    const tpt = Number(pa.throughputPerTrack);
+    metaTxt = `squad ${pa.squad} ${metaUnit} (${pa.devs}×${pa.velocityPerDev}) · ${pa.parallelTracks} tracks → ${tpt.toFixed(tpt%1?1:0)} ${metaUnit} por track`;
+    if (pa.dedThroughput) metaTxt += ` · +1 dedicada (${pa.dedThroughput} ${metaUnit})`;
+  }
+  metaTxt += (metaTxt?' · ':'') + (plan.source === 'planner' ? 'espelho do planner' : 'estimativa local (planner não publicado)');
+  document.getElementById('ganttMeta').textContent = metaTxt;
+  const ganttNotes = [];
+  if (plan.backlogCount) ganttNotes.push(`${plan.backlogCount} no backlog do planejador`);
+  if (plan.doneCount) ganttNotes.push(`${plan.doneCount} concluído(s) (Done no JIRA)`);
+  document.getElementById('ganttNote').textContent = ganttNotes.length ? `* Fora da esteira: ${ganttNotes.join(' · ')}.` : '';
+
+  if (!allItems.length){ svg.innerHTML=''; svg.setAttribute('height',0); return; }
+
+  const today = plan.today;
+  // Inclui starts reais no passado (épicos em andamento começam na Start date).
+  // Piso em 1º de abril pra limitar espaço morto; barras anteriores ficam cortadas (‹).
+  const starts = allItems.map(it => it.start.getTime());
+  const ends = allItems.map(it => it.end.getTime());
+  const aprFloor = new Date(today.getFullYear(), 3, 1).getTime();
+  const minD = new Date(Math.max(Math.min(Math.min(...starts) - 3*MS_DAY, today.getTime() - 3*MS_DAY), aprFloor));
+  const horizonMs = plan.horizonEnd ? plan.horizonEnd.getTime() : Math.max(...ends);
+  const maxD = new Date(Math.max(horizonMs, ...ends) + 4*MS_DAY);
+  const totalDays = Math.max(1, (maxD - minD)/MS_DAY);
+
+  const LEFT = 270, TOP = 44, ROW = 30, GH = 28, PAD_B = 16;
+  const wrap = document.getElementById('ganttWrap');
+  const availW = (wrap && wrap.clientWidth ? wrap.clientWidth : 1100) - 1;
+  const PX_DAY = Math.max(2.0, (availW - LEFT)/totalDays);
+  const W = LEFT + totalDays*PX_DAY;
+  const xd = d => LEFT + (d - minD)/MS_DAY * PX_DAY;
+
+  let totalH = TOP;
+  groups.forEach(g => totalH += GH + g.items.length*ROW);
+  totalH += PAD_B;
+
+  let body = '<defs><pattern id="hh" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)"><rect width="6" height="6" fill="#c6cadb"/><rect width="3" height="6" fill="#eef0f6"/></pattern></defs>';
+
+  let m = new Date(minD.getFullYear(), minD.getMonth(), 1);
+  while (m <= maxD){
+    const mx = xd(m);
+    if (mx >= LEFT){
+      body += `<line class="g-grid-month" x1="${mx.toFixed(1)}" y1="${TOP-6}" x2="${mx.toFixed(1)}" y2="${totalH-PAD_B}"/>`;
+      body += `<text class="g-axis bold" x="${(mx+4).toFixed(1)}" y="${TOP-14}">${MONTHS[m.getMonth()]} ${String(m.getFullYear()).slice(2)}</text>`;
+    }
+    m = new Date(m.getFullYear(), m.getMonth()+1, 1);
+  }
+
+  if (plan.horizonEnd && plan.horizonEnd >= minD && plan.horizonEnd <= maxD){
+    const hx = xd(plan.horizonEnd);
+    body += `<line x1="${hx.toFixed(1)}" y1="${TOP-6}" x2="${hx.toFixed(1)}" y2="${(totalH-PAD_B).toFixed(1)}" stroke="#F79009" stroke-width="1.5" stroke-dasharray="3 3"/>`;
+    body += `<text class="g-axis" x="${(hx+4).toFixed(1)}" y="${(TOP-2).toFixed(1)}" fill="#F79009">horizonte ${pa.horizonWeeks||''}sem</text>`;
+  }
+
+  let y = TOP;
+  groups.forEach(g=>{
+    const items = [...g.items].sort((a,b)=> a.start - b.start);
+    const sumEff = items.reduce((a,e)=>a+(e.effort||0),0);
+    const lastEnd = items.reduce((mx,e)=> e.end>mx?e.end:mx, today);
+    body += `<rect class="g-group-band" x="0" y="${y}" width="${W}" height="${GH}"/>`;
+    body += `<text class="g-group-name" x="12" y="${y+GH/2+4}">${escapeHtml(g.label)}</text>`;
+    body += `<text class="g-group-meta" x="200" y="${y+GH/2+4}">${items.length} épicos · ${sumEff}${U} · → ${fmtShort(lastEnd)}</text>`;
+    y += GH;
+    items.forEach(e=>{
+      const sx = xd(e.start), ex = xd(e.end);
+      const clampedLeft = sx < LEFT;
+      const bx = Math.max(sx, LEFT), bw = Math.max(6, ex - bx);
+      const by = y + (ROW-18)/2;
+      const fill = e.placeholder ? 'url(#hh)' : e.color;
+      const stroke = e.late ? '#F04438' : 'none', sw = e.late ? 2 : 0;
+      const nm = e.name.length > 30 ? e.name.slice(0,29)+'…' : e.name;
+      body += `<text class="g-key" x="12" y="${y+ROW/2+4}">${e.key}</text>`;
+      body += `<text class="g-name" x="70" y="${y+ROW/2+4}">${escapeHtml(nm)}</text>`;
+      body += `<line class="g-rowsep" x1="0" y1="${y+ROW}" x2="${W}" y2="${y+ROW}"/>`;
+      body += `<rect class="gantt-bar" x="${bx.toFixed(1)}" y="${by}" width="${bw.toFixed(1)}" height="18" rx="4" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"`
+        + ` data-key="${e.key}" data-name="${escapeHtml(e.name)}" data-status="${escapeHtml(e.statusLabel)}"`
+        + ` data-eff="${effLabel(e)}" data-start="${fmtShort(e.start)}" data-end="${fmtShort(e.end)}"`
+        + ` data-due="${e.dueD?fmtShort(e.dueD):''}" data-late="${e.late?'1':''}" data-url="${e.url}"/>`;
+      if (clampedLeft && bw > 16) body += `<polyline points="${(bx+8).toFixed(1)},${by+3} ${(bx+3).toFixed(1)},${by+9} ${(bx+8).toFixed(1)},${by+15}" fill="none" stroke="#fff" stroke-width="1.5"/>`;
+      if (bw > 46) body += `<text class="g-barlabel" x="${(bx+(clampedLeft?14:6)).toFixed(1)}" y="${by+13}" ${e.placeholder?'fill="#232534"':''}>${effLabel(e)}</text>`;
+      y += ROW;
+    });
+  });
+
+  // Linha de hoje — por último (z-index acima das faixas/barras).
+  if (today >= minD && today <= maxD){
+    const tx = xd(today);
+    body += `<line class="g-today" x1="${tx.toFixed(1)}" y1="16" x2="${tx.toFixed(1)}" y2="${(totalH-PAD_B).toFixed(1)}"/>`;
+    body += `<rect x="${(tx-15).toFixed(1)}" y="2" width="30" height="15" rx="3" fill="#F04438"/>`;
+    body += `<text x="${tx.toFixed(1)}" y="13" fill="#fff" text-anchor="middle" font-size="10" font-weight="700">hoje</text>`;
+  }
+
+  svg.setAttribute('viewBox', `0 0 ${W.toFixed(0)} ${totalH.toFixed(0)}`);
+  svg.setAttribute('width', W.toFixed(0));
+  svg.setAttribute('height', totalH.toFixed(0));
+  svg.innerHTML = body;
+  wireGanttTooltips();
+}
+
+function wireGanttTooltips(){
+  const tip = document.getElementById('tooltip');
+  document.querySelectorAll('#ganttSvg .gantt-bar').forEach(bar=>{
+    bar.addEventListener('mousemove', e=>{
+      const d = bar.dataset;
+      tip.innerHTML = `<div class="t-title">${d.key} · ${escapeHtml(d.name)}</div>`
+        + `<div class="t-meta">${d.status}</div>`
+        + `<div class="t-grid">`
+        + `<span class="lbl">Esforço</span><span>${d.eff}</span>`
+        + `<span class="lbl">Início proj.</span><span>${d.start}</span>`
+        + `<span class="lbl">Fim proj.</span><span>${d.end}</span>`
+        + (d.due ? `<span class="lbl">Due JIRA</span><span>${d.due}${d.late?' · ⚠ estoura':''}</span>` : '')
+        + `</div>`;
+      tip.classList.add('show');
+      let left = e.clientX+14, top = e.clientY+14;
+      if (left+330 > window.innerWidth) left = e.clientX-330;
+      tip.style.left = left+'px'; tip.style.top = top+'px';
+    });
+    bar.addEventListener('mouseleave', ()=> tip.classList.remove('show'));
+    bar.addEventListener('click', ()=> window.open(bar.dataset.url, '_blank'));
+  });
+}
+
+function applyFilter(){
+  const q = (document.getElementById('search').value || '').toLowerCase().trim();
+  const st = document.getElementById('filter-status').value;
+  const pr = document.getElementById('filter-prio').value;
+  const filtering = !!(q || st || pr);
+  document.querySelectorAll('#tbody tr').forEach(tr => {
+    if (tr.classList.contains('group-divider')) {
+      // Esconde dividers quando há qualquer filtro ativo (lista vira plana).
+      tr.style.display = filtering ? 'none' : '';
+      return;
+    }
+    const matchText = !q || (tr.dataset.text || '').includes(q);
+    const matchStatus = !st || tr.dataset.bucket === st;
+    const matchPrio = !pr || tr.dataset.prio === pr;
+    tr.style.display = (matchText && matchStatus && matchPrio) ? '' : 'none';
+  });
+}
+
+function renderAll(){
+  renderKPIs();
+  renderTable();
+  renderGantt();
+  requestAnimationFrame(renderGantt); // re-mede a largura do Gantt após o layout assentar
+  const now = new Date().toLocaleString('pt-BR');
+  document.getElementById('metaTotal').textContent = RAW.length;
+  document.getElementById('metaUpdated').textContent = now;
+  document.getElementById('footerGen').textContent = `Gerado em ${now}`;
+}
+
+async function loadAndRender(){
+  document.getElementById('errorBox').innerHTML = '';
+  document.getElementById('loadingBox').style.display = '';
+  document.getElementById('content').style.display = 'none';
+  const btn = document.getElementById('refreshBtn'); btn.disabled = true; btn.textContent = 'Atualizando…';
+  try {
+    const jql = `project = ${PROJECT} AND issuetype = Epic ORDER BY created DESC`;
+    const issues = await KruzerAPI.fetchAll({ jql, fields: FIELDS });
+    REMARK_OVERRIDES = loadRemarks();
+    RAW = issues.map(normalize);
+    document.getElementById('loadingBox').style.display = 'none';
+    document.getElementById('content').style.display = '';
+    renderAll();
+  } catch (e) {
+    document.getElementById('loadingBox').style.display = 'none';
+    document.getElementById('errorBox').innerHTML = `<div class="error"><b>Falha ao carregar dados:</b> ${escapeHtml(e.message)}</div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Atualizar dados';
+  }
+}
+
+// ===========================================================================
+// Acompanhamentos & to-do — seção editável persistida em localStorage.
+// ===========================================================================
+const FOLLOWUP_STORE = 'pgm-followups-v1';
+const FU_CATS = [
+  { id:'op',  label:'Operação',   color:'#3151CE' },
+  { id:'ger', label:'Gerencial',  color:'#7C3AED' },
+  { id:'fin', label:'Financeiro', color:'#12B76A' },
+  { id:'out', label:'Outro',      color:'#989DAD' },
+];
+const fuCat = id => FU_CATS.find(c => c.id === id) || FU_CATS[3];
+// Followups (KruzerState — D1 + cache local; migra de FOLLOWUP_STORE legacy)
+KruzerState.importLegacyKey(FOLLOWUP_STORE, 'pgm-report', 'followups');
+function loadFollowups(){
+  const r = KruzerState.read('pgm-report', 'followups');
+  return Array.isArray(r && r.value) ? r.value : [];
+}
+function saveFollowups(){
+  const cur = KruzerState.read('pgm-report', 'followups');
+  KruzerState.write('pgm-report', 'followups', FOLLOWUPS, { expectedVersion: cur.version })
+    .catch(e => console.warn('followups save failed:', e.message));
+}
+let FOLLOWUPS = loadFollowups();
+KruzerState.sync('pgm-report', 'followups').then(() => { FOLLOWUPS = loadFollowups(); if (typeof renderFollowups === 'function') renderFollowups(); });
+KruzerState.subscribe('pgm-report', 'followups', () => { FOLLOWUPS = loadFollowups(); if (typeof renderFollowups === 'function') renderFollowups(); });
+
+function renderFollowups(){
+  const el = document.getElementById('fuList');
+  if (!FOLLOWUPS.length){
+    el.innerHTML = `<div class="fu-empty">Nenhum acompanhamento ainda. Clique em <b>+ Adicionar</b> para documentar operação, acordos gerenciais, financeiro, etc.</div>`;
+    return;
+  }
+  el.innerHTML = FOLLOWUPS.map(it => {
+    const cat = fuCat(it.cat);
+    const opts = FU_CATS.map(c => `<option value="${c.id}" ${c.id === it.cat ? 'selected' : ''}>${c.label}</option>`).join('');
+    return `<div class="fu-item ${it.done ? 'done' : ''}" data-id="${it.id}">
+      <input type="checkbox" class="fu-done" ${it.done ? 'checked' : ''}>
+      <select class="fu-cat" style="background:${cat.color}">${opts}</select>
+      <span class="fu-cat-print" style="background:${cat.color}">${escapeHtml(cat.label)}</span>
+      <div class="fu-text" contenteditable="true">${escapeHtml(it.text || '')}</div>
+      <button class="fu-del export-hide" title="Remover">×</button>
+    </div>`;
+  }).join('');
+  wireFollowups();
+}
+function wireFollowups(){
+  document.querySelectorAll('#fuList .fu-item').forEach(row => {
+    const id = row.dataset.id;
+    const item = FOLLOWUPS.find(x => x.id === id);
+    if (!item) return;
+    row.querySelector('.fu-done').addEventListener('change', e => { item.done = e.target.checked; row.classList.toggle('done', item.done); saveFollowups(); });
+    const sel = row.querySelector('.fu-cat');
+    sel.addEventListener('change', e => {
+      item.cat = e.target.value;
+      const c = fuCat(item.cat);
+      sel.style.background = c.color;
+      const pr = row.querySelector('.fu-cat-print'); if (pr){ pr.textContent = c.label; pr.style.background = c.color; }
+      saveFollowups();
+    });
+    const txt = row.querySelector('.fu-text');
+    txt.addEventListener('blur', () => { item.text = txt.innerText.trim(); saveFollowups(); });
+    txt.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); txt.blur(); } });
+    row.querySelector('.fu-del').addEventListener('click', () => { FOLLOWUPS = FOLLOWUPS.filter(x => x.id !== id); saveFollowups(); renderFollowups(); });
+  });
+}
+function addFollowup(){
+  const id = 'fu' + Math.random().toString(36).slice(2, 9);
+  FOLLOWUPS.push({ id, cat: 'op', text: '', done: false });
+  saveFollowups(); renderFollowups();
+  const txt = document.querySelector(`#fuList .fu-item[data-id="${id}"] .fu-text`);
+  if (txt) txt.focus();
+}
+
+// ===========================================================================
+// Export PDF — snapshot do estado atual pra pasta de Downloads (semana a semana).
+// ===========================================================================
+function loadScript(src){
+  return new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('falha ao carregar ' + src)); document.head.appendChild(s); });
+}
+async function exportPDF(){
+  const btn = document.getElementById('exportBtn');
+  const orig = btn.textContent; btn.disabled = true; btn.textContent = 'Exportando…';
+  try {
+    if (!window.html2canvas) await loadScript('https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js');
+    if (!window.jspdf)       await loadScript('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js');
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF('p', 'mm', 'a4');
+    const pageW = pdf.internal.pageSize.getWidth(), pageH = pdf.internal.pageSize.getHeight();
+    const M = 8, gap = 4, usableW = pageW - 2*M, usableH = pageH - 2*M;
+    const fillBg = () => { pdf.setFillColor(244,244,248); pdf.rect(0,0,pageW,pageH,'F'); };
+
+    // Paginação POR BLOCO (header, acompanhamentos, KPIs, cada seção) — quebra
+    // entre cards em vez de cortar texto no meio. Só fatia se um bloco isolado
+    // for maior que uma página inteira (último recurso, raro).
+    const container = document.querySelector('.container');
+    const content = document.getElementById('content');
+    const blocks = [document.querySelector('.header'), document.getElementById('followups')];
+    if (content) [...content.children].forEach(c => { if (!['errorBox','loadingBox'].includes(c.id)) blocks.push(c); });
+    const visible = blocks.filter(b => b && b.offsetHeight > 0);
+
+    document.body.classList.add('exporting');
+    fillBg();
+    let cursorY = M;
+    try {
+      for (const block of visible){
+        const canvas = await html2canvas(block, { scale: 2, backgroundColor: null, windowWidth: container.scrollWidth, scrollX: 0, scrollY: -window.scrollY, useCORS: true });
+        const imgW = usableW, imgH = canvas.height * imgW / canvas.width;
+        const imgData = canvas.toDataURL('image/jpeg', 0.95);
+        if (imgH <= usableH){
+          if (cursorY + imgH > pageH - M){ pdf.addPage(); fillBg(); cursorY = M; }
+          pdf.addImage(imgData, 'JPEG', M, cursorY, imgW, imgH);
+          cursorY += imgH + gap;
+        } else {
+          if (cursorY > M){ pdf.addPage(); fillBg(); cursorY = M; }
+          const pxPerMm = canvas.height / imgH;
+          let remaining = imgH, srcYmm = 0;
+          while (remaining > 0){
+            const sliceH = Math.min(usableH, remaining);
+            const sc = document.createElement('canvas');
+            sc.width = canvas.width; sc.height = Math.round(sliceH * pxPerMm);
+            sc.getContext('2d').drawImage(canvas, 0, Math.round(srcYmm*pxPerMm), canvas.width, sc.height, 0, 0, canvas.width, sc.height);
+            pdf.addImage(sc.toDataURL('image/jpeg',0.95), 'JPEG', M, M, imgW, sliceH);
+            remaining -= sliceH; srcYmm += sliceH;
+            if (remaining > 0){ pdf.addPage(); fillBg(); } else { cursorY = M + sliceH + gap; }
+          }
+        }
+      }
+    } finally {
+      document.body.classList.remove('exporting');
+    }
+    const d = new Date();
+    const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    pdf.save(`PGM-StatusReport-${ds}.pdf`);
+  } catch (e) {
+    document.getElementById('errorBox').innerHTML = `<div class="error"><b>Falha ao exportar PDF:</b> ${escapeHtml(e.message)}</div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = orig;
+  }
+}
+
+document.getElementById('fuAdd').addEventListener('click', addFollowup);
+document.getElementById('exportBtn').addEventListener('click', exportPDF);
+renderFollowups();
+document.getElementById('refreshBtn').addEventListener('click', loadAndRender);
+document.getElementById('search').addEventListener('input', applyFilter);
+document.getElementById('filter-status').addEventListener('change', applyFilter);
+document.getElementById('filter-prio').addEventListener('change', applyFilter);
+let _gz; window.addEventListener('resize', () => { clearTimeout(_gz); _gz = setTimeout(() => { if (RAW.length) renderGantt(); }, 150); });
+loadAndRender();
+</script>
+</body>
+</html>
