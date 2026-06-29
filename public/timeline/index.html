@@ -156,10 +156,11 @@ a:hover { text-decoration: underline; }
 </div>
 <div class="tooltip" id="tooltip"></div>
 
+<script src="/shared/capacity.js"></script>
 <script src="/shared/api.js"></script>
 <script>
 const JIRA_BASE = 'https://kruzer.atlassian.net';
-const FIELDS = ['summary','status','assignee','duedate','created','resolutiondate','labels','customfield_10015','project'];
+const FIELDS = ['summary','status','assignee','duedate','created','resolutiondate','labels','customfield_10015','project'].concat((window.KruzerCapacity && KruzerCapacity.DEV_DUE_FIELD) ? [KruzerCapacity.DEV_DUE_FIELD] : []);
 const MS_DAY = 86400000;
 const PROJ_COLOR = { FST: '#F79009', VENA: '#3151CE', DCT: '#14B8A6', PGM: '#DB2777' };
 const PROJECTS = ['FST', 'VENA', 'DCT', 'PGM'];
@@ -181,6 +182,7 @@ function normalize(issue){
   const resolved = !!f.resolutiondate;
   const start = parseDate(f.customfield_10015);
   const due = parseDate(f.duedate);
+  const devDue = (window.KruzerCapacity && KruzerCapacity.DEV_DUE_FIELD) ? parseDate(f[KruzerCapacity.DEV_DUE_FIELD]) : null;
   const created = parseDate(f.created);
   // Nome limpo: remove prefixos "DMND0000 |", "P0 |", "Onda 1 |", "Done |"...
   let name = (f.summary||'').replace(/^([A-Z]*\d[\w]*|P\d|Onda\s*\d|Done)\s*\|\s*/i, '').trim() || (f.summary||'');
@@ -334,7 +336,7 @@ function renderGantt(){
       const noDue = !ep.due;
       body += `<rect class="gantt-bar" x="${bx.toFixed(1)}" y="${by}" width="${bw.toFixed(1)}" height="18" rx="4" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"` +
         ` data-key="${ep.key}" data-name="${escapeHtml(ep.name)}" data-proj="${ep.project}" data-status="${escapeHtml(ep.statusName)}" data-assignee="${escapeHtml(ep.assignee)}"` +
-        ` data-start="${fmt(ep.s)}" data-end="${fmt(ep.e)}" data-dur="${dur}" data-due="${noDue?'não definido':fmt(ep.due)}" data-nodue="${noDue?'1':''}" data-est="${est?(ep.estStart?'início estimado':'fim estimado'):''}" data-url="${ep.url}"/>`;
+        ` data-start="${fmt(ep.s)}" data-end="${fmt(ep.e)}" data-dur="${dur}" data-due="${noDue?'não definido':fmt(ep.due)}" data-nodue="${noDue?'1':''}" data-devdue="${ep.devDue?fmt(ep.devDue):''}" data-est="${est?(ep.estStart?'início estimado':'fim estimado'):''}" data-url="${ep.url}"/>`;
       // Indicador ‹ quando a barra foi cortada na borda esquerda (começou antes de abril).
       if (clampedLeft && bw > 16) body += `<polyline points="${(bx+8).toFixed(1)},${by+3} ${(bx+3).toFixed(1)},${by+9} ${(bx+8).toFixed(1)},${by+15}" fill="none" stroke="#fff" stroke-width="1.5"/>`;
       if (bw > 42) body += `<text class="g-barlabel" x="${(bx+(clampedLeft?14:6)).toFixed(1)}" y="${by+13}">${dur}d</text>`;
@@ -376,6 +378,7 @@ function wireTooltips(){
         `<span class="lbl">Início</span><span>${d.start}</span>` +
         `<span class="lbl">Fim</span><span>${d.end}</span>` +
         `<span class="lbl">Due</span><span${d.nodue ? ' style="color:#B45309;font-weight:600"' : ''}>${d.due}</span>` +
+        (d.devdue ? `<span class="lbl">Due Dev</span><span style="color:#5B21B6;font-weight:600">🔧 ${d.devdue}</span>` : '') +
         `<span class="lbl">Duração</span><span>${d.dur} dias</span>` +
         (d.est ? `<span class="lbl">⚠</span><span>${d.est}</span>` : '') +
         `</div>`;

@@ -84,6 +84,7 @@ td.remarks { min-width: 220px; }
 .due-edit:hover { border-color: var(--kruzer-neutral-300); background: #fff; }
 .due-edit:focus { outline: none; border-color: var(--kruzer-primary); background: #fff; box-shadow: 0 0 0 2px var(--kruzer-primary-100); }
 .due-edit:disabled { opacity: .5; cursor: wait; }
+.dev-due { font-size: 10px; color: #5B21B6; margin-top: 3px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .due-empty { cursor: pointer; }
 .due-empty:hover { color: var(--kruzer-primary); }
 .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--kruzer-navy); color: #fff; padding: 10px 18px; border-radius: 999px; font-size: 13px; opacity: 0; pointer-events: none; transition: all .2s; z-index: 200; box-shadow: 0 6px 20px rgba(11,16,32,.2); }
@@ -94,6 +95,7 @@ td.remarks { min-width: 220px; }
 .badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 500; white-space: nowrap; }
 .badge-hyper { background: var(--kruzer-success); color: #fff; }
 .badge-execucao { background: var(--kruzer-primary); color: #fff; }
+.badge-uat { background: #7C3AED; color: #fff; }
 .badge-aprovacao { background: var(--kruzer-warning); color: #fff; }
 .badge-estimativa { background: var(--kruzer-neutral-500); color: var(--kruzer-navy); }
 .badge-backlog { background: var(--kruzer-navy-300); color: #fff; }
@@ -106,7 +108,7 @@ td.remarks { min-width: 220px; }
 .prio-p3 { background: var(--kruzer-neutral-500); color: var(--kruzer-navy); }
 
 /* Swimlane */
-.swimlane { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+.swimlane { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; }
 @media (max-width: 1100px) { .swimlane { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); } }
 .lane { background: var(--kruzer-neutral-100); border-radius: 8px; padding: 12px; min-height: 200px; }
 .lane-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 2px solid var(--kruzer-neutral-300); }
@@ -117,12 +119,14 @@ td.remarks { min-width: 220px; }
 .lane.aprovacao .lane-header { border-bottom-color: var(--kruzer-warning); }
 .lane.execucao .lane-header { border-bottom-color: var(--kruzer-primary); }
 .lane.hyper .lane-header { border-bottom-color: var(--kruzer-success); }
+.lane.uat .lane-header { border-bottom-color: #7C3AED; }
 .lane-card { background: #fff; border: 1px solid var(--kruzer-neutral-300); border-left: 3px solid var(--kruzer-primary); border-radius: 4px; padding: 12px; margin-bottom: 10px; }
 .lane.backlog .lane-card { border-left-color: var(--kruzer-navy-300); }
 .lane.estimativa .lane-card { border-left-color: var(--kruzer-neutral-500); }
 .lane.aprovacao .lane-card { border-left-color: var(--kruzer-warning); }
 .lane.execucao .lane-card { border-left-color: var(--kruzer-primary); }
 .lane.hyper .lane-card { border-left-color: var(--kruzer-success); }
+.lane.uat .lane-card { border-left-color: #7C3AED; }
 .lane-card .meta { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; gap: 6px; }
 .lane-card .key { font-size: 11px; color: var(--kruzer-primary-700); font-weight: 500; text-decoration: none; }
 .lane-card .key:hover { text-decoration: underline; }
@@ -331,12 +335,13 @@ button.ghost:hover { background: var(--kruzer-neutral-100); }
 <script src="/shared/capacity.js"></script>
 <script>
 const PROJECT = 'FST', JIRA_BASE = 'https://kruzer.atlassian.net';
-const FIELDS = ['summary','status','priority','issuetype','created','resolutiondate','labels','duedate','description','customfield_10015','timeoriginalestimate','aggregatetimeoriginalestimate'];
+const FIELDS = ['summary','status','priority','issuetype','created','resolutiondate','labels','duedate','description','customfield_10015','timeoriginalestimate','aggregatetimeoriginalestimate'].concat(KruzerCapacity.DEV_DUE_FIELD ? [KruzerCapacity.DEV_DUE_FIELD] : []);
 const REMARK_STORE = 'fst-remarks-v1';
 
 // Buckets de status, do mais maduro (conclusão) ao mais inicial.
 const BUCKETS = [
   { id:'hyper',      label:'Hyper Care',           badgeCls:'badge-hyper',      laneCls:'hyper',      labelMatch:'hyper-care' },
+  { id:'uat',        label:'UAT (cliente)',        badgeCls:'badge-uat',        laneCls:'uat',        labelMatch:'uat' },
   { id:'execucao',   label:'Em Execução',          badgeCls:'badge-execucao',   laneCls:'execucao',   labelMatch:'em-execucao' },
   { id:'aprovacao',  label:'Aguardando Aprovação', badgeCls:'badge-aprovacao',  laneCls:'aprovacao',  labelMatch:'aguardando-aprovacao' },
   { id:'estimativa', label:'Aguardando Estimativa',badgeCls:'badge-estimativa', laneCls:'estimativa', labelMatch:'aguardando-estimativa' },
@@ -344,9 +349,9 @@ const BUCKETS = [
 ];
 const bucketById = id => BUCKETS.find(b => b.id === id);
 // Ordem da tabela (top→down): conclusão → início.
-const TABLE_ORDER = ['hyper','execucao','aprovacao','estimativa','backlog'];
+const TABLE_ORDER = ['hyper','uat','execucao','aprovacao','estimativa','backlog'];
 // Ordem da swimlane / KPIs (esq→dir): início → conclusão.
-const LANE_ORDER = ['backlog','estimativa','aprovacao','execucao','hyper'];
+const LANE_ORDER = ['backlog','estimativa','aprovacao','execucao','uat','hyper'];
 
 // JIRA priority name → P-tier.
 function priorityTier(p){
@@ -362,6 +367,7 @@ function priorityTier(p){
 function statusTextToBucket(txt){
   const s = (txt||'').toLowerCase();
   if (s.includes('hyper'))                       return 'hyper';
+  if (s.includes('uat') || s.includes('homolog'))  return 'uat';
   if (s.includes('execu'))                       return 'execucao';
   if (s.includes('aprova'))                      return 'aprovacao';
   if (s.includes('estimativa'))                  return 'estimativa';
@@ -375,9 +381,14 @@ function resolveBucket(issue){
   for (const b of BUCKETS) if (labels.includes(b.labelMatch)) return b.id;
   const fromDesc = statusTextToBucket(parseField(issue.description, 'Status'));
   if (fromDesc) return fromDesc;
+  // Fallback por STATUS nativo do JIRA — preparado pra quando as labels caírem
+  // (status vira a fonte de verdade). Cobre todos os buckets, incl. UAT.
   const s = (issue.statusName||'').toLowerCase();
-  if (s.includes('progress') || s.includes('review') || s.includes('execu')) return 'execucao';
-  if (s.includes('done') || s.includes('conclu') || s.includes('closed'))    return 'hyper';
+  if (s.includes('uat') || s.includes('homolog'))                            return 'uat';
+  if (s.includes('hyper') || s.includes('done') || s.includes('conclu') || s.includes('closed')) return 'hyper';
+  if (s.includes('aprova'))                                                  return 'aprovacao';
+  if (s.includes('estimativa') || s.includes('refin'))                       return 'estimativa';
+  if (s.includes('progress') || s.includes('review') || s.includes('execu') || s.includes('desenvolv')) return 'execucao';
   return 'backlog';
 }
 
@@ -435,6 +446,9 @@ function normalize(issue){
     description: descText,
     startDate: f.customfield_10015 || parseDescDate(descText, 'Start'),
     dueDate: f.duedate || parseDescDate(descText, 'Due'),
+    // Due Date Dev — entrega do dev p/ testes. Campo custom (quando existir) ou
+    // "**Due Dev:** DD/MM" na descrição. NÃO é goal final → não vira atraso/risco.
+    devDue: (KruzerCapacity.DEV_DUE_FIELD && f[KruzerCapacity.DEV_DUE_FIELD]) || parseDescDate(descText, 'Due Dev') || parseDescDate(descText, 'Due Date Dev') || '',
   };
   // DMND code + nome limpo.
   const dm = out.summary.match(/^(DMND\d+)\s*\|\s*(.*)$/);
@@ -529,7 +543,7 @@ function renderTable(){
         `<td class="date">${start || '<span class="empty">—</span>'}</td>` +
         `<td class="date">${ (i.dueDate||'').slice(0,10)
             ? `<input type="date" class="due-edit" data-key="${i.key}" value="${(i.dueDate||'').slice(0,10)}" title="Editar Due Date → grava no épico do JIRA">`
-            : `<span class="empty due-empty" data-key="${i.key}" role="button" tabindex="0" title="Definir Due Date → grava no épico do JIRA">—</span>` }</td>` +
+            : `<span class="empty due-empty" data-key="${i.key}" role="button" tabindex="0" title="Definir Due Date → grava no épico do JIRA">—</span>` }${ i.devDue ? `<div class="dev-due" title="Due Date Dev — entrega do desenvolvimento p/ testes (não é o goal final do projeto)">🔧 dev ${fmtDate(i.devDue)}</div>` : '' }</td>` +
         `<td class="remarks"><div class="remark-edit" contenteditable="true" data-key="${i.key}" title="Editar remark → adiciona comentário no épico do JIRA">${escapeHtml(remarkFor(i))}</div></td>`;
       tb.appendChild(tr);
     });
@@ -675,7 +689,7 @@ const ganttEpics = () => RAW.filter(e => !e.done && !GANTT_EXCLUDE.includes(e.ke
 const MS_DAY = 86400000;
 const CAP_DEFAULTS = { devs: 2, velocityPerDev: 30, parallelTracks: 2, horizonWeeks: 12 };
 const PRIO_RANK = { P0:0, P1:1, P2:2, P3:3 };
-const BUCKET_COLOR = { hyper:'#12B76A', execucao:'#3151CE', aprovacao:'#F79009', estimativa:'#C6C9D9', backlog:'#48507D' };
+const BUCKET_COLOR = { hyper:'#12B76A', uat:'#7C3AED', execucao:'#3151CE', aprovacao:'#F79009', estimativa:'#C6C9D9', backlog:'#48507D' };
 const MONTHS = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 
 function loadCapState(){

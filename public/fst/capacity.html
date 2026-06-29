@@ -164,6 +164,7 @@ button:disabled { opacity: 0.6; cursor: wait; }
 .badge.status-backlog { background: var(--kruzer-neutral-300); color: var(--kruzer-navy); }
 .badge.status-refin { background: var(--kruzer-primary-100); color: var(--kruzer-primary-700); }
 .badge.status-dev { background: #DCFCE7; color: #166534; }
+.badge.status-uat { background: #EDE9FE; color: #5B21B6; }
 .badge.status-block { background: #FECACA; color: #991B1B; }
 .badge.status-aprov { background: #FEF3C7; color: #92400E; }
 .badge.status-estim { background: var(--kruzer-neutral-300); color: var(--kruzer-navy-300); }
@@ -378,6 +379,7 @@ const DEFAULT_TRACK = { 'FST-133': 1 };
 // blk = classe de cor do bloco · cls = classe do badge.
 const BUCKETS = [
   { id:'Hyper Care',     match:'hyper-care',             blk:'s-dev',     cls:'status-dev' },
+  { id:'UAT',            match:'uat',                    blk:'s-uat',     cls:'status-uat' },
   { id:'Em Execução',    match:'em-execucao',            blk:'s-refin',   cls:'status-refin' },
   { id:'Ag. Aprovação',  match:'aguardando-aprovacao',   blk:'s-warn',    cls:'status-aprov' },
   { id:'Ag. Estimativa', match:'aguardando-estimativa',  blk:'s-neutral', cls:'status-estim' },
@@ -389,12 +391,14 @@ const PRIO_RANK = { 'P0':0, 'P1':1, 'P2':2, 'P3':3 };
 function bucketFor(labels, jiraStatus, catKey){
   const ls = labels || [];
   for (const b of BUCKETS){ if (ls.includes(b.match)) return b.id; }
-  // sem label de bucket: deriva da categoria do status do JIRA
-  if (catKey === 'done') return 'Hyper Care';
-  if (catKey === 'indeterminate') return 'Em Execução'; // in progress / in review
+  // Sem label: deriva do STATUS nativo (preparado pra labels caírem). UAT vem
+  // ANTES da categoria — status real de UAT é "in progress", mas é UAT.
   const s = (jiraStatus || '').toLowerCase();
+  if (s.includes('uat') || s.includes('homolog')) return 'UAT';
   if (s === 'in progress' || s === 'in review') return 'Em Execução';
   if (s === 'done' || s === 'concluído' || s === 'closed') return 'Hyper Care';
+  if (catKey === 'done') return 'Hyper Care';
+  if (catKey === 'indeterminate') return 'Em Execução';
   return 'Backlog';
 }
 function priorityTier(name){

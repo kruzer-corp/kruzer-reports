@@ -17,6 +17,14 @@
 window.KruzerCapacity = (function () {
   const MS_DAY = 86400000;
 
+  // Id do custom field "Due Date Dev" (marco de ENTREGA DO DEV pra testes — o mais
+  // importante pros recursos de dev, mas NÃO é o goal final do projeto, então NÃO
+  // entra em cálculo de atraso/risco). Vazio = desligado (o JIRA ainda não tem o
+  // campo). Quando o campo for criado, basta preencher o id aqui (ex.:
+  // 'customfield_XXXXX') que todos os dashboards passam a ler/exibir. Enquanto
+  // isso, os reports também aceitam "**Due Dev:** DD/MM" na descrição do épico.
+  const DEV_DUE_FIELD = '';
+
   function startOfDay(d) {
     const r = new Date(d);
     r.setHours(0, 0, 0, 0);
@@ -39,6 +47,7 @@ window.KruzerCapacity = (function () {
   // Paleta de blocos por status (alinhada à paleta Kruzer em /shared/tokens.css).
   const BLK_HEX = {
     's-dev':     '#12B76A', // success — em desenvolvimento
+    's-uat':     '#7C3AED', // violeta — UAT (testes do cliente, antes da entrega)
     's-refin':   '#3151CE', // primary — refinamento
     's-warn':    '#F79009', // warning — atenção
     's-neutral': '#C6C9D9', // neutral — sem ação
@@ -225,7 +234,7 @@ window.KruzerCapacity = (function () {
              byKey, epics: list, placed, allScheduled, horizonEnd, totalWeeks };
   }
 
-  return { MS_DAY, startOfDay, addDays, cleanName, keyNum, BLK_HEX,
+  return { MS_DAY, startOfDay, addDays, cleanName, keyNum, BLK_HEX, DEV_DUE_FIELD,
            readPublishedSchedule, publishSchedule, syncSchedule,
            ensureAssignments, computeSchedule };
 })();

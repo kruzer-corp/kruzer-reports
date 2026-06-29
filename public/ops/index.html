@@ -34,6 +34,8 @@
 .container { padding: 16px 20px 40px; max-width: 1500px; margin: 0 auto; }
 .back { font-size: 12px; color: var(--kruzer-primary); text-decoration: none; margin-bottom: 8px; display: inline-block; }
 .back:hover { text-decoration: underline; }
+.cta-timeline { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; padding: 8px 14px; border-radius: 8px; background: #EDE9FE; color: #5B21B6; border: 1px solid #DDD6FE; text-decoration: none; white-space: nowrap; }
+.cta-timeline:hover { background: #E0D9FD; border-color: #C4B5FD; }
 
 .header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; flex-wrap: wrap; }
 .header h1 { margin: 0 0 4px; font-size: 26px; font-weight: 700; letter-spacing: -0.01em; }
@@ -95,7 +97,7 @@ button:disabled { opacity: 0.6; cursor: wait; }
 
 /* Banda 2 — Riscos top */
 .risk-list { display: flex; flex-direction: column; gap: 8px; }
-.risk-row { display: grid; grid-template-columns: 82px 92px 1fr auto; gap: 14px; align-items: center; padding: 12px 14px; border: 1px solid var(--kruzer-neutral-300); border-left-width: 4px; border-radius: 8px; background: #fff; transition: background .12s; }
+.risk-row { display: grid; grid-template-columns: max-content 92px 1fr auto; gap: 14px; align-items: center; padding: 12px 14px; border: 1px solid var(--kruzer-neutral-300); border-left-width: 4px; border-radius: 8px; background: #fff; transition: background .12s; }
 .risk-row:hover { background: var(--kruzer-neutral-100); }
 .risk-row.crit { border-left-color: var(--kruzer-error); }
 .risk-row.high { border-left-color: var(--kruzer-warning); }
@@ -148,6 +150,7 @@ a { color: var(--kruzer-primary); }
       <div class="meta" id="metaLine">—</div>
     </div>
     <div class="controls">
+      <a class="cta-timeline" href="/timeline/">📊 Timeline agregada de projetos →</a>
       <button class="primary" id="refreshBtn">Atualizar dados</button>
     </div>
   </div>
@@ -242,7 +245,7 @@ function isDone(name){ return /done|cancel|expired|duplicat|hyper.?care/i.test(n
 function isBlocked(name){ return /bloque|blocked|impediment/i.test(name||''); }
 function isInProgress(name, cat){
   if (cat && /in progress|indeterminate/i.test(cat)) return true;
-  return /in.?progress|doing|desenvolvendo|em desenvolvimento|execução|hands.?on/i.test(name||'');
+  return /in.?progress|doing|desenvolvendo|em desenvolvimento|execução|hands.?on|uat|homolog/i.test(name||'');
 }
 
 // ─── Normalização ────────────────────────────────────────────────────────────
@@ -341,8 +344,11 @@ function assessRisks(epics, tickets, schedIdx){
       if (e.due < today) return;
       const info = schedIdx[e.key];
       if (!info || !info.scheduledEnd) return;
-      if (info.scheduledEnd <= e.due) return;
-      const overshoot = Math.floor((info.scheduledEnd - e.due)/MS_DAY);
+      // Compara por DIA (zera horas dos dois lados): alcançar o due NÃO é atraso —
+      // só estoura quem termina em dia POSTERIOR ao due.
+      const sched0 = new Date(info.scheduledEnd); sched0.setHours(0,0,0,0);
+      const due0 = new Date(e.due); due0.setHours(0,0,0,0);
+      const overshoot = Math.round((sched0 - due0)/MS_DAY);
       if (overshoot < 1) return;
       const severity = overshoot > TH.LATE_CRIT_DAYS ? 'crit' : 'high';
       risks.push({
