@@ -100,13 +100,16 @@ module.exports = {
       effortFn: 'resolveSp', effortDeps: [],
       consts: ['PLACEHOLDER_SP', 'HEATMAP_WEEKS', 'DEDICATED', 'PRIO_RANK', 'DEFAULT_TRACK'],
       scenarios: fstPlannerScenarios },
-    { project: 'vena-report', kind: 'report', file: 'public/vena/roadmap.html',
+    // Reports: a engine foi consolidada em shared/report.js (fatia 2). effortH +
+    // consts vivem lá agora. DEFAULT_TRACK virou CFG (não se extrai); o {} default
+    // do harness casa com os goldens (os fixtures de report não têm FST-133).
+    { project: 'vena-report', kind: 'report', file: 'public/shared/report.js',
       effortFn: 'effortH', effortDeps: [],
-      consts: ['PLACEHOLDER_H', 'PRIO_RANK', 'DEFAULT_TRACK'],
+      consts: ['PLACEHOLDER_H', 'PRIO_RANK'],
       adapter: reportAdapter, scenarios: () => reportScenarios('VENA') },
-    { project: 'fst-report', kind: 'report', file: 'public/fst/index.html',
+    { project: 'fst-report', kind: 'report', file: 'public/shared/report.js',
       effortFn: 'effortH', effortDeps: [],
-      consts: ['PLACEHOLDER_H', 'PRIO_RANK', 'DEFAULT_TRACK'],
+      consts: ['PLACEHOLDER_H', 'PRIO_RANK'],
       adapter: reportAdapter, scenarios: () => reportScenarios('FST') },
   ],
 };
