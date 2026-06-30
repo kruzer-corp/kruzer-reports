@@ -96,9 +96,12 @@ module.exports = {
       effortFn: 'resolveSp', effortDeps: ['childrenSpSum'],
       consts: ['PLACEHOLDER_SP', 'DEFAULT_HOURS_PER_SP', 'HEATMAP_WEEKS', 'DEDICATED', 'PRIO_RANK', 'DEFAULT_TRACK'],
       scenarios: venaPlannerScenarios },
-    { project: 'fst', kind: 'planner', file: 'public/fst/capacity.html',
+    // FST/PGM planner consolidado em shared/planner.js (item 2). resolveSp + consts
+    // vivem lá; DEDICATED/DEFAULT_TRACK viraram CFG → passados via spec.
+    { project: 'fst', kind: 'planner', file: 'public/shared/planner.js',
       effortFn: 'resolveSp', effortDeps: [],
-      consts: ['PLACEHOLDER_SP', 'HEATMAP_WEEKS', 'DEDICATED', 'PRIO_RANK', 'DEFAULT_TRACK'],
+      consts: ['PLACEHOLDER_SP', 'HEATMAP_WEEKS', 'PRIO_RANK'],
+      defaultTrack: { 'FST-133': 1 },
       scenarios: fstPlannerScenarios },
     // Reports: a engine foi consolidada em shared/report.js (fatia 2). effortH +
     // consts vivem lá agora. DEFAULT_TRACK virou CFG (não se extrai); o {} default

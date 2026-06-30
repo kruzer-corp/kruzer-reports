@@ -108,8 +108,8 @@ function buildContext(spec, fx) {
       STATE, EPICS,
       effort: ${spec.effortFn},
       prioRank:     (typeof PRIO_RANK    !== 'undefined') ? PRIO_RANK     : {},
-      dedicatedKey: (typeof DEDICATED    !== 'undefined') ? DEDICATED.epic : null,
-      defaultTrack: (typeof DEFAULT_TRACK!== 'undefined') ? DEFAULT_TRACK : {},
+      dedicatedKey: (typeof DEDICATED    !== 'undefined') ? DEDICATED.epic : ${JSON.stringify(spec.dedicatedKey || null)},
+      defaultTrack: (typeof DEFAULT_TRACK!== 'undefined') ? DEFAULT_TRACK : ${JSON.stringify(spec.defaultTrack || {})},
       heatmapWeeks: (typeof HEATMAP_WEEKS!== 'undefined') ? HEATMAP_WEEKS : 26,
     };
   `;
