@@ -2,6 +2,16 @@ name = "kruzer-dashboards"
 main = "src/worker.js"
 compatibility_date = "2024-12-01"
 
+# ─── Domínio custom (prod) ─────────────────────────────────────────────────────
+# Custom Domain do Worker: no `wrangler deploy` a Cloudflare provisiona o registro
+# DNS + certificado TLS automaticamente. PRÉ-REQUISITO: a zona kruzer.ai precisa
+# estar na MESMA conta Cloudflare do Worker (fc9d4a6c…). Se estiver numa conta
+# corporativa separada, provisionar pelo dashboard (Workers → Domains & Routes) ou
+# com token que tenha permissão de DNS na zona. URL final: https://dashboards.kruzer.ai
+routes = [
+  { pattern = "dashboards.kruzer.ai", custom_domain = true }
+]
+
 # ─── Config base (vale pra `wrangler deploy` sem --env, que é o atual prod) ───
 # Serve arquivos estáticos do public/ via binding ASSETS.
 # html_handling = "auto-trailing-slash" garante que /krzr/ → krzr/index.html
@@ -43,6 +53,11 @@ database_id = "0c3d7647-3d53-41fa-b6a6-ac244659a8b2"
 # ═══════════════════════════════════════════════════════════════════════════════
 [env.hml]
 name = "kruzer-dashboards-hml"
+
+# Custom Domain do HML → https://dashboards-hml.kruzer.ai (mesmas ressalvas de zona)
+[[env.hml.routes]]
+pattern = "dashboards-hml.kruzer.ai"
+custom_domain = true
 
 [env.hml.assets]
 directory = "./public"
