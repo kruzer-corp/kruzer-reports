@@ -23,10 +23,15 @@ const MODE = process.argv.includes('--baseline') ? 'baseline' : 'compare';
 
 // Páginas a cobrir + o container cujo HTML renderizado vira o snapshot, e quanto
 // esperar (as que fazem JQL + render precisam de mais tempo).
+// Snapshot da `.container` inteira (header + follow-ups + #content) — cobre a
+// página toda menos os <script> (que mudam de propósito no refactor).
 const PAGES = [
-  { name: 'fst-report',   path: '/fst/',         sel: '#content, body', waitMs: 6000 },
-  { name: 'pgm-report',   path: '/pgm/',         sel: '#content, body', waitMs: 6000 },
-  { name: 'vena-report',  path: '/vena/roadmap', sel: '#content, body', waitMs: 6000 },
+  { name: 'fst-report',    path: '/fst/',          sel: '.container', waitMs: 6000 },
+  { name: 'pgm-report',    path: '/pgm/',          sel: '.container', waitMs: 6000 },
+  { name: 'vena-report',   path: '/vena/roadmap',  sel: '.container', waitMs: 6000 },
+  { name: 'fst-planner',   path: '/fst/capacity',  sel: '.container', waitMs: 6500 },
+  { name: 'pgm-planner',   path: '/pgm/capacity',  sel: '.container', waitMs: 6500 },
+  { name: 'vena-planner',  path: '/vena/capacity', sel: '.container', waitMs: 6500 },
 ];
 
 function creds() {
