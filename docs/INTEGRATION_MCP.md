@@ -6,8 +6,9 @@ e ganha todas as tools de uma vez, sem conhecer URLs REST soltas.
 
 - **Código:** `src/mcp.js` (protocolo + tools) + rota `/mcp` em `src/worker.js`.
 - **Transporte:** Streamable HTTP, JSON-RPC 2.0, **stateless** (sem sessão, sem SSE).
-- **Auth:** identidade `integration` — `Authorization: Bearer <INSIGHTS_TOKEN>`.
-  Read-only garantido pela allow-list do worker (`integrationAllowed`).
+- **Auth (dois caminhos, ambos read-only):** (1) **Bearer estático** `INSIGHTS_TOKEN`
+  (Claude Code CLI + integrações programáticas); (2) **OAuth 2.1** (interface web/Desktop,
+  login por allowlist — ver seção abaixo). O worker tenta o estático primeiro; sem ele, OAuth.
 - **Endpoints:**
   - HML: `https://kruzer-dashboards-hml.matheus-mereb.workers.dev/mcp`
   - Prod: `https://kruzer-dashboards.matheus-mereb.workers.dev/mcp` (futuro: `https://dashboards.kruzer.ai/mcp`)
@@ -39,11 +40,37 @@ Trocar a URL pra prod quando migrar. O `<INSIGHTS_TOKEN>` é o mesmo secret da
 integração read-only; se não souber o valor, rotacione:
 `printf '%s' NOVO_TOKEN | npx wrangler secret put INSIGHTS_TOKEN --env hml`.
 
-## Como registrar no Claude Desktop / claude.ai (conector customizado)
+## Como registrar no Claude Desktop / claude.ai (conector customizado) — OAuth
 
-Adicionar um **remote MCP server** apontando pra URL `/mcp` e configurar o header
-`Authorization: Bearer <INSIGHTS_TOKEN>`. (Auth por header/bearer; OAuth não é usado
-nesta versão — ver decisão de arquitetura no handoff.)
+A UI de custom connector do claude.ai/Desktop **só conecta via OAuth** (não tem campo
+pra Bearer/header). O Worker é um **OAuth 2.1 server** (via `@cloudflare/workers-oauth-
+provider`, KV `OAUTH_KV`): o usuário só cola a URL `/mcp`, o Claude descobre o OAuth
+(`.well-known`), faz Dynamic Client Registration, e abre a tela de **login** (`/authorize`,
+`src/oauth.js`). O usuário loga com um e-mail/senha da **allowlist** e o Claude recebe o
+token — sem colar nada manualmente.
+
+**Passos do gestor (na interface do Claude):**
+1. Settings → Connectors → Add custom connector.
+2. URL: `https://kruzer-dashboards.matheus-mereb.workers.dev/mcp` (prod) ou a de HML.
+3. Conectar → tela de login da Kruzer → e-mail/senha da allowlist → pronto.
+
+**Allowlist** (quem pode logar) — secret `OAUTH_USERS`, JSON `[{email,name,pass}]`:
+```bash
+printf '%s' '[{"email":"gestor@kruzer.ai","name":"Nome","pass":"senha-forte"}]' \
+  | npx wrangler secret put OAUTH_USERS            # prod
+printf '%s' '[...]' | npx wrangler secret put OAUTH_USERS --env hml   # hml
+```
+Todo token emitido é **read-only** (escopo `read`); as `props` carregam `{email,name}`.
+
+> Coexistência: `/mcp` aceita **os dois** — Bearer estático (`INSIGHTS_TOKEN`, pro Claude
+> Code CLI + integrações programáticas) **e** token OAuth (interface web/Desktop). O caminho
+> estático é tentado primeiro; sem ele, cai no OAuth.
+
+### Dança OAuth (pra debug via curl)
+`POST /register` (DCR) → `GET /authorize?…` (login) → `POST /authorize` (credenciais) →
+302 com `code` → `POST /token` (code + PKCE `code_verifier`) → `access_token` → usar como
+`Authorization: Bearer` no `/mcp`. ⚠️ o `code` vem url-encoded no redirect — decodar antes
+do `/token`.
 
 ## Smoke test manual
 
