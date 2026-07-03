@@ -10,18 +10,28 @@
 //                       Claude do gestor) lerem os dados sem poder mutar nada.
 //  2. Proxy autenticado pra Atlassian Cloud REST API (rota /api/jira/jql).
 //  3. /api/krzr/insights — JSON agregado do Service Desk, pronto pra LLM (read-only).
-//  4. Serve arquivos estáticos do public/ (binding ASSETS).
+//  4. /mcp — servidor MCP remoto (Streamable HTTP) que expõe os dashboards como
+//            tools read-only pra um cliente MCP (Claude etc.). Ver src/mcp.js.
+//  5. Serve arquivos estáticos do public/ (binding ASSETS).
 //
 // Secrets esperadas (via `wrangler secret put`):
 //   JIRA_EMAIL, JIRA_API_TOKEN, JIRA_CLOUD_ID,
 //   DASHBOARD_USER, DASHBOARD_PASSWORD,
-//   INSIGHTS_TOKEN  (opcional — habilita a identidade de integração read-only)
+//   INSIGHTS_TOKEN  (opcional — habilita a identidade de integração read-only + o MCP)
+
+import { handleMcp } from './mcp.js';
 
 const REALM = 'Kruzer Dashboards';
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+
+    // 0. Preflight CORS do /mcp ANTES do gate: o browser não manda Authorization
+    //    no OPTIONS, então o gate barraria o preflight de clientes MCP web.
+    if (url.pathname === '/mcp' && request.method === 'OPTIONS') {
+      return handleMcp(request, env, null);
+    }
 
     // 1. Auth gate (aplica em tudo, inclusive estáticos — protege a URL inteira).
     //    Sem credencial válida (Basic Auth OU token de integração) → 401.
@@ -45,6 +55,12 @@ export default {
     if (url.pathname === '/api/krzr/insights') {
       if (request.method !== 'GET') return jsonError(405, 'Use GET');
       return handleKrzrInsights(env);
+    }
+
+    // 1c. MCP remoto — expõe os dashboards como tools read-only. Reusa as funções
+    //     de dados do worker; a allow-list já garante que integração é read-only.
+    if (url.pathname === '/mcp') {
+      return handleMcp(request, env, { jiraSearchAll, krzrInsightsData, stateRead: stateReadValue });
     }
 
     // 2. API proxy
@@ -161,6 +177,7 @@ function integrationAllowed(url, method) {
   if (p === '/api/jira/comment' || p === '/api/jira/issue-update') return false; // escrita JIRA
   if (p.startsWith('/api/state/')) return method === 'GET';                       // lê estado; PUT/DELETE bloqueado
   if (p === '/api/jira/jql') return method === 'POST';                            // proxy de leitura (search)
+  if (p === '/mcp') return true;                                                  // MCP: só expõe tools read-only
   return method === 'GET';                                                        // páginas, insights, health, audit
 }
 
@@ -191,21 +208,26 @@ async function jiraSearchAll(env, jql, fields, pageSize = 100, maxPages = 6) {
 // Service Desk insights — agrega o KRZR num JSON pronto pra um LLM raciocinar.
 // Read-only: só lê do JIRA. Thresholds de SLA alinhados ao cockpit (/ops/).
 async function handleKrzrInsights(env) {
-  const MS_DAY = 86400000;
-  const now = Date.now();
-  let open, resolved;
   try {
-    // statusCategory != Done captura a fila REALMENTE aberta. (KRZR não mantém o
-    // campo resolution, então "resolution is EMPTY" inclui Expired/Done/Canceled.)
-    open = await jiraSearchAll(env,
-      'project = KRZR AND statusCategory != Done ORDER BY priority DESC, created DESC',
-      ['summary', 'status', 'priority', 'created', 'updated', 'assignee']);
-    resolved = await jiraSearchAll(env,
-      'project = KRZR AND resolutiondate >= -30d',
-      ['resolutiondate'], 100, 3);
+    return jsonOk(await krzrInsightsData(env));
   } catch (e) {
     return jsonError(502, `JIRA fetch failed: ${e.message}`);
   }
+}
+
+// Dados agregados do KRZR (sem embrulho HTTP) — reusado pelo handler e pelo MCP.
+// Lança em erro de fetch (quem chama trata).
+async function krzrInsightsData(env) {
+  const MS_DAY = 86400000;
+  const now = Date.now();
+  // statusCategory != Done captura a fila REALMENTE aberta. (KRZR não mantém o
+  // campo resolution, então "resolution is EMPTY" inclui Expired/Done/Canceled.)
+  const open = await jiraSearchAll(env,
+    'project = KRZR AND statusCategory != Done ORDER BY priority DESC, created DESC',
+    ['summary', 'status', 'priority', 'created', 'updated', 'assignee']);
+  const resolved = await jiraSearchAll(env,
+    'project = KRZR AND resolutiondate >= -30d',
+    ['resolutiondate'], 100, 3);
 
   const tickets = open.map(it => {
     const f = it.fields || {};
@@ -242,7 +264,7 @@ async function handleKrzrInsights(env) {
   };
   const oldest = tickets.reduce((m, t) => (t.ageDays || 0) > (m?.ageDays || 0) ? t : m, null);
 
-  return jsonOk({
+  return {
     project: 'KRZR',
     description: 'Kruzer Service Desk — fila aberta + agregados. SLA: Highest>1d, High>3d.',
     generatedAt: new Date().toISOString(),
@@ -258,7 +280,21 @@ async function handleKrzrInsights(env) {
     aging,
     slaBreaches: slaBreaches.map(t => ({ key: t.key, priority: t.priority, ageDays: t.ageDays, summary: t.summary })),
     tickets,
-  });
+  };
+}
+
+// D1: lê um valor de estado (parsed) — reusado pelo MCP (schedule publicado etc.).
+// Retorna null se não existir ou sem binding. Read-only.
+async function stateReadValue(env, scope, key) {
+  if (!env.STATE_DB) return null;
+  try {
+    const row = await env.STATE_DB
+      .prepare('SELECT value FROM state WHERE scope = ? AND key = ?')
+      .bind(scope, key)
+      .first();
+    if (!row) return null;
+    try { return JSON.parse(row.value); } catch { return null; }
+  } catch { return null; }
 }
 
 // ---------------------------------------------------------------------------
