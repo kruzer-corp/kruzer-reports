@@ -82,28 +82,41 @@ function statusTextToBucketFst(txt) {
   if (s.includes('backlog')) return 'backlog';
   return null;
 }
-// resolveBucket: label → descrição (**Status:**) → status nativo → backlog.
+// Mapa nativo rico da variante FST — retorna null se nada casar.
+function nativeToBucketFst(statusName) {
+  const s = (statusName || '').toLowerCase();
+  if (s.includes('uat') || s.includes('homolog')) return 'uat';
+  if (s.includes('hyper') || s.includes('done') || s.includes('conclu') || s.includes('closed')) return 'hyper';
+  if (s.includes('aprova')) return 'aprovacao';
+  if (s.includes('estimativa') || s.includes('refin')) return 'estimativa';
+  if (s.includes('progress') || s.includes('review') || s.includes('execu') || s.includes('desenvolv')) return 'execucao';
+  return null;
+}
+// resolveBucket. Precedência: label uat/hyper-care (estados ausentes do workflow
+// nativo) → STATUS NATIVO → demais labels → descrição (**Status:**) → backlog.
+function semanticLabelBucket(labels) {
+  if ((labels || []).includes('uat')) return 'uat';
+  if ((labels || []).includes('hyper-care')) return 'hyper';
+  return null;
+}
 function resolveBucket(f, variant) {
   const labels = f.labels || [];
-  for (const b of BUCKETS) if (labels.includes(b.labelMatch)) return b.id;
-  const descText = descToText(f.description);
+  const sem = semanticLabelBucket(labels);
+  if (sem) return sem;
   const statusName = (f.status && f.status.name) || '';
-  if (variant === 'fst') {
-    const fromDesc = statusTextToBucketFst(parseField(descText, 'Status'));
-    if (fromDesc) return fromDesc;
-    const s = statusName.toLowerCase();
-    if (s.includes('uat') || s.includes('homolog')) return 'uat';
-    if (s.includes('hyper') || s.includes('done') || s.includes('conclu') || s.includes('closed')) return 'hyper';
-    if (s.includes('aprova')) return 'aprovacao';
-    if (s.includes('estimativa') || s.includes('refin')) return 'estimativa';
-    if (s.includes('progress') || s.includes('review') || s.includes('execu') || s.includes('desenvolv')) return 'execucao';
-    return 'backlog';
-  }
-  const fromDesc = statusTextToBucketVena(parseField(descText, 'Status'));
-  if (fromDesc) return fromDesc;
-  const fromNative = statusTextToBucketVena(statusName);
+  const descText = descToText(f.description);
+  const fromNative = variant === 'fst' ? nativeToBucketFst(statusName) : statusTextToBucketVena(statusName);
   if (fromNative) return fromNative;
+  for (const b of BUCKETS) if (labels.includes(b.labelMatch)) return b.id;
+  const fromDesc = (variant === 'fst' ? statusTextToBucketFst : statusTextToBucketVena)(parseField(descText, 'Status'));
+  if (fromDesc) return fromDesc;
   return 'backlog';
+}
+// Encerrado que NÃO deve ser listado: statusCategory=Done, EXCETO Hyper Care.
+function isClosedNotHyper(f) {
+  const done = !!(f.status && f.status.statusCategory && f.status.statusCategory.key === 'done');
+  const hyper = (f.labels || []).includes('hyper-care') || /hyper.?care/i.test((f.status && f.status.name) || '');
+  return done && !hyper;
 }
 function priorityTier(name) {
   const n = (name || '').toLowerCase();
@@ -247,7 +260,8 @@ const TOOLS = [
       const issues = await deps.jiraSearchAll(env, jql, STATUS_FIELDS, 100, 6);
       const today = new Date(); today.setHours(0, 0, 0, 0);
       const counts = {}; BUCKETS.forEach(b => counts[b.id] = 0);
-      const epics = issues.map(it => {
+      // Encerrados (Done/Resolved/Canceled…) fora da listagem; Hyper Care permanece.
+      const epics = issues.filter(it => !isClosedNotHyper(it.fields || {})).map(it => {
         const f = it.fields || {};
         const bucket = resolveBucket(f, meta.statusVariant);
         counts[bucket] = (counts[bucket] || 0) + 1;

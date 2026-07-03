@@ -33,9 +33,21 @@ function priorityTier(p){
 }
 
 // Texto de status (planilha/JIRA) → bucket id.
-// Derivação de status → bucket. DUAS variantes (cada uma idêntica ao original do
-// projeto, pra preservar 0 drift): 'vena' (status nativos PT, superset) e 'fst'
-// (labels FST + fallback). CFG.statusVariant seleciona.
+// Derivação de status → bucket. Precedência:
+//   1. label `uat`/`hyper-care` (estados que o workflow nativo do JIRA ainda NÃO
+//      expressa — enquanto não virarem status nativos, a label prevalece);
+//   2. STATUS NATIVO do JIRA (fonte primária pro resto);
+//   3. demais labels (em-execucao, aguardando-aprovacao…) — override manual;
+//   4. descrição (**Status:**) — último recurso do workaround manual;
+//   5. backlog.
+// DUAS variantes: 'vena' (status nativos PT, superset) e 'fst' (mapa nativo rico +
+// fallback). CFG.statusVariant seleciona.
+// Labels semânticas que vencem o nativo (estados ausentes do workflow do JIRA).
+function semanticLabelBucket(labels){
+  if ((labels || []).includes('uat')) return 'uat';
+  if ((labels || []).includes('hyper-care')) return 'hyper';
+  return null;
+}
 function statusTextToBucketVena(txt){
   const s = (txt||'').toLowerCase();
   if (s.includes('uat') || s.includes('homolog'))                                       return 'uat';
@@ -50,11 +62,13 @@ function statusTextToBucketVena(txt){
 }
 function resolveBucketVena(issue){
   const labels = issue.labels || [];
+  const sem = semanticLabelBucket(labels);
+  if (sem) return sem;
+  const fromNative = statusTextToBucketVena(issue.statusName);
+  if (fromNative) return fromNative;
   for (const b of BUCKETS) if (labels.includes(b.labelMatch)) return b.id;
   const fromDesc = statusTextToBucketVena(parseField(issue.description, 'Status'));
   if (fromDesc) return fromDesc;
-  const fromNative = statusTextToBucketVena(issue.statusName);
-  if (fromNative) return fromNative;
   return 'backlog';
 }
 function statusTextToBucketFst(txt){
@@ -67,17 +81,25 @@ function statusTextToBucketFst(txt){
   if (s.includes('backlog'))                       return 'backlog';
   return null;
 }
-function resolveBucketFst(issue){
-  const labels = issue.labels || [];
-  for (const b of BUCKETS) if (labels.includes(b.labelMatch)) return b.id;
-  const fromDesc = statusTextToBucketFst(parseField(issue.description, 'Status'));
-  if (fromDesc) return fromDesc;
-  const s = (issue.statusName||'').toLowerCase();
+// Mapa nativo rico da variante FST — retorna null se nada casar (cai pro label).
+function nativeToBucketFst(statusName){
+  const s = (statusName||'').toLowerCase();
   if (s.includes('uat') || s.includes('homolog'))                            return 'uat';
   if (s.includes('hyper') || s.includes('done') || s.includes('conclu') || s.includes('closed')) return 'hyper';
   if (s.includes('aprova'))                                                  return 'aprovacao';
   if (s.includes('estimativa') || s.includes('refin'))                       return 'estimativa';
   if (s.includes('progress') || s.includes('review') || s.includes('execu') || s.includes('desenvolv')) return 'execucao';
+  return null;
+}
+function resolveBucketFst(issue){
+  const labels = issue.labels || [];
+  const sem = semanticLabelBucket(labels);
+  if (sem) return sem;
+  const fromNative = nativeToBucketFst(issue.statusName);
+  if (fromNative) return fromNative;
+  for (const b of BUCKETS) if (labels.includes(b.labelMatch)) return b.id;
+  const fromDesc = statusTextToBucketFst(parseField(issue.description, 'Status'));
+  if (fromDesc) return fromDesc;
   return 'backlog';
 }
 const statusTextToBucket = CFG.statusVariant === 'fst' ? statusTextToBucketFst : statusTextToBucketVena;
@@ -182,6 +204,14 @@ function remarkFor(issue){
   if (Object.prototype.hasOwnProperty.call(REMARK_OVERRIDES, issue.key)) return REMARK_OVERRIDES[issue.key];
   return issue.remarkDefault || '';
 }
+
+// Épico "encerrado" que NÃO deve ser listado (nem report nem planner nem MCP):
+// statusCategory = Done (Done/Resolved/Closed/Canceled/Expired/Duplicate…),
+// EXCETO Hyper Care — que é acompanhamento ativo pós-entrega e permanece visível.
+function isHyperCareEpic(e){
+  return (e.labels || []).includes('hyper-care') || /hyper.?care/i.test(e.statusName || '');
+}
+function isClosedNotHyper(e){ return e.done && !isHyperCareEpic(e); }
 
 let RAW = [];
 
@@ -644,7 +674,8 @@ async function loadAndRender(){
     const jql = `project = ${PROJECT} AND issuetype = Epic ORDER BY created DESC`;
     const issues = await KruzerAPI.fetchAll({ jql, fields: FIELDS });
     REMARK_OVERRIDES = loadRemarks();
-    RAW = issues.map(normalize);
+    // Encerrados (Done/Resolved/Canceled…) saem da listagem; Hyper Care permanece.
+    RAW = issues.map(normalize).filter(e => !isClosedNotHyper(e));
     document.getElementById('loadingBox').style.display = 'none';
     document.getElementById('content').style.display = '';
     renderAll();

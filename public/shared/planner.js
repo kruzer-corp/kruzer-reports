@@ -197,6 +197,12 @@ function normalizeEpic(issue){
   };
 }
 
+// Encerrado que NÃO deve ser listado: statusCategory=Done, EXCETO Hyper Care.
+function isClosedNotHyper(e){
+  const isHyper = (e.labels || []).includes('hyper-care') || /hyper.?care/i.test(e.jiraStatus || '');
+  return e.done && !isHyper;
+}
+
 // esforço efetivo (HORAS) por hierarquia: manual -> horas estimadas no JIRA -> placeholder
 function resolveSp(epic){
   const manual = STATE.manualSp[epic.key];
@@ -768,7 +774,8 @@ async function loadData(isRefresh){
     // 1) TODOS os épicos da FastShop — consultados por tipo de issue, não por nome DMND
     const epicJql = `project = ${PROJECT} AND issuetype = Epic ORDER BY rank ASC`;
     const issues = await KruzerAPI.fetchAll({ jql: epicJql, fields: EPIC_FIELDS });
-    EPICS = issues.map(normalizeEpic);
+    // Encerrados (Done/Resolved/Canceled…) não entram na esteira; Hyper Care permanece.
+    EPICS = issues.map(normalizeEpic).filter(e => !isClosedNotHyper(e));
     CHILDREN_BY_EPIC = {}; // FastShop estima no próprio épico — sem rollup de filhas
 
     // 3) merge com estado local (preserva overrides)

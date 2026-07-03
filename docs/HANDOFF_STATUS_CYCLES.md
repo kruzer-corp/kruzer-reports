@@ -68,11 +68,19 @@ Ordem de maturidade (conclusão → início):
 | Backlog | `backlog` | Não iniciado | navy `#48507D` |
 
 ### B.2. Como o bucket é resolvido (`resolveBucket` em `shared/report.js`)
-Precedência (para em qual bater primeiro):
-1. **Labels do épico** — `hyper-care`, `uat`, `em-execucao`, `aguardando-aprovacao`, `aguardando-estimativa`, `backlog` (match direto em `BUCKETS[].labelMatch`, na ordem da taxonomia → UAT ganha de em-execucao se ambas presentes).
-2. **Texto na descrição** — `**Status:** <valor>` parseado e mapeado por `statusTextToBucket`.
-3. **Status nativo do JIRA** — `issue.status.name` mapeado por `statusTextToBucket`.
-4. Fallback → `backlog`.
+**Precedência (revisada 2026-07 — NATIVO-FIRST com carve-out):**
+1. **Labels semânticas `uat` / `hyper-care`** — estados que o workflow nativo do JIRA
+   ainda NÃO expressa; enquanto não virarem status nativos, a label prevalece
+   (`semanticLabelBucket`). `uat`→uat, `hyper-care`→hyper.
+2. **Status nativo do JIRA** — `issue.status.name` mapeado (fonte primária pro resto).
+3. **Demais labels** — `em-execucao`, `aguardando-aprovacao`, `aguardando-estimativa`, `backlog`.
+4. **Texto na descrição** — `**Status:** <valor>` (último recurso do workaround manual).
+5. Fallback → `backlog`.
+
+> Mudou de `label → descrição → nativo` (workaround) para nativo-first: o status vivo
+> do board passa a mandar, corrigindo épicos que a descrição stale mis-bucketava (ex.
+> FST-137 Canceled aparecia como "Aguardando Aprovação"). As labels `uat`/`hyper-care`
+> ficam como exceção só porque o JIRA não tem esses status nativos ainda.
 
 **Há DUAS variantes de `statusTextToBucket`/`resolveBucket`**, selecionadas por `CFG.statusVariant`:
 
@@ -81,8 +89,14 @@ Precedência (para em qual bater primeiro):
 
 > ⚠️ **As duas variantes existem porque unificar mudava o bucket de alguns épicos** (o harness pegou: ex. "Desenvolvendo" no PGM caía em Backlog sob a lógica VENA porque ela checa `desenvolvimento`, não `desenvolv`). Isso é sintoma do workaround — com status reais do board, uma lógica única resolveria.
 
-### B.3. Regra "Done" (sai da esteira)
-`out.done = (status.statusCategory.key === 'done')`. Épicos Done **não entram** no cálculo de capacity nem na timeline (`ganttEpics()` filtra `!done`). Independe de label — é a categoria nativa do JIRA.
+### B.3. Regra "Done" / Encerrados (saem da LISTAGEM inteira)
+`out.done = (status.statusCategory.key === 'done')`. **Revisado 2026-07:** épicos
+encerrados (statusCategory=Done → Done/Resolved/Closed/Canceled/Expired/Duplicate…)
+**não são mais listados** em lugar nenhum — nem report (KPIs/swimlane/tabela/timeline),
+nem planner, nem MCP `get_project_status` — via filtro `isClosedNotHyper` no ponto de
+ingestão (`RAW=…` / `EPICS=…`). **EXCEÇÃO: Hyper Care permanece** (label `hyper-care`
+ou status ~`hyper care`) — é acompanhamento ativo pós-entrega. Antes, encerrados
+apareciam bucketizados (Cancelado virava "Hyper Care" no planner / bucket stale no report).
 
 ### B.4. Prioridade
 `priorityTier(priority.name)`: Highest→`P0`, High→`P1`, Medium→`P2`, Low/resto→`P3`. Exibida como tier P0-P3 nos reports (mesmo pra projetos que usam prioridades padrão do JIRA, como PGM — leitura funciona; a edição de prioridade assume P0-P3).

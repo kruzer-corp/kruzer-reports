@@ -484,6 +484,11 @@ function normalizeEpic(issue){
     done: catKey === 'done',   // Done no JIRA → não entra no cálculo da esteira
   };
 }
+// Encerrado que NÃO deve ser listado: statusCategory=Done, EXCETO Hyper Care.
+function isClosedNotHyper(e){
+  const isHyper = (e.labels || []).includes('hyper-care') || /hyper.?care/i.test(e.status || '');
+  return e.done && !isHyper;
+}
 function normalizeChild(issue){
   const f = issue.fields || {};
   const parentKey = f.parent?.key || f.customfield_10014 || null;
@@ -1109,7 +1114,9 @@ async function loadData(isRefresh){
     // 1) épicos não-resolvidos
     const epicJql = `project = ${PROJECT} AND issuetype = Epic AND resolution is EMPTY ORDER BY rank ASC`;
     const epicIssues = await KruzerAPI.fetchAll({ jql: epicJql, fields: EPIC_FIELDS });
-    EPICS = epicIssues.map(normalizeEpic);
+    // Encerrados (Done/Resolved/Canceled…) fora; Hyper Care permanece. (O JQL já
+    // filtra resolvidos; este filtro garante a MESMA regra das demais superfícies.)
+    EPICS = epicIssues.map(normalizeEpic).filter(e => !isClosedNotHyper(e));
 
     // 2) stories-filho (rollup de SP). JQL "Epic Link" in (...) — testado no handoff.
     CHILDREN_BY_EPIC = {};
