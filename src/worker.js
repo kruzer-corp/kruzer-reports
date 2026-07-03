@@ -19,19 +19,62 @@
 //   DASHBOARD_USER, DASHBOARD_PASSWORD,
 //   INSIGHTS_TOKEN  (opcional — habilita a identidade de integração read-only + o MCP)
 
+import { OAuthProvider } from '@cloudflare/workers-oauth-provider';
 import { handleMcp } from './mcp.js';
+import { handleAuthorize } from './oauth.js';
 
 const REALM = 'Kruzer Dashboards';
 
-export default {
-  async fetch(request, env) {
-    const url = new URL(request.url);
+// Deps de dados do MCP (reusa as funções read-only do worker).
+const mcpDeps = () => ({ jiraSearchAll, krzrInsightsData, stateRead: stateReadValue });
 
-    // 0. Preflight CORS do /mcp ANTES do gate: o browser não manda Authorization
-    //    no OPTIONS, então o gate barraria o preflight de clientes MCP web.
-    if (url.pathname === '/mcp' && request.method === 'OPTIONS') {
-      return handleMcp(request, env, null);
+// ─── Entry point: OAuthProvider por cima do app ───────────────────────────────
+// /mcp aceita, nesta ordem: Basic Auth (admin) / INSIGHTS_TOKEN (integration) —
+// caminho estático do Claude Code + integrações programáticas — OU, se nenhum,
+// cai no OAuth (token do fluxo web/Desktop, validado pela lib). Páginas, /api e a
+// tela /authorize passam pelo defaultHandler; a lib serve /token, /register e os
+// metadados .well-known.
+const mcpApiHandler = {
+  // Chamado pela lib SÓ quando há token OAuth válido (ctx.props = {email,name}).
+  async fetch(request, env, ctx) {
+    return handleMcp(request, env, mcpDeps());
+  },
+};
+const defaultHandler = {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+    if (url.pathname === '/authorize') return handleAuthorize(request, env);
+    return handleApp(request, env, ctx);
+  },
+};
+const oauthProvider = new OAuthProvider({
+  apiRoute: '/mcp',
+  apiHandler: mcpApiHandler,
+  defaultHandler,
+  authorizeEndpoint: '/authorize',
+  tokenEndpoint: '/token',
+  clientRegistrationEndpoint: '/register',
+  scopesSupported: ['read'],
+});
+
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+    // /mcp: preflight livre + caminho estático (Basic/INSIGHTS_TOKEN) antes do OAuth.
+    if (url.pathname === '/mcp') {
+      if (request.method === 'OPTIONS') return handleMcp(request, env, null);
+      const id = authIdentity(request, env);
+      if (id === 'admin' || id === 'integration') return handleMcp(request, env, mcpDeps());
+      // sem credencial estática → deixa o OAuthProvider validar o token OU responder
+      // 401 com o discovery (WWW-Authenticate) que o claude.ai usa pra iniciar o fluxo.
     }
+    return oauthProvider.fetch(request, env, ctx);
+  },
+};
+
+// ─── App: páginas + /api + assets (o antigo fetch, agora sob o defaultHandler) ──
+async function handleApp(request, env, ctx) {
+    const url = new URL(request.url);
 
     // 1. Auth gate (aplica em tudo, inclusive estáticos — protege a URL inteira).
     //    Sem credencial válida (Basic Auth OU token de integração) → 401.
@@ -55,12 +98,6 @@ export default {
     if (url.pathname === '/api/krzr/insights') {
       if (request.method !== 'GET') return jsonError(405, 'Use GET');
       return handleKrzrInsights(env);
-    }
-
-    // 1c. MCP remoto — expõe os dashboards como tools read-only. Reusa as funções
-    //     de dados do worker; a allow-list já garante que integração é read-only.
-    if (url.pathname === '/mcp') {
-      return handleMcp(request, env, { jiraSearchAll, krzrInsightsData, stateRead: stateReadValue });
     }
 
     // 2. API proxy
@@ -121,8 +158,7 @@ export default {
       });
     }
     return jsonError(500, 'ASSETS binding not configured');
-  },
-};
+}
 
 // ---------------------------------------------------------------------------
 function checkBasicAuth(request, env) {
