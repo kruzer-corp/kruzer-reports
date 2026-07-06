@@ -36,6 +36,11 @@ function venaPlannerScenarios() {
       EPICS: [ e('VENA-20','High',{jiraSp:15, isCommitted:true, jiraStart:'2026-06-15'}), e('VENA-21','High',{jiraSp:15}) ] },
     { name: 'late-horizon', today: TODAY, STATE: { ...base, horizonWeeks: 1 },
       EPICS: [ e('VENA-30','High',{jiraSp:30, jiraDue:'2026-06-05'}), e('VENA-31','High',{jiraSp:15}), e('VENA-32','High',{jiraSp:15}) ] },
+    // Esteira: âncora start+due no futuro; flutuantes preenchem o gap antes e fluem depois.
+    // Esperado: -50 fixo [06-15,07-01]; -51 backfill [06-01,~]; -52 pulado pra depois de 07-01.
+    { name: 'anchored-flow', today: TODAY, STATE: { ...base, parallelTracks: 1 },
+      EPICS: [ e('VENA-50','High',{jiraSp:15, isCommitted:true, jiraStart:'2026-06-15', jiraDue:'2026-07-01'}),
+               e('VENA-51','High',{jiraSp:15}), e('VENA-52','High',{jiraSp:60}) ] },
   ];
 }
 function fstPlannerScenarios() {
@@ -54,6 +59,10 @@ function fstPlannerScenarios() {
       EPICS: [ d('FST-20','P1',{jiraEstimateH:30, isCommitted:true, jiraStart:'2026-06-15'}), d('FST-21','P1',{jiraEstimateH:30}) ] },
     { name: 'late-horizon', today: TODAY, STATE: { ...base, horizonWeeks: 1 },
       EPICS: [ d('FST-30','P1',{jiraEstimateH:60, jiraDue:'2026-06-05'}), d('FST-31','P1',{jiraEstimateH:30}), d('FST-32','P1',{jiraEstimateH:30}) ] },
+    // Esteira: âncora start+due no futuro; flutuantes preenchem o gap antes e fluem depois.
+    { name: 'anchored-flow', today: TODAY, STATE: { ...base, parallelTracks: 1 },
+      EPICS: [ d('FST-50','P1',{jiraEstimateH:30, isCommitted:true, jiraStart:'2026-06-15', jiraDue:'2026-07-01'}),
+               d('FST-51','P1',{jiraEstimateH:30}), d('FST-52','P1',{jiraEstimateH:120}) ] },
   ];
 }
 
@@ -76,6 +85,10 @@ function reportScenarios(prefix) {
       EPICS: [ r(`${prefix}-20`,'P1',{estH:30, committed:true, startDate:'2026-06-15'}), r(`${prefix}-21`,'P1',{estH:30}) ] },
     { name: 'late', today: TODAY, STATE: { ...base },
       EPICS: [ r(`${prefix}-30`,'P1',{estH:300, dueDate:'2026-06-05'}), r(`${prefix}-31`,'P1',{estH:30}) ] },
+    // Esteira: âncora start+due no futuro; flutuantes preenchem o gap antes e fluem depois.
+    { name: 'anchored-flow', today: TODAY, STATE: { ...base, parallelTracks: 1 },
+      EPICS: [ r(`${prefix}-50`,'P1',{estH:30, committed:true, startDate:'2026-06-15', dueDate:'2026-07-01'}),
+               r(`${prefix}-51`,'P1',{estH:30}), r(`${prefix}-52`,'P1',{estH:120}) ] },
   ];
 }
 

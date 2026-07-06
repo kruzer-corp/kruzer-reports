@@ -159,6 +159,21 @@ window.KruzerCapacity = (function () {
   }
 
   // Engine pura: esforço → datas. Determinística dado (epics, state, cfg, hoje).
+  //
+  // Modelo de ESTEIRA LOGÍSTICA (2026-07-06): as datas reais do JIRA são ÂNCORAS
+  // FIXAS na esteira; épicos sem data ("flutuantes") preenchem a capacidade livre
+  // nas folgas ao redor das âncoras — em vez de uma corrente sequencial ingênua a
+  // partir de hoje (que ignorava start/due e empilhava tudo). Tipos por épico
+  // (modo normal; what-if faz TUDO flutuar pra simular):
+  //   · start+due → lote fixo: ocupa a janela real [start, due]. late = o esforço
+  //                 não cabe na janela (start+duração > due).
+  //   · só start  → começa no start real; fim = start+duração, com piso em HOJE
+  //                 (épico aberto/parado vira barra longa até hoje, não some no passado).
+  //   · só due    → pull do prazo: fim = due, início = due−duração; se não dá pra
+  //                 começar no passado, projeta de hoje (fim > due → late).
+  //   · sem data  → flutuante: earliest-fit fluindo ao redor das janelas ocupadas.
+  // A engine é a FONTE ÚNICA das posições — scheduledStart/End já saem no lugar
+  // certo, sem depender do itemize/localPlan pra "maquiar" com datas reais.
   function computeSchedule(epics, state, cfg) {
     const resolveEffort = cfg.resolveEffort;
     const dedicatedKey = cfg.dedicatedKey;
@@ -166,6 +181,7 @@ window.KruzerCapacity = (function () {
     const today = startOfDay(new Date());
     const squad = state.devs * state.velocityPerDev;
     const throughputPerTrack = squad / state.parallelTracks;
+    const floatAll = !!state.whatIfMode;   // what-if: ignora datas reais → fluxo puro
 
     const byKey = {};
     const list = epics.map(e => {
@@ -194,36 +210,78 @@ window.KruzerCapacity = (function () {
     tracks.forEach(t => t.sort((a, b) => a.orderInTrack - b.orderInTrack));
 
     const horizonEnd = addDays(today, state.horizonWeeks * 7);
+    const durOf = (e, perTrack) => Math.max(1, Math.round((e.effectiveSp / perTrack) * 7));
 
-    function scheduleSequential(track, perTrack) {
+    // Classifica o épico na esteira: âncora (start/due reais) vs fluxo.
+    function kind(e) {
+      const s = !floatAll && e.jiraStart, d = !floatAll && e.jiraDue;
+      if (s && d) return 'both';
+      if (s) return 'start';
+      if (d) return 'due';
+      return 'float';
+    }
+
+    // Agenda um track: fixa as âncoras nas datas reais e faz os flutuantes fluírem
+    // por earliest-fit ao redor das janelas ocupadas (a "esteira" contorna os lotes fixos).
+    function scheduleTrack(track, perTrack) {
+      const windows = [];   // janelas [start,end] ocupadas por âncoras (ms), p/ desvio dos flutuantes
+      track.forEach(e => {
+        const k = kind(e);
+        if (k === 'float') return;
+        const dur = durOf(e, perTrack);
+        let s, end;
+        if (k === 'both') {
+          s = startOfDay(e.jiraStart); end = startOfDay(e.jiraDue);
+          if (end <= s) end = addDays(s, dur);                  // due inválido → cai pra duração
+          e.late = addDays(s, dur) > startOfDay(e.jiraDue);     // esforço não cabe na janela prometida
+        } else if (k === 'start') {
+          s = startOfDay(e.jiraStart); end = addDays(s, dur);
+          if (end < today) end = today;                         // aberto/parado: estende até hoje (barra longa)
+          e.late = false;
+        } else { // 'due' — pull do prazo
+          end = startOfDay(e.jiraDue); s = addDays(end, -dur);
+          if (s < today) { s = today; end = addDays(today, dur); } // não dá pra começar no passado
+          e.late = end > startOfDay(e.jiraDue);
+        }
+        e.scheduledStart = s; e.scheduledEnd = end;
+        windows.push({ s: s.getTime(), e: end.getTime() });
+      });
+      // desvia t pra frente até [t, t+dur] não colidir com nenhuma janela ocupada
+      const avoid = (t, dur) => {
+        let moved = true;
+        while (moved) {
+          moved = false;
+          for (const w of windows) {
+            if (t.getTime() < w.e && addDays(t, dur).getTime() > w.s) { t = new Date(w.e); moved = true; break; }
+          }
+        }
+        return t;
+      };
       let cursor = today;
       track.forEach(e => {
+        if (kind(e) !== 'float') return;
+        const dur = durOf(e, perTrack);
         let startMin = cursor;
-        if (e.committedLocked && e.jiraStart) {
-          startMin = new Date(Math.max(startMin.getTime(), startOfDay(e.jiraStart).getTime()));
-        }
         e.dependencies.forEach(depKey => {
           const dep = byKey[depKey];
           if (dep && dep.scheduledEnd) startMin = new Date(Math.max(startMin.getTime(), dep.scheduledEnd.getTime()));
         });
-        const durDays = Math.max(1, Math.round((e.effectiveSp / perTrack) * 7));
+        startMin = avoid(startOfDay(startMin), dur);
         e.scheduledStart = startOfDay(startMin);
-        e.scheduledEnd = addDays(e.scheduledStart, durDays);
+        e.scheduledEnd = addDays(e.scheduledStart, dur);
+        e.late = false;
         cursor = e.scheduledEnd;
       });
     }
 
     // resolução de dependências entre tracks: itera até estabilizar (grafo pequeno)
     for (let pass = 0; pass < placed.length + 2; pass++) {
-      tracks.forEach(track => scheduleSequential(track, throughputPerTrack));
-      if (dedEpic) scheduleSequential([dedEpic], dedThroughput);
+      tracks.forEach(track => scheduleTrack(track, throughputPerTrack));
+      if (dedEpic) scheduleTrack([dedEpic], dedThroughput);
     }
 
     const allScheduled = dedEpic ? placed.concat([dedEpic]) : placed;
-    allScheduled.forEach(e => {
-      e.overHorizon = e.scheduledStart >= horizonEnd;
-      if (e.jiraDue && e.scheduledEnd > startOfDay(e.jiraDue)) e.late = true;
-    });
+    allScheduled.forEach(e => { e.overHorizon = e.scheduledStart >= horizonEnd; });
 
     let maxEnd = horizonEnd;
     allScheduled.forEach(e => { if (e.scheduledEnd > maxEnd) maxEnd = e.scheduledEnd; });
