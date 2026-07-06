@@ -113,7 +113,13 @@ de qualidade/saúde de entrega no cockpit (mesmo manual no início).
 - **Deploy depende do wrangler local autenticado** — sem CI. Ideal: CI no GitHub pós-decisão sobre `main`.
 - ⚠️ **Token Cloudflare `cfut_…`** de ciclos antigos deve estar **revogado** (foi colado em chat).
 - **Engine de capacity**: consolidada em `shared/capacity.js` (drift zerado por goldens), mas planner e
-  report ainda são dois caminhos que a chamam — mantido pelo padrão publish/mirror.
+  report ainda são dois caminhos que a chamam — mantido pelo padrão publish/mirror. A engine usa o
+  modelo de esteira (âncoras start/due reais + fluxo dos flutuantes) desde 2026-07-06.
+- **Staleness do publish/mirror**: o report/cockpit espelham o **último cronograma publicado** no D1.
+  Mudou a engine ou as datas no JIRA? O report só reflete depois que o **planner do projeto é reaberto**
+  (ele republica no load). Não há republish automático server-side — se incomodar, opções: (a) cron que
+  recomputa e republica, (b) report cair pro `localPlan` (engine ao vivo) quando o publish estiver mais
+  velho que N horas.
 
 ---
 

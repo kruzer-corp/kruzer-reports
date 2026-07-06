@@ -57,6 +57,12 @@ Cada cliente tem duas visões espelhadas pela **engine de capacity**:
   track dedicada (ex. 99Food no VENA), cenários what-if. **Publica** o cronograma no D1; o Status
   Report **espelha** (sem recalcular → visão unificada planner↔report).
 
+**Modelo de esteira** (engine em `shared/capacity.js`): datas reais do JIRA são **âncoras fixas** —
+épico com start+due ocupa a janela real [start, due]; só due → pull do prazo; só start → começa no
+start (barra até hoje se ainda aberto). Épicos sem data são **flutuantes** e preenchem a capacidade
+livre fluindo ao redor das âncoras (não empilham cegamente a partir de hoje). ⚠️ O report espelha o
+**último cronograma publicado** — abrir o planner do projeto republica com o estado atual.
+
 O VENA também tem `/vena/` (dev): throughput, blocked, aging.
 
 ### Service Desk KRZR
