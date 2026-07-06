@@ -1,208 +1,223 @@
 # Kruzer Dashboards
 
-Dashboards standalone (KRZR Service Desk, VENA Dev, FST FastShop Demands) que rodam em qualquer navegador, com dados ao vivo do JIRA da Kruzer.
+Painel de **controle de operação** da Kruzer, com dados ao vivo do JIRA. Começou como
+visualizadores standalone (Service Desk, dev) e evoluiu para uma ferramenta de gestão que
+**lê, cruza, sinaliza e escreve** no JIRA — com estado compartilhado entre a equipe.
 
-Arquitetura simples:
+A tese que guia o produto (ver `docs/HANDOFF.md`): sair de "mostrar como está" para
+**controle real** — fonte única de verdade, sinal acionável, e loop fechado (do sinal à
+ação à verificação, com rastro).
 
 ```
-Browser → Cloudflare Worker (Basic Auth + proxy) → Atlassian Cloud API
-         └ serve HTML/JS estáticos do diretório public/
+Browser ─▶ Cloudflare Worker (Basic Auth + proxy/escrita JIRA)  ─▶ Atlassian Cloud API
+                 ├─ serve os assets estáticos de public/
+                 ├─ D1 (STATE_DB) ......... estado vivo compartilhado + audit trail
+                 ├─ KV (OAUTH_KV) ......... store do OAuth do servidor MCP
+                 └─ /mcp .................. servidor MCP read-only (Bearer + OAuth)
 ```
 
-Um único worker faz duas coisas: (1) serve os arquivos estáticos do `public/`, (2) proxia chamadas `/api/jira/jql` pra Atlassian com credenciais guardadas como secrets do Worker. O frontend nunca toca em API token.
+Stack: **Cloudflare Worker** + **D1** (SQLite) + **KV**, assets estáticos em `public/`.
+Sem framework nem build step — HTML/CSS/JS puro, Chart.js/GridJS via CDN. O frontend nunca
+toca no API token do JIRA (fica em secret do Worker).
+
+---
+
+## Funcionalidades
+
+### Painel executivo — `/ops/` (Cockpit)
+Saúde da operação em uma tela, 100% derivado de JQL ao vivo (sem persistência). Persona C-level.
+- **Semáforo por projeto-cliente** (FST · VENA · DCT · PGM): verde/amarelo/vermelho derivado de
+  atraso, bloqueio prolongado, WIP excessivo e falta de estimativa/due. No vermelho, aponta a
+  **decisão executiva** a tomar.
+- **Top riscos** priorizados por severidade, com a taxonomia: `ATRASO`, `ATRASO PROJETADO`
+  (projeção da esteira estoura o due), `BLOQUEIO`, `WIP`, `SEM ESTIMATIVA`, `SEM DUE`, `SUSTAIN`.
+- **Marcos próximos** (mini-gantt 4 semanas) — épicos com due na janela, por cliente.
+- **Banda Service Desk KRZR** — KPIs próprios de sustentação (fila, fora de SLA, aging), separada
+  do semáforo de projetos.
+- Referências do JIRA são **clicáveis** em todo o painel (marcos, riscos) → abrem a issue.
+
+### Timeline cross-projeto — `/timeline/`
+Gantt de épicos por recurso, cruzando FST · VENA · DCT · PGM. Datas reais (Start/Due); a esteira
+de capacity só projeta o que não tem data. Filtro por recurso, indicador de "sem due", labels de
+key clicáveis.
+
+### Por cliente — Status Report + Capacity Planner
+Cada cliente tem duas visões espelhadas pela **engine de capacity**:
+
+| Cliente | Status Report | Capacity Planner | Unidade |
+|---|---|---|---|
+| Venâncio | `/vena/roadmap` | `/vena/capacity` | Story Points |
+| FastShop | `/fst/` | `/fst/capacity` | Horas |
+| Pague Menos | `/pgm/` | `/pgm/capacity` | Horas |
+| Decathlon | — (só no cockpit/timeline) | — | — |
+
+- **Status Report**: timeline por capacity + tabela editável (remark → comentário no JIRA; Due
+  Date e Priority gravam direto no épico) + acompanhamentos/to-do + export PDF.
+- **Capacity Planner**: esforço → duração → cronograma por track. Drag-and-drop, resize de esforço,
+  track dedicada (ex. 99Food no VENA), cenários what-if. **Publica** o cronograma no D1; o Status
+  Report **espelha** (sem recalcular → visão unificada planner↔report).
+
+O VENA também tem `/vena/` (dev): throughput, blocked, aging.
+
+### Service Desk KRZR
+- `/krzr/` — v1 em produção: open by status, lead time (dias úteis, exclui bloqueio), aging,
+  opened×resolved, filtro por organização.
+- `/krzr/hml` — v2 (ITIL): matriz SLA por prioridade, banner de alertas, breach na tabela,
+  métricas ITIL (reopen rate, FCR, MTTR, lead p50/p90/p95), export CSV.
+
+### Escrita no JIRA
+Whitelist no Worker (`POST /api/jira/comment`, `POST /api/jira/issue-update` — só `duedate` e
+`priority`). Usado pelos status reports.
+
+### Integrações read-only
+- **`GET /api/krzr/insights`** — saúde agregada do KRZR pra consumo externo (Bearer `INSIGHTS_TOKEN`
+  ou `?token=`).
+- **Servidor MCP em `/mcp`** — expõe os dashboards como tools MCP (JSON-RPC, stateless). Dois
+  caminhos de auth, ambos read-only: Bearer estático (`INSIGHTS_TOKEN`, pra CLI) e OAuth 2.1
+  (pra claude.ai/Desktop, com allowlist `OAUTH_USERS`). Tools: `list_projects`,
+  `get_service_desk_insights`, `get_project_status`, `search_jira`, `get_published_schedule`,
+  `get_operational_risks`.
+
+---
+
+## Módulos compartilhados (`public/shared/`)
+
+| Arquivo | Papel |
+|---|---|
+| `api.js` | `KruzerAPI`: `fetchAll` (leitura paginada) + `addComment`/`updateDueDate`/`updatePriority` (escrita) |
+| `state.js` | Cliente do D1 (`/api/state`) com cache local + fallback localStorage |
+| `capacity.js` | `KruzerCapacity`: engine de scheduling (esforço → cronograma por track). Fonte única |
+| `report.js` | Builder do Status Report (buckets, tabela, swimlane, timeline, wiring) |
+| `planner.js` | Capacity planner FST/PGM (drag-and-drop, resize, cenários) |
+| `components.js` | Primitivos visuais reusáveis (kpiCard, riskRow, e os helpers de link JIRA `jiraKey`/`jiraKeys`/`svgLink`) |
+| `tokens.css` | Paleta e tokens do design system Kruzer |
+| `report.css` / `planner.css` | CSS dos reports e planners |
+
+**Convenção de links JIRA:** onde houver uma key, use `KruzerComponents.jiraKey/jiraKeys` (HTML)
+ou `svgLink` (SVG). Não reinvente o `<a target="_blank">` caso a caso.
+
+---
+
+## Regras de negócio (invariantes)
+
+- **Regra Done**: épico com `statusCategory=done` **não aparece em lugar nenhum** (report, planner,
+  cockpit, MCP). **Exceção**: Hyper Care persiste (é pós-entrega ativo).
+- **Buckets de status** (report): Hyper Care · UAT · Em Execução · Ag. Aprovação · Ag. Estimativa ·
+  Backlog. Resolução **nativo-first com carve-out**: (1) labels semânticas `uat`/`hyper-care`,
+  (2) status nativo do JIRA, (3) labels legadas, (4) texto `**Status:**` na descrição, (5) backlog.
+  Há duas variantes (`fst` e `vena`) — unificação pendente (ver handoff).
+- **Prioridade**: Highest→P0, High→P1, Medium→P2, resto→P3.
+- **Committed** (travado fora do what-if): tem start date real ou está "Em Execução".
+- **Estouro de due** (timeline/risco): `scheduledEnd` **estritamente após** o due — alcançar o due
+  não conta como atraso.
+- **SLA KRZR** (thresholds fixos): Highest aberto >1d, High aberto >3d.
+- **Riscos do cockpit** (thresholds, `HANDOFF_OPS_CONTROL` fixado em 2026-06-25): atraso crítico >7d;
+  bloqueio ≥5d (crítico ≥10d); WIP ≥3 épicos in-progress (crítico 4+).
+
+---
+
+## Persistência (D1 — Camada 1)
+
+Estado vivo compartilhado (remarks, followups, cenários de capacity, schedule publicado) mora no
+**D1**, substituindo o localStorage por-navegador. Fallback local para resiliência.
+
+- `GET/PUT/DELETE /api/state/<scope>/<key>` — chave-valor por escopo, com optimistic concurrency
+  (`version`).
+- `GET /api/audit?scope=<scope>&limit=N` — audit trail de cada escrita (`state` + `audit_log`).
+- Schema em `migrations/0001_init.sql`. D1 prod: `kruzer-state` · HML: `kruzer-state-hml` (isolados).
+
+---
+
+## Ambientes
+
+| Ambiente | URL | D1 | KV |
+|---|---|---|---|
+| **PROD** | https://kruzer-dashboards.matheus-mereb.workers.dev | `kruzer-state` | prod |
+| **HML** | https://kruzer-dashboards-hml.matheus-mereb.workers.dev | `kruzer-state-hml` | hml |
+
+Assets em `public/` são compartilhados; a diferença é só backend (D1/KV/secrets por env). Basic
+Auth em todas as páginas (`DASHBOARD_USER`/`DASHBOARD_PASSWORD`, secrets por env — HML usa senha
+diferente da prod, de propósito).
+
+---
 
 ## Setup (uma vez)
 
-### 1. Pré-requisitos
-
 ```bash
-# Node 18+ e npm
-node -v
-npm -v
-```
-
-Conta Cloudflare (free tier serve): https://dash.cloudflare.com/sign-up
-
-### 2. Instalar deps
-
-```bash
+node -v && npm -v          # Node 18+
 npm install
 ```
 
-### 3. Pegar API token do Atlassian
+1. **API token do Atlassian** — https://id.atlassian.com/manage-profile/security/api-tokens
+   (email: `matheus.mereb@kruzer.ai` · cloud ID: `dd987a38-5d13-4230-ab43-7141dc3695e1` ·
+   `https://kruzer.atlassian.net`).
+2. **Vars locais** — copie `.dev.vars.example` → `.dev.vars` e preencha `JIRA_EMAIL`,
+   `JIRA_API_TOKEN`, `JIRA_CLOUD_ID`, `DASHBOARD_USER`, `DASHBOARD_PASSWORD`.
+   `.dev.vars` está no `.gitignore` — **nunca commite credenciais**.
+3. **Login Cloudflare** — `npx wrangler login`.
+4. **Secrets em prod/HML** — para cada var acima (e `INSIGHTS_TOKEN`, `OAUTH_USERS` se usar
+   integração): `npx wrangler secret put <NOME>` (prod) e `... --env hml` (HML).
 
-1. Vá em https://id.atlassian.com/manage-profile/security/api-tokens
-2. **Create API token** → nome: `kruzer-dashboards` → copie o token (não dá pra ver de novo depois)
-3. Anote junto: email da conta (`matheus.mereb@kruzer.ai`), cloud ID (`dd987a38-5d13-4230-ab43-7141dc3695e1`)
-
-### 4. Configurar variáveis locais (pra rodar `wrangler dev`)
-
-Copie `.dev.vars.example` → `.dev.vars` e preencha:
-
-```
-JIRA_EMAIL=matheus.mereb@kruzer.ai
-JIRA_API_TOKEN=<token-do-passo-3>
-JIRA_CLOUD_ID=dd987a38-5d13-4230-ab43-7141dc3695e1
-DASHBOARD_USER=kruzer
-DASHBOARD_PASSWORD=<senha-forte>
-```
-
-> ⚠️ `.dev.vars` está no `.gitignore`. Nunca commite credenciais.
-
-### 5. Login no Cloudflare
-
-```bash
-npx wrangler login
-```
-
-Vai abrir o browser pra autorizar.
-
-### 6. Setar secrets em produção
-
-Os mesmos valores do `.dev.vars`, mas como secrets do Worker:
-
-```bash
-npx wrangler secret put JIRA_EMAIL
-npx wrangler secret put JIRA_API_TOKEN
-npx wrangler secret put JIRA_CLOUD_ID
-npx wrangler secret put DASHBOARD_USER
-npx wrangler secret put DASHBOARD_PASSWORD
-```
-
-Cada comando vai pedir o valor interativamente.
+---
 
 ## Rodar localmente
 
 ```bash
-npm run dev
-```
+# D1 local (uma vez) — cria as tabelas no SQLite efêmero de .wrangler/
+npx wrangler d1 execute kruzer-state --local --file=migrations/0001_init.sql
 
-Abre em `http://localhost:8787`. Vai pedir Basic Auth — usa `DASHBOARD_USER`/`DASHBOARD_PASSWORD` do `.dev.vars`.
+npm run dev        # http://localhost:8787 — pede Basic Auth (creds do .dev.vars)
+```
 
 ## Deploy
 
 ```bash
-npm run deploy
+npm run deploy:hml     # HML  (wrangler deploy --env hml)
+npm run deploy         # PROD (wrangler deploy)
 ```
 
-URL final tipo `https://kruzer-dashboards.<sua-conta>.workers.dev`. Você pode plugar custom domain depois (ex: `dashboards.kruzer.ai`).
+Fluxo recomendado: deploy em HML → validar → deploy em PROD. Verificação rápida pós-deploy:
+`curl` sem auth deve dar `401` (worker no ar) e `curl -u user:pass .../shared/components.js` deve
+servir o asset novo. Migrations de D1 novas rodam com
+`npx wrangler d1 execute <db> [--env hml] --file=migrations/000N_*.sql --remote`.
 
-## Como compartilhar com cliente
+## Testes / redes de segurança
 
-1. Mande a URL + usuário + senha (canal seguro — 1Password, Bitwarden, ou Slack/email criptografado).
-2. Cliente abre, navega pelos dashboards.
-3. Quando quiser revogar acesso: `npx wrangler secret put DASHBOARD_PASSWORD` com nova senha.
-
-Se quiser controle por cliente (cada cliente uma senha), dá pra estender o worker pra ler de um KV namespace — não está implementado nessa primeira versão.
-
-## Estrutura
-
-```
-.
-├── README.md                   # esse arquivo
-├── package.json
-├── package-lock.json
-├── wrangler.toml               # config Cloudflare Worker (+ html_handling)
-├── .dev.vars.example           # template das vars locais
-├── .gitignore
-├── src/
-│   └── worker.js               # backend: Basic Auth + proxy JIRA + serve static
-├── public/                     # tudo que é servido pelo Worker
-│   ├── index.html              # landing — picker dos dashboards
-│   ├── shared/
-│   │   └── api.js              # cliente JIRA paginated (KruzerAPI), usado por todos
-│   ├── krzr/                   # KRZR Service Desk
-│   │   ├── index.html          # produção
-│   │   └── hml.html            # v2 ITIL (homologação)
-│   ├── vena/                   # VENA — Venancio
-│   │   ├── index.html          # dev dashboard
-│   │   └── roadmap.html        # Gantt de épicos + capacity
-│   └── fst/                    # FST — FastShop Demands
-│       └── index.html
-├── docs/                       # handoffs, fixes, snapshots de validação
-│   ├── HANDOFF_INITIAL.md
-│   ├── HANDOFF_KRZR_PROD.md
-│   ├── HANDOFF_KRZR_HML.md
-│   ├── HANDOFF_VENA_ROADMAP_V2.md
-│   ├── FIXES_KRZR.md
-│   └── snapshots/              # HTML congelados de sprints anteriores (revert/debug)
-└── scripts/                    # ferramentas operacionais
-    ├── deploy.sh               # wrapper de deploy (one-shot com secrets)
-    ├── verify-dashboards.js    # smoke test via puppeteer pós-deploy
-    └── dev/                    # scripts puppeteer one-off (debug histórico)
+```bash
+npm run test:capacity          # 18 cenários golden da engine de scheduling
+npm run test:capacity:update   # regrava goldens após mudança intencional (revisar diff no PR)
+node scripts/render-snapshot.js --baseline   # snapshot visual/funcional (requer wrangler dev vivo)
 ```
 
-### URLs servidas pelo Worker
+Rode `test:capacity` antes/depois de mexer em lógica de scheduling ou buckets de status.
 
-| Rota                 | Arquivo                       |
-| -------------------- | ----------------------------- |
-| `/`                  | `public/index.html`           |
-| `/krzr/`             | `public/krzr/index.html`      |
-| `/krzr/hml`          | `public/krzr/hml.html`        |
-| `/vena/`             | `public/vena/index.html`      |
-| `/vena/roadmap`      | `public/vena/roadmap.html`    |
-| `/fst/`              | `public/fst/index.html`       |
-| `/shared/api.js`     | helper cliente JIRA           |
-| `POST /api/jira/jql` | proxy autenticado pra JIRA    |
+---
 
-URLs sem `.html` funcionam porque `wrangler.toml` tem `html_handling = "auto-trailing-slash"`.
+## Como adicionar um dashboard
 
-## Como adicionar um dashboard novo
+**Mesmo cliente**: crie `public/<cliente>/<nome>.html`, mantenha `<script src="/shared/api.js">`,
+adicione o link no `public/index.html`, deploy.
 
-**Mesmo projeto** (ex: novo dashboard do VENA):
-1. Crie `public/vena/<nome>.html` (use um dos existentes como template).
-2. Mantenha o `<script src="/shared/api.js"></script>` no topo.
-3. Adicione um link no `public/index.html` apontando pra `/vena/<nome>`.
-4. `npm run deploy`.
+**Cliente novo**: replique o par report+capacity (use VENA/FST/PGM como template), plugue os
+módulos `shared/`, adicione ao escopo do cockpit (`EPIC_PROJECTS` em `public/ops/index.html`) e o
+card no `public/index.html`.
 
-**Projeto novo** (ex: dashboards de um cliente XYZ):
-1. Crie `public/xyz/index.html` (e mais arquivos `.html` se quiser).
-2. Adicione o card no `public/index.html` apontando pra `/xyz/`.
-3. `npm run deploy`.
-
-Todos os dashboards consomem o mesmo endpoint `/api/jira/jql` — sem mexer no worker.
-
-## Endpoint do proxy
-
-```
-POST /api/jira/jql
-Content-Type: application/json
-Authorization: Basic <base64(user:pass)>
-
-{
-  "jql": "project = KRZR ORDER BY created DESC",
-  "fields": ["summary","status","created","resolutiondate"],
-  "maxResults": 100,
-  "nextPageToken": null
-}
-```
-
-Retorna o body raw da Atlassian Cloud REST API v3 (`/rest/api/3/search/jql`):
-
-```json
-{
-  "issues": [ ... ],
-  "nextPageToken": "...",
-  "isLast": false
-}
-```
+---
 
 ## Troubleshooting
 
-**Tela de auth pede de novo toda hora** — Basic Auth no Chrome às vezes não persiste. Use Edge/Firefox ou logue uma vez no devtools.
+- **Auth pede toda hora** — Basic Auth no Chrome às vezes não persiste; use Edge/Firefox ou logue
+  uma vez no devtools.
+- **401 na chamada JIRA** — token expirou: regenere e `npx wrangler secret put JIRA_API_TOKEN`.
+- **`/ops/` fica carregando** — JQL falhou ou token expirou; cheque a aba Network (401).
+- **Remarks somem no reload (local)** — a migration do D1 não rodou; re-execute o init local.
+- **429** — rate limit da Atlassian; o proxy tem cache de 15min. Reduza a janela JQL.
+- **Performance** — KRZR tem ~2.6k tickets; primeira carga demora ~10–20s (batches de 100).
 
-**`401 Unauthorized` na chamada JIRA** — API token expirou ou está errado. Regenere e re-rode `npx wrangler secret put JIRA_API_TOKEN`.
+---
 
-**`429 Too Many Requests`** — Atlassian rate limit. O worker hoje não tem cache; pra alto tráfego, ative cache via Cloudflare Cache API ou KV (não implementado).
+## Roadmap & pendências
 
-**CORS** — não tem. Frontend e backend estão na mesma origem (o próprio Worker). Se você partir o frontend pra outro domínio, vai precisar adicionar CORS no worker.
-
-**Performance lenta com muitos tickets** — KRZR tem ~2.8k issues e os dashboards puxam em batches de 100. Refresh demora ~10–20s. Otimizar: limitar a janela JQL (já fazemos com `created >= -120d`).
-
-## Próximos passos sugeridos
-
-- [ ] Custom domain (ex: `dashboards.kruzer.ai`)
-- [ ] Cache no Worker pra refresh < 1s (TTL configurável)
-- [ ] Multi-tenant: senha por cliente via KV
-- [ ] Webhooks de JIRA pra atualização push em vez de pull
-- [ ] Métricas Cloudflare Analytics pra ver quantos clientes acessam
+Tudo o que falta, decisões abertas e dívidas técnicas está consolidado em
+**[`docs/HANDOFF.md`](docs/HANDOFF.md)**. Snapshots congelados de sprints do KRZR v2 ficam em
+`docs/snapshots/` (referência de revert/debug).
