@@ -123,6 +123,9 @@ button:disabled { opacity: 0.6; cursor: wait; }
 /* Banda 3 — Marcos próximos (mini-gantt 4 semanas) */
 .miles-wrap { overflow-x: auto; border: 1px solid var(--kruzer-neutral-300); border-radius: 8px; }
 .miles-svg { display: block; }
+.miles-svg a { cursor: pointer; }
+.miles-svg a:hover rect[fill^="#"] { opacity: 0.45; }
+.miles-svg a:hover text { text-decoration: underline; }
 .miles-empty { padding: 24px; text-align: center; color: var(--kruzer-neutral-700); font-size: 13px; }
 
 /* Banda 4 — Drill */
@@ -209,6 +212,7 @@ a { color: var(--kruzer-primary); }
 </div>
 
 <script src="/shared/api.js"></script>
+<script src="/shared/components.js"></script>
 <script>
 // ─── Configuração ────────────────────────────────────────────────────────────
 const JIRA_BASE = 'https://kruzer.atlassian.net';
@@ -399,6 +403,7 @@ function assessRisks(epics, tickets, schedIdx){
       type: 'SEM ESTIMATIVA', severity: 'info',
       project: 'VENA', key: '', url: null, name: `${noEstVena.length} épico(s) em andamento sem SP`,
       metric: noEstVena.slice(0,3).map(e => e.key).join(', ') + (noEstVena.length > 3 ? '…' : ''),
+      metricRefs: noEstVena.map(e => ({ key: e.key, url: e.url })),
       sortKey: noEstVena.length,
     });
   }
@@ -408,6 +413,7 @@ function assessRisks(epics, tickets, schedIdx){
       type: 'SEM ESTIMATIVA', severity: 'info',
       project: 'FST', key: '', url: null, name: `${noEstFst.length} épico(s) em andamento sem horas`,
       metric: noEstFst.slice(0,3).map(e => e.key).join(', ') + (noEstFst.length > 3 ? '…' : ''),
+      metricRefs: noEstFst.map(e => ({ key: e.key, url: e.url })),
       sortKey: noEstFst.length,
     });
   }
@@ -421,6 +427,7 @@ function assessRisks(epics, tickets, schedIdx){
       type: 'SEM DUE', severity: 'info',
       project: p, key: '', url: null, name: `${noDue.length} épico(s) em andamento sem due`,
       metric: noDue.slice(0,3).map(e => e.key).join(', ') + (noDue.length > 3 ? '…' : ''),
+      metricRefs: noDue.map(e => ({ key: e.key, url: e.url })),
       sortKey: noDue.length,
     });
   });
@@ -541,6 +548,11 @@ function renderRisks(risks){
     const titleHtml = r.url
       ? `<a href="${r.url}" ${r.url.startsWith('http') ? 'target="_blank"' : ''}>${r.key ? `<strong>${r.key}</strong> · ` : ''}${escapeHtml(r.name)}</a>`
       : `${r.key ? `<strong>${escapeHtml(r.key)}</strong> · ` : ''}${escapeHtml(r.name)}`;
+    // Métrica: se traz refs de keys (SEM ESTIMATIVA/SEM DUE), linka cada uma;
+    // senão é texto simples (ex.: "12d estourado").
+    const metricHtml = (r.metricRefs && r.metricRefs.length)
+      ? KruzerComponents.jiraKeys(r.metricRefs)
+      : escapeHtml(r.metric);
     return `
       <div class="risk-row ${r.severity}">
         <div class="chip">${r.type}</div>
@@ -549,7 +561,7 @@ function renderRisks(risks){
           <div class="title">${titleHtml}</div>
           <div class="meta">${escapeHtml(PROJ_LABEL[r.project] || '')}${r.severity === 'crit' && DECISION[r.type] ? ` · <span class="decide">decisão: ${escapeHtml(DECISION[r.type])}</span>` : ''}</div>
         </div>
-        <div class="metric">${escapeHtml(r.metric)}</div>
+        <div class="metric">${metricHtml}</div>
       </div>
     `;
   }).join('');
@@ -605,19 +617,24 @@ function renderMilestones(epics){
       const projColor = PROJ_COLOR[p];
       // marca = diamante centrado em x, com nome à esquerda e key
       const cy = y + ROW/2;
-      // label esquerda
-      body += `<text x="12" y="${cy + 4}" font-size="11" font-weight="600" fill="#1D317C">${e.key}</text>`;
-      const nm = e.name.length > 22 ? e.name.slice(0,21)+'…' : e.name;
-      body += `<text x="74" y="${cy + 4}" font-size="11" fill="#232534">${escapeHtml(nm)}</text>`;
-      // barra fina hoje→due (visual de "quanto falta")
-      const x0 = LEFT;
       const barColor = isLate ? '#F04438' : projColor;
-      body += `<rect x="${x0}" y="${cy - 3}" width="${Math.max(2, x - x0).toFixed(1)}" height="6" rx="3" fill="${barColor}" opacity="0.25"/>`;
+      const nm = e.name.length > 22 ? e.name.slice(0,21)+'…' : e.name;
+      const x0 = LEFT;
+      // Marca inteira (key + nome + barra + diamante + data) num só <a> pro JIRA.
+      let marker = '';
+      // label esquerda
+      marker += `<text x="12" y="${cy + 4}" font-size="11" font-weight="600" fill="#1D317C">${e.key}</text>`;
+      marker += `<text x="74" y="${cy + 4}" font-size="11" fill="#232534">${escapeHtml(nm)}</text>`;
+      // barra fina hoje→due (visual de "quanto falta")
+      marker += `<rect x="${x0}" y="${cy - 3}" width="${Math.max(2, x - x0).toFixed(1)}" height="6" rx="3" fill="${barColor}" opacity="0.25"/>`;
       // marcador diamante na due
-      body += `<polygon points="${x.toFixed(1)},${cy-7} ${(x+7).toFixed(1)},${cy} ${x.toFixed(1)},${cy+7} ${(x-7).toFixed(1)},${cy}" fill="${barColor}" stroke="#fff" stroke-width="1.5"/>`;
+      marker += `<polygon points="${x.toFixed(1)},${cy-7} ${(x+7).toFixed(1)},${cy} ${x.toFixed(1)},${cy+7} ${(x-7).toFixed(1)},${cy}" fill="${barColor}" stroke="#fff" stroke-width="1.5"/>`;
       // data
-      body += `<text x="${(x + 12).toFixed(1)}" y="${cy + 4}" font-size="10" fill="#48507D" font-variant-numeric="tabular-nums">${fmtBR(e.due)}</text>`;
-      // linha separadora
+      marker += `<text x="${(x + 12).toFixed(1)}" y="${cy + 4}" font-size="10" fill="#48507D" font-variant-numeric="tabular-nums">${fmtBR(e.due)}</text>`;
+      // faixa transparente cobrindo a linha toda → alvo de clique confortável
+      marker += `<rect x="0" y="${y}" width="${W}" height="${ROW}" fill="transparent"/>`;
+      body += KruzerComponents.svgLink(e.url, marker);
+      // linha separadora (fora do link)
       body += `<line x1="0" y1="${y+ROW}" x2="${W}" y2="${y+ROW}" stroke="#E3E3ED" stroke-width="0.5"/>`;
       y += ROW;
     });

@@ -585,7 +585,7 @@ function renderGantt(){
       const fill = e.placeholder ? 'url(#hh)' : e.color;
       const stroke = e.late ? '#F04438' : 'none', sw = e.late ? 2 : 0;
       const nm = e.name.length > 30 ? e.name.slice(0,29)+'…' : e.name;
-      body += `<text class="g-key" x="12" y="${y+ROW/2+4}">${e.key}</text>`;
+      body += KruzerComponents.svgLink(e.url, `<text class="g-key" x="12" y="${y+ROW/2+4}">${e.key}</text>`);
       body += `<text class="g-name" x="70" y="${y+ROW/2+4}">${escapeHtml(nm)}</text>`;
       body += `<line class="g-rowsep" x1="0" y1="${y+ROW}" x2="${W}" y2="${y+ROW}"/>`;
       body += `<rect class="gantt-bar" x="${bx.toFixed(1)}" y="${by}" width="${bw.toFixed(1)}" height="18" rx="4" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"`
