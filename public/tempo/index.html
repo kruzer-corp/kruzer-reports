@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tempo — Horas lançadas por recurso × dia</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/shared/tokens.css">
+<link rel="stylesheet" href="/shared/report.css">
+<style>
+  :root { --ts-firstcol: 300px; }
+  .controls input[type=date] {
+    font-family: inherit; font-size: 13px; padding: 7px 10px;
+    border: 1px solid var(--kruzer-neutral-300); border-radius: 6px; color: var(--kruzer-navy);
+  }
+  .controls button.primary {
+    background: var(--kruzer-primary); color: #fff; border: none; border-radius: 6px;
+    padding: 8px 14px; font-weight: 600; font-size: 13px; cursor: pointer;
+  }
+  .controls button.ghost {
+    background: #fff; color: var(--kruzer-navy); border: 1px solid var(--kruzer-neutral-300);
+    border-radius: 6px; padding: 8px 14px; font-weight: 500; font-size: 13px; cursor: pointer;
+  }
+  .controls button:hover { filter: brightness(0.97); }
+  .preset-row { display: flex; gap: 6px; margin-top: 6px; }
+  .preset-row button {
+    background: var(--kruzer-primary-100); color: var(--kruzer-primary-700); border: none;
+    border-radius: 999px; padding: 4px 12px; font-size: 12px; font-weight: 600; cursor: pointer;
+  }
+  .preset-row button:hover { background: #DCE3F7; }
+
+  /* KPIs */
+  .kpis { grid-template-columns: repeat(4, 1fr); }
+  .kpi { background: #fff; border: 1px solid var(--kruzer-neutral-300); border-radius: 8px; padding: 16px 18px; box-shadow: var(--shadow); }
+  .kpi .label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--kruzer-neutral-700); }
+  .kpi .value { font-size: 26px; font-weight: 700; color: var(--kruzer-primary-700); margin-top: 4px; letter-spacing: -0.01em; }
+  .kpi .hint { font-size: 11px; color: var(--kruzer-neutral-700); margin-top: 2px; }
+
+  /* Timesheet grid */
+  .ts-scroll { overflow-x: auto; border: 1px solid var(--kruzer-neutral-300); border-radius: 8px; background: #fff; box-shadow: var(--shadow); }
+  table.ts { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 13px; }
+  table.ts th, table.ts td { padding: 0; border-bottom: 1px solid var(--kruzer-neutral-300); white-space: nowrap; }
+  table.ts thead th {
+    position: sticky; top: 0; z-index: 3; background: #F8F9FC; color: var(--kruzer-navy);
+    font-weight: 600; text-align: center; padding: 8px 6px; border-bottom: 2px solid var(--kruzer-neutral-300);
+  }
+  table.ts thead th .wd { display: block; font-size: 10px; font-weight: 500; color: var(--kruzer-neutral-700); text-transform: uppercase; }
+  table.ts thead th.weekend { background: #EEF0F6; }
+  table.ts thead th.today { background: var(--kruzer-primary-100); color: var(--kruzer-primary-700); }
+  table.ts th.rescol, table.ts td.rescol {
+    position: sticky; left: 0; z-index: 2; background: #fff; text-align: left;
+    width: var(--ts-firstcol); min-width: var(--ts-firstcol); max-width: var(--ts-firstcol);
+    padding: 8px 12px; border-right: 2px solid var(--kruzer-neutral-300); white-space: normal;
+  }
+  table.ts thead th.rescol { z-index: 4; background: #F8F9FC; }
+  table.ts th.totcol, table.ts td.totcol {
+    position: sticky; right: 0; z-index: 2; background: #fff; text-align: right;
+    padding: 8px 12px; border-left: 2px solid var(--kruzer-neutral-300); font-weight: 700; min-width: 74px;
+  }
+  table.ts thead th.totcol { z-index: 4; background: #F8F9FC; }
+  table.ts td.day { text-align: center; padding: 7px 6px; color: var(--kruzer-navy); min-width: 46px; }
+  table.ts td.day.weekend { background: #FAFAFC; }
+  table.ts td.day.empty { color: var(--kruzer-neutral-500); }
+  table.ts td.day.today { background: #F3F6FE; }
+
+  /* Person row */
+  tr.person > td { background: #fff; }
+  tr.person:hover > td, tr.person:hover > td.rescol, tr.person:hover > td.totcol { background: #F8F9FC; }
+  tr.person.open > td, tr.person.open > td.rescol, tr.person.open > td.totcol { background: #F4F6FC; }
+  .res { display: flex; align-items: center; gap: 10px; }
+  .res .caret { width: 14px; flex: none; color: var(--kruzer-neutral-700); font-size: 11px; transition: transform .12s; }
+  tr.person.open .caret { transform: rotate(90deg); }
+  tr.person.noexp .caret { visibility: hidden; }
+  .avatar { width: 26px; height: 26px; border-radius: 50%; flex: none; object-fit: cover; background: var(--kruzer-primary-100); }
+  .avatar.ph { display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: var(--kruzer-primary-700); }
+  .res .nm { font-weight: 600; line-height: 1.15; }
+  .res .mt { font-size: 11px; color: var(--kruzer-neutral-700); font-weight: 500; }
+  tr.person.zero .nm { font-weight: 500; color: var(--kruzer-neutral-700); }
+  tr.person.zero .avatar { opacity: .5; }
+  tr.person.zero { display: none; }
+  body.show-zero tr.person.zero { display: table-row; }
+  tr.person.zero td.totcol { color: var(--kruzer-neutral-500); font-weight: 500; }
+
+  /* Task (child) rows */
+  tr.task { font-size: 12px; }
+  tr.task > td { background: #FBFBFD; padding-top: 5px; padding-bottom: 5px; border-bottom: 1px solid #EEF0F6; }
+  tr.task td.rescol { padding-left: 34px; background: #FBFBFD; }
+  tr.task .tk { display: flex; align-items: baseline; gap: 8px; }
+  tr.task .tk a { color: var(--kruzer-primary); text-decoration: none; font-weight: 600; font-variant-numeric: tabular-nums; }
+  tr.task .tk a:hover { text-decoration: underline; }
+  tr.task .tk .sm { color: var(--kruzer-navy-300); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; }
+  tr.task .badge-type { font-size: 9px; font-weight: 700; text-transform: uppercase; padding: 1px 6px; border-radius: 4px; background: var(--kruzer-primary-100); color: var(--kruzer-primary-700); flex: none; }
+  tr.task td.totcol { background: #FBFBFD; font-weight: 600; }
+  tr.task td.day { color: var(--kruzer-navy-300); }
+  tr.hidden { display: none; }
+
+  /* footer totals */
+  tr.totals td { position: sticky; bottom: 0; z-index: 2; background: #EEF0F6; font-weight: 700; border-top: 2px solid var(--kruzer-neutral-300); padding: 9px 6px; text-align: center; }
+  tr.totals td.rescol { z-index: 3; text-align: left; background: #EEF0F6; }
+  tr.totals td.totcol { z-index: 3; text-align: right; background: var(--kruzer-primary-700); color: #fff; }
+  tr.totals td.day.weekend { background: #E7E9F1; }
+
+  .zero-toggle { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--kruzer-navy-300); cursor: pointer; user-select: none; }
+  .zero-toggle input { cursor: pointer; }
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 11px; color: var(--kruzer-neutral-700); margin-top: 10px; }
+  .legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .sw { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+</style>
+</head>
+<body>
+<div class="container">
+  <a href="/" class="back">← Todos os dashboards</a>
+  <div class="header">
+    <div>
+      <h1>Tempo — Horas por recurso × dia</h1>
+      <div class="sub">Réplica da view de Tempo do JIRA: horas lançadas por recurso, em cascata para as tasks, distribuídas pelos dias do período. Controle interno.</div>
+      <div class="meta">
+        <span><strong>Escopo:</strong> <span id="metaScope">FST · VENA · DCT · PGM · KRZR</span></span>
+        <span><strong>Total no período:</strong> <span id="metaTotal">—</span></span>
+        <span><strong>Atualizado:</strong> <span id="metaUpdated">—</span></span>
+        <span><strong>Fonte:</strong> JIRA worklog (nativo)</span>
+      </div>
+    </div>
+    <div class="controls">
+      <div class="control"><label>De</label><input type="date" id="from"></div>
+      <div class="control"><label>Até</label><input type="date" id="to"></div>
+      <div class="control"><label>&nbsp;</label><button class="primary" id="apply">Aplicar</button></div>
+    </div>
+  </div>
+  <div class="preset-row">
+    <button data-preset="thisMonth">Este mês</button>
+    <button data-preset="lastMonth">Mês passado</button>
+    <button data-preset="last7">Últimos 7 dias</button>
+    <button data-preset="last30">Últimos 30 dias</button>
+  </div>
+
+  <div id="errorBox"></div>
+  <div id="loadingBox" class="loading"><span class="spinner"></span>Carregando lançamentos de tempo…</div>
+
+  <div id="content" style="display:none">
+    <div class="kpis" id="kpis"></div>
+
+    <section class="section">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap;">
+        <div>
+          <h2>Timesheet</h2>
+          <div class="sub">Clique num recurso para abrir as tasks. Colunas = dias do período (agrupadas por semana em janelas longas).</div>
+        </div>
+        <label class="zero-toggle"><input type="checkbox" id="showZero" checked> Mostrar quem não lançou no período</label>
+      </div>
+      <div class="ts-scroll">
+        <table class="ts" id="tsTable"></table>
+      </div>
+      <div class="legend">
+        <span><span class="sw" style="background:#EEF0F6"></span> fim de semana</span>
+        <span><span class="sw" style="background:var(--kruzer-primary-100)"></span> hoje</span>
+        <span>Valores em horas (ex.: <strong>6h30</strong> = 6h e 30min)</span>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script src="/shared/api.js"></script>
+<script>
+(function () {
+  const WD = ['dom','seg','ter','qua','qui','sex','sáb'];
+  const MO = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+  const $ = s => document.querySelector(s);
+  const el = (t, c, h) => { const e = document.createElement(t); if (c) e.className = c; if (h != null) e.innerHTML = h; return e; };
+
+  // ---- date helpers (UTC-safe: só manipulamos a parte de data) ----
+  const iso = d => d.toISOString().slice(0, 10);
+  const parseUTC = s => new Date(s + 'T00:00:00.000Z');
+  const addDays = (s, n) => { const d = parseUTC(s); d.setUTCDate(d.getUTCDate() + n); return iso(d); };
+  const dow = s => parseUTC(s).getUTCDay();           // 0=dom
+  const ddmm = s => { const d = parseUTC(s); return String(d.getUTCDate()).padStart(2,'0') + '/' + String(d.getUTCMonth()+1).padStart(2,'0'); };
+
+  // ---- hours formatting ----
+  function fmt(secs) {
+    if (!secs) return '';
+    const h = Math.floor(secs / 3600);
+    const m = Math.round((secs % 3600) / 60);
+    if (h && m) return h + 'h' + String(m).padStart(2, '0');
+    if (h) return h + 'h';
+    return m + 'm';
+  }
+  function fmtBig(secs) {
+    const h = secs / 3600;
+    return (Number.isInteger(h) ? h : h.toFixed(1)) + 'h';
+  }
+
+  // ---- build columns (day or week buckets) ----
+  function buildColumns(days) {
+    const todayIso = iso(new Date());
+    if (days.length <= 45) {
+      return days.map(d => ({
+        days: [d], label: String(parseUTC(d).getUTCDate()).padStart(2, '0'),
+        sub: WD[dow(d)], weekend: dow(d) === 0 || dow(d) === 6, today: d === todayIso,
+      }));
+    }
+    // weekly (Mon–Sun)
+    const cols = []; let cur = null;
+    for (const d of days) {
+      const wd = dow(d); // 0=dom..6=sáb; semana começa seg
+      const startNew = !cur || wd === 1;
+      if (startNew) { cur = { days: [], weekend: false, today: false }; cols.push(cur); }
+      cur.days.push(d);
+      if (d === todayIso) cur.today = true;
+    }
+    cols.forEach(c => {
+      const a = c.days[0], b = c.days[c.days.length - 1];
+      c.label = ddmm(a); c.sub = '→ ' + ddmm(b);
+    });
+    return cols;
+  }
+
+  function initials(name) {
+    const p = name.trim().split(/\s+/);
+    return ((p[0]||'')[0] || '') + ((p.length>1 ? p[p.length-1] : '')[0] || '');
+  }
+  function avatar(p) {
+    if (p.avatarUrl) { const i = el('img', 'avatar'); i.src = p.avatarUrl; i.alt = ''; i.loading='lazy'; return i; }
+    return el('div', 'avatar ph', initials(p.displayName).toUpperCase());
+  }
+
+  // ---- render ----
+  function render(data) {
+    const cols = buildColumns(data.days);
+    // dayKey -> column index
+    const colOf = {}; cols.forEach((c, i) => c.days.forEach(d => colOf[d] = i));
+    const sumCols = byDay => {
+      const arr = new Array(cols.length).fill(0);
+      for (const d in byDay) { const ci = colOf[d]; if (ci != null) arr[ci] += byDay[d]; }
+      return arr;
+    };
+
+    const table = $('#tsTable');
+    table.innerHTML = '';
+
+    // head
+    const thead = el('thead'); const htr = el('tr');
+    htr.appendChild(el('th', 'rescol', 'Recurso / Task'));
+    cols.forEach(c => {
+      const cls = 'day' + (c.weekend ? ' weekend' : '') + (c.today ? ' today' : '');
+      htr.appendChild(el('th', cls, `${c.label}<span class="wd">${c.sub}</span>`));
+    });
+    htr.appendChild(el('th', 'totcol', 'Total'));
+    thead.appendChild(htr); table.appendChild(thead);
+
+    const tbody = el('tbody');
+    const colTotals = new Array(cols.length).fill(0);
+    let grand = 0;
+
+    data.people.forEach((p, idx) => {
+      const zero = !p.hasWorklog;
+      const pCols = sumCols(p.byDay);
+      pCols.forEach((v, i) => colTotals[i] += v);
+      grand += p.totalSeconds;
+
+      const ptr = el('tr', 'person' + (zero ? ' zero noexp' : (p.issues.length ? '' : ' noexp')));
+      ptr.dataset.row = idx;
+      // res cell
+      const rc = el('td', 'rescol');
+      const res = el('div', 'res');
+      res.appendChild(el('span', 'caret', '▶'));
+      res.appendChild(avatar(p));
+      const box = el('div');
+      box.appendChild(el('div', 'nm', p.displayName));
+      box.appendChild(el('div', 'mt', zero ? 'sem lançamento no período' : `${p.issues.length} task${p.issues.length>1?'s':''}`));
+      res.appendChild(box);
+      rc.appendChild(res);
+      ptr.appendChild(rc);
+      // day cells
+      pCols.forEach((v, i) => {
+        const c = cols[i];
+        const cls = 'day' + (c.weekend ? ' weekend' : '') + (c.today ? ' today' : '') + (v ? '' : ' empty');
+        ptr.appendChild(el('td', cls, v ? '<strong>'+fmt(v)+'</strong>' : '·'));
+      });
+      ptr.appendChild(el('td', 'totcol', zero ? '—' : fmtBig(p.totalSeconds)));
+      tbody.appendChild(ptr);
+
+      // task rows
+      p.issues.forEach(iss => {
+        const tCols = sumCols(iss.byDay);
+        const ttr = el('tr', 'task hidden'); ttr.dataset.parent = idx;
+        const tc = el('td', 'rescol');
+        const tk = el('div', 'tk');
+        tk.appendChild(el('span', 'badge-type', iss.issuetype));
+        const a = el('a'); a.href = `https://kruzer.atlassian.net/browse/${iss.key}`; a.target = '_blank'; a.rel='noopener'; a.textContent = iss.key;
+        tk.appendChild(a);
+        tk.appendChild(el('span', 'sm', iss.summary));
+        tc.appendChild(tk); ttr.appendChild(tc);
+        tCols.forEach((v, i) => {
+          const c = cols[i];
+          const cls = 'day' + (c.weekend ? ' weekend' : '') + (c.today ? ' today' : '') + (v ? '' : ' empty');
+          ttr.appendChild(el('td', cls, v ? fmt(v) : '·'));
+        });
+        ttr.appendChild(el('td', 'totcol', fmtBig(iss.totalSeconds)));
+        tbody.appendChild(ttr);
+      });
+    });
+    table.appendChild(tbody);
+
+    // footer totals
+    const tfoot = el('tfoot'); const ftr = el('tr', 'totals');
+    ftr.appendChild(el('td', 'rescol', 'Total por dia'));
+    colTotals.forEach((v, i) => {
+      const c = cols[i];
+      ftr.appendChild(el('td', 'day' + (c.weekend ? ' weekend' : ''), v ? fmt(v) : '·'));
+    });
+    ftr.appendChild(el('td', 'totcol', fmtBig(grand)));
+    tfoot.appendChild(ftr); table.appendChild(tfoot);
+
+    // expand/collapse
+    tbody.addEventListener('click', e => {
+      const row = e.target.closest('tr.person');
+      if (!row || row.classList.contains('noexp')) return;
+      row.classList.toggle('open');
+      const open = row.classList.contains('open');
+      tbody.querySelectorAll(`tr.task[data-parent="${row.dataset.row}"]`)
+        .forEach(t => t.classList.toggle('hidden', !open));
+    });
+
+    // KPIs
+    const active = data.people.filter(p => p.hasWorklog);
+    const taskCount = new Set();
+    active.forEach(p => p.issues.forEach(i => taskCount.add(i.key)));
+    const kpis = [
+      { label: 'Total lançado', value: fmtBig(grand), hint: `${data.days.length} dias no período` },
+      { label: 'Recursos com lançamento', value: active.length, hint: `de ${data.people.length} no roster` },
+      { label: 'Tasks lançadas', value: taskCount.size, hint: 'distintas no período' },
+      { label: 'Média / recurso ativo', value: active.length ? fmtBig(grand / active.length) : '0h', hint: 'entre quem lançou' },
+    ];
+    $('#kpis').innerHTML = '';
+    kpis.forEach(k => {
+      const c = el('div', 'kpi');
+      c.appendChild(el('div', 'label', k.label));
+      c.appendChild(el('div', 'value', k.value));
+      c.appendChild(el('div', 'hint', k.hint));
+      $('#kpis').appendChild(c);
+    });
+
+    $('#metaTotal').textContent = fmtBig(grand) + ` · ${active.length} recurso(s)`;
+    $('#metaUpdated').textContent = new Date(data.generatedAt).toLocaleString('pt-BR');
+  }
+
+  // ---- load ----
+  async function load() {
+    const from = $('#from').value, to = $('#to').value;
+    if (!from || !to) return;
+    $('#loadingBox').style.display = 'block';
+    $('#content').style.display = 'none';
+    $('#errorBox').innerHTML = '';
+    try {
+      const res = await fetch('/api/jira/worklogs', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from, to }),
+      });
+      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+      const data = await res.json();
+      render(data);
+      $('#loadingBox').style.display = 'none';
+      $('#content').style.display = 'block';
+    } catch (e) {
+      $('#loadingBox').style.display = 'none';
+      $('#errorBox').innerHTML = `<div class="error">Falha ao carregar: ${e.message}</div>`;
+    }
+  }
+
+  // ---- presets ----
+  function setRange(from, to) { $('#from').value = from; $('#to').value = to; }
+  function preset(kind) {
+    const now = new Date();
+    const y = now.getFullYear(), m = now.getMonth();
+    const todayIso = iso(now);
+    if (kind === 'thisMonth') setRange(iso(new Date(Date.UTC(y, m, 1))), todayIso);
+    else if (kind === 'lastMonth') setRange(iso(new Date(Date.UTC(y, m - 1, 1))), iso(new Date(Date.UTC(y, m, 0))));
+    else if (kind === 'last7') setRange(addDays(todayIso, -6), todayIso);
+    else if (kind === 'last30') setRange(addDays(todayIso, -29), todayIso);
+  }
+
+  document.querySelectorAll('.preset-row button').forEach(b =>
+    b.addEventListener('click', () => { preset(b.dataset.preset); load(); }));
+  $('#apply').addEventListener('click', load);
+  $('#showZero').addEventListener('change', e =>
+    document.body.classList.toggle('show-zero', e.target.checked));
+
+  // init
+  document.body.classList.add('show-zero');
+  preset('thisMonth');
+  load();
+})();
+</script>
+</body>
+</html>

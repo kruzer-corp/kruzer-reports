@@ -108,6 +108,12 @@ async function handleApp(request, env, ctx) {
       return handleJqlProxy(request, env);
     }
 
+    // 2a-bis. Worklogs agregados por recurso × dia × task (view /tempo). Read-only.
+    if (url.pathname === '/api/jira/worklogs') {
+      if (request.method !== 'POST') return jsonError(405, 'Use POST');
+      return handleWorklogs(request, env);
+    }
+
     // 2b. Escrita no JIRA — comentário no épico
     if (url.pathname === '/api/jira/comment') {
       if (request.method !== 'POST') return jsonError(405, 'Use POST');
@@ -213,6 +219,7 @@ function integrationAllowed(url, method) {
   if (p === '/api/jira/comment' || p === '/api/jira/issue-update') return false; // escrita JIRA
   if (p.startsWith('/api/state/')) return method === 'GET';                       // lê estado; PUT/DELETE bloqueado
   if (p === '/api/jira/jql') return method === 'POST';                            // proxy de leitura (search)
+  if (p === '/api/jira/worklogs') return method === 'POST';                       // agregação de worklog (leitura)
   if (p === '/mcp') return true;                                                  // MCP: só expõe tools read-only
   return method === 'GET';                                                        // páginas, insights, health, audit
 }
@@ -387,6 +394,205 @@ async function handleJqlProxy(request, env) {
       'Cache-Control': cacheControl,
     },
   });
+}
+
+// ---------------------------------------------------------------------------
+// Worklogs agregados p/ a view /tempo — "quem lançou quanto, em qual task, em
+// qual dia". Espelha a Time-view do JIRA. Read-only, server-side.
+//
+// Escopo: os projetos integrados no Cockpit (/ops/). Fonte: worklog NATIVO do
+// JIRA (campo `worklog`). O `started` volta no fuso do usuário do token (SP),
+// então o bucket do dia é o prefixo YYYY-MM-DD do próprio `started`.
+//
+// Retorno:
+//   { from, to, projects, days:[...], generatedAt, truncated, roster: <n>,
+//     people: [ { accountId, displayName, avatarUrl, active, totalSeconds,
+//                 byDay:{ 'YYYY-MM-DD': secs }, hasWorklog,
+//                 issues: [ { key, summary, projectKey, issuetype,
+//                             totalSeconds, byDay } ] } ] }
+const COCKPIT_PROJECTS = ['FST', 'VENA', 'DCT', 'PGM', 'KRZR'];
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+async function handleWorklogs(request, env) {
+  let body;
+  try { body = await request.json(); } catch { return jsonError(400, 'Invalid JSON body'); }
+  const from = String(body?.from || '');
+  const to = String(body?.to || '');
+  if (!ISO_DATE.test(from) || !ISO_DATE.test(to)) return jsonError(400, 'from/to devem ser YYYY-MM-DD');
+  if (from > to) return jsonError(400, 'from deve ser <= to');
+
+  const projects = Array.isArray(body?.projects) && body.projects.length
+    ? body.projects.map(p => String(p).replace(/[^A-Z0-9_]/gi, '')).filter(Boolean)
+    : COCKPIT_PROJECTS;
+
+  // Limite de dias (evita janelas absurdas + varreduras caras).
+  const days = enumerateDays(from, to);
+  if (days.length > 400) return jsonError(400, 'Janela muito longa (máx. 400 dias)');
+
+  // Bounds em epoch-ms no fuso de SP, p/ o fetch por-issue (startedAfter/Before).
+  const afterMs = Date.parse(`${from}T00:00:00.000-03:00`);
+  const beforeMs = Date.parse(`${to}T23:59:59.999-03:00`);
+
+  try {
+    const jql = `project in (${projects.join(',')}) AND worklogDate >= "${from}" AND worklogDate <= "${to}"`;
+    const issues = await jiraSearchAll(env, jql,
+      ['summary', 'issuetype', 'project', 'worklog'], 100, 10);
+
+    // people[accountId] = { …, byDay, issues: Map<key, {…, byDay}> }
+    const people = new Map();
+    let truncated = 0;
+    let perIssueFetches = 0;
+    const MAX_PER_ISSUE_FETCHES = 300; // teto de segurança (subrequests)
+
+    for (const it of issues) {
+      const f = it.fields || {};
+      const wl = f.worklog || {};
+      let entries = wl.worklogs || [];
+      // Truncado (>20 na search): busca a janela exata direto no endpoint da issue.
+      if ((wl.total || 0) > entries.length) {
+        if (perIssueFetches < MAX_PER_ISSUE_FETCHES) {
+          perIssueFetches++;
+          entries = await fetchIssueWorklogs(env, it.id, afterMs, beforeMs);
+        } else {
+          truncated++;
+        }
+      }
+      const projectKey = f.project?.key || (it.key || '').split('-')[0];
+      const issuetype = f.issuetype?.name || '—';
+      const summary = f.summary || '';
+
+      for (const w of entries) {
+        const day = String(w.started || '').slice(0, 10);
+        if (!ISO_DATE.test(day) || day < from || day > to) continue;
+        const secs = w.timeSpentSeconds || 0;
+        if (!secs) continue;
+        const a = w.author || {};
+        const id = a.accountId || a.displayName || 'unknown';
+        let person = people.get(id);
+        if (!person) {
+          person = {
+            accountId: id,
+            displayName: a.displayName || 'Sem autor',
+            avatarUrl: a.avatarUrls?.['24x24'] || a.avatarUrls?.['48x48'] || null,
+            active: a.active !== false,
+            totalSeconds: 0,
+            byDay: {},
+            issues: new Map(),
+          };
+          people.set(id, person);
+        }
+        person.totalSeconds += secs;
+        person.byDay[day] = (person.byDay[day] || 0) + secs;
+        let iss = person.issues.get(it.key);
+        if (!iss) {
+          iss = { key: it.key, summary, projectKey, issuetype, totalSeconds: 0, byDay: {} };
+          person.issues.set(it.key, iss);
+        }
+        iss.totalSeconds += secs;
+        iss.byDay[day] = (iss.byDay[day] || 0) + secs;
+      }
+    }
+
+    // Roster: garante que todo membro do time apareça, mesmo sem horas.
+    const roster = await fetchRoster(env, projects);
+    for (const u of roster) {
+      if (!people.has(u.accountId)) {
+        people.set(u.accountId, {
+          accountId: u.accountId,
+          displayName: u.displayName,
+          avatarUrl: u.avatarUrl,
+          active: u.active,
+          totalSeconds: 0,
+          byDay: {},
+          issues: new Map(),
+        });
+      }
+    }
+
+    // Serializa + ordena: quem tem horas primeiro (desc), depois alfabético.
+    const peopleOut = [...people.values()].map(p => ({
+      accountId: p.accountId,
+      displayName: p.displayName,
+      avatarUrl: p.avatarUrl,
+      active: p.active,
+      totalSeconds: p.totalSeconds,
+      hasWorklog: p.totalSeconds > 0,
+      byDay: p.byDay,
+      issues: [...p.issues.values()].sort((a, b) => b.totalSeconds - a.totalSeconds),
+    })).sort((a, b) =>
+      (b.totalSeconds - a.totalSeconds) ||
+      a.displayName.localeCompare(b.displayName, 'pt-BR'));
+
+    return jsonOk({
+      from, to, projects, days,
+      generatedAt: new Date().toISOString(),
+      roster: roster.length,
+      truncated,
+      people: peopleOut,
+    });
+  } catch (e) {
+    return jsonError(502, `JIRA worklogs failed: ${e.message}`);
+  }
+}
+
+// Enumera datas YYYY-MM-DD de `from` a `to` (inclusive), via UTC (só usamos a data).
+function enumerateDays(from, to) {
+  const out = [];
+  let cur = Date.parse(`${from}T00:00:00.000Z`);
+  const end = Date.parse(`${to}T00:00:00.000Z`);
+  while (cur <= end) {
+    out.push(new Date(cur).toISOString().slice(0, 10));
+    cur += 86400000;
+  }
+  return out;
+}
+
+// Busca TODOS os worklogs de uma issue dentro da janela (paginado). Usado só
+// quando a search truncou (issue com >20 worklogs no total).
+async function fetchIssueWorklogs(env, issueId, afterMs, beforeMs) {
+  const auth = btoa(`${env.JIRA_EMAIL}:${env.JIRA_API_TOKEN}`);
+  const base = `https://api.atlassian.com/ex/jira/${env.JIRA_CLOUD_ID}/rest/api/3/issue/${issueId}/worklog`;
+  const out = [];
+  let startAt = 0;
+  const pageSize = 1000;
+  for (let page = 0; page < 20; page++) {
+    const u = `${base}?startedAfter=${afterMs}&startedBefore=${beforeMs}&startAt=${startAt}&maxResults=${pageSize}`;
+    const r = await fetch(u, {
+      headers: { Authorization: `Basic ${auth}`, Accept: 'application/json' },
+    });
+    if (!r.ok) throw new Error(`JIRA worklog ${r.status}`);
+    const data = await r.json();
+    (data.worklogs || []).forEach(w => out.push(w));
+    startAt += pageSize;
+    if (startAt >= (data.total || 0)) break;
+  }
+  return out;
+}
+
+// Roster do time = usuários atribuíveis (accountType 'atlassian') nos projetos.
+// União entre projetos, sem bots (accountType 'app'). Falha graciosa por projeto.
+async function fetchRoster(env, projects) {
+  const auth = btoa(`${env.JIRA_EMAIL}:${env.JIRA_API_TOKEN}`);
+  const seen = new Map();
+  for (const p of projects) {
+    try {
+      const u = `https://api.atlassian.com/ex/jira/${env.JIRA_CLOUD_ID}/rest/api/3/user/assignable/search?project=${encodeURIComponent(p)}&maxResults=200`;
+      const r = await fetch(u, { headers: { Authorization: `Basic ${auth}`, Accept: 'application/json' } });
+      if (!r.ok) continue;
+      const users = await r.json();
+      for (const x of users) {
+        if (x.accountType && x.accountType !== 'atlassian') continue; // dropa bots/customers
+        if (!x.accountId || seen.has(x.accountId)) continue;
+        seen.set(x.accountId, {
+          accountId: x.accountId,
+          displayName: x.displayName || x.accountId,
+          avatarUrl: x.avatarUrls?.['24x24'] || x.avatarUrls?.['48x48'] || null,
+          active: x.active !== false,
+        });
+      }
+    } catch { /* projeto sem permissão / erro → ignora */ }
+  }
+  return [...seen.values()];
 }
 
 // ---------------------------------------------------------------------------
