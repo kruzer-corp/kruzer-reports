@@ -412,6 +412,8 @@ async function handleJqlProxy(request, env) {
 //                             totalSeconds, byDay } ] } ] }
 const COCKPIT_PROJECTS = ['FST', 'VENA', 'DCT', 'PGM', 'KRZR'];
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+// Contas de sistema/admin que não representam recurso do time — fora da view.
+const EXCLUDED_WORKLOG_NAMES = new Set(['admin kruzer']);
 
 async function handleWorklogs(request, env) {
   let body;
@@ -510,7 +512,9 @@ async function handleWorklogs(request, env) {
     }
 
     // Serializa + ordena: quem tem horas primeiro (desc), depois alfabético.
-    const peopleOut = [...people.values()].map(p => ({
+    const peopleOut = [...people.values()]
+      .filter(p => !EXCLUDED_WORKLOG_NAMES.has((p.displayName || '').trim().toLowerCase()))
+      .map(p => ({
       accountId: p.accountId,
       displayName: p.displayName,
       avatarUrl: p.avatarUrl,

@@ -22,7 +22,8 @@
     border-radius: 6px; padding: 8px 14px; font-weight: 500; font-size: 13px; cursor: pointer;
   }
   .controls button:hover { filter: brightness(0.97); }
-  .preset-row { display: flex; gap: 6px; margin-top: 6px; }
+  .preset-row { display: flex; gap: 6px; margin-top: 6px; align-items: center; flex-wrap: wrap; }
+  .zero-toggle.scope { margin-left: auto; padding-left: 12px; border-left: 1px solid var(--kruzer-neutral-300); }
   .preset-row button {
     background: var(--kruzer-primary-100); color: var(--kruzer-primary-700); border: none;
     border-radius: 999px; padding: 4px 12px; font-size: 12px; font-weight: 600; cursor: pointer;
@@ -125,6 +126,7 @@
       <div class="control"><label>De</label><input type="date" id="from"></div>
       <div class="control"><label>Até</label><input type="date" id="to"></div>
       <div class="control"><label>&nbsp;</label><button class="primary" id="apply">Aplicar</button></div>
+      <div class="control"><label>&nbsp;</label><button class="ghost" id="exportBtn">⬇ Exportar CSV</button></div>
     </div>
   </div>
   <div class="preset-row">
@@ -132,6 +134,7 @@
     <button data-preset="lastMonth">Mês passado</button>
     <button data-preset="last7">Últimos 7 dias</button>
     <button data-preset="last30">Últimos 30 dias</button>
+    <label class="zero-toggle scope"><input type="checkbox" id="inclKrzr" checked> Incluir KRZR (service desk)</label>
   </div>
 
   <div id="errorBox"></div>
@@ -167,6 +170,9 @@
   const MO = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
   const $ = s => document.querySelector(s);
   const el = (t, c, h) => { const e = document.createElement(t); if (c) e.className = c; if (h != null) e.innerHTML = h; return e; };
+  const BASE_PROJECTS = ['FST', 'VENA', 'DCT', 'PGM'];
+  let lastData = null;
+  const currentProjects = () => $('#inclKrzr').checked ? [...BASE_PROJECTS, 'KRZR'] : [...BASE_PROJECTS];
 
   // ---- date helpers (UTC-safe: só manipulamos a parte de data) ----
   const iso = d => d.toISOString().slice(0, 10);
@@ -348,16 +354,19 @@
   async function load() {
     const from = $('#from').value, to = $('#to').value;
     if (!from || !to) return;
+    const projects = currentProjects();
+    $('#metaScope').textContent = projects.join(' · ');
     $('#loadingBox').style.display = 'block';
     $('#content').style.display = 'none';
     $('#errorBox').innerHTML = '';
     try {
       const res = await fetch('/api/jira/worklogs', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from, to }),
+        body: JSON.stringify({ from, to, projects }),
       });
       if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
       const data = await res.json();
+      lastData = data;
       render(data);
       $('#loadingBox').style.display = 'none';
       $('#content').style.display = 'block';
@@ -379,9 +388,41 @@
     else if (kind === 'last30') setRange(addDays(todayIso, -29), todayIso);
   }
 
+  // ---- export CSV (respeita período, escopo e o toggle "sem horas") ----
+  function download(name, text) {
+    const blob = new Blob(['﻿' + text], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = el('a'); a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  function exportCsv() {
+    if (!lastData) return;
+    const cols = buildColumns(lastData.days);
+    const colOf = {}; cols.forEach((c, i) => c.days.forEach(d => colOf[d] = i));
+    const sumCols = byDay => { const a = new Array(cols.length).fill(0); for (const d in byDay) { const ci = colOf[d]; if (ci != null) a[ci] += byDay[d]; } return a; };
+    const hrs = s => s ? (s / 3600).toFixed(2).replace('.', ',') : '';
+    const esc = v => { v = (v == null ? '' : String(v)); return /[";\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+    const colLabel = c => { const a = c.days[0], b = c.days[c.days.length - 1]; return c.days.length === 1 ? ddmm(a) : ddmm(a) + '–' + ddmm(b); };
+    const showZero = $('#showZero').checked;
+    const rows = [['Recurso', 'Task', 'Descrição', 'Tipo', ...cols.map(colLabel), 'Total (h)']];
+    const grand = new Array(cols.length).fill(0); let grandTot = 0;
+    lastData.people.forEach(p => {
+      if (!p.hasWorklog && !showZero) return;
+      const pc = sumCols(p.byDay); pc.forEach((v, i) => grand[i] += v); grandTot += p.totalSeconds;
+      rows.push([p.displayName, '', '', '', ...pc.map(hrs), hrs(p.totalSeconds)]);
+      p.issues.forEach(iss => rows.push(['', iss.key, iss.summary, iss.issuetype, ...sumCols(iss.byDay).map(hrs), hrs(iss.totalSeconds)]));
+    });
+    rows.push(['Total por dia', '', '', '', ...grand.map(hrs), hrs(grandTot)]);
+    const csv = rows.map(r => r.map(esc).join(';')).join('\r\n');
+    download(`Tempo_${lastData.from}_a_${lastData.to}.csv`, csv);
+  }
+
   document.querySelectorAll('.preset-row button').forEach(b =>
     b.addEventListener('click', () => { preset(b.dataset.preset); load(); }));
   $('#apply').addEventListener('click', load);
+  $('#exportBtn').addEventListener('click', exportCsv);
+  $('#inclKrzr').addEventListener('change', load);
   $('#showZero').addEventListener('change', e =>
     document.body.classList.toggle('show-zero', e.target.checked));
 
