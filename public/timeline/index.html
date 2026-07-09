@@ -108,7 +108,7 @@ a:hover { text-decoration: underline; }
     </div>
     <div class="controls">
       <div class="control"><label for="projFilter">Projeto</label>
-        <select id="projFilter"><option value="all">Todos os projetos</option><option value="FST">FST · FastShop</option><option value="VENA">VENA · Venâncio</option><option value="DCT">DCT · Decathlon</option><option value="PGM">PGM · Pague Menos</option></select>
+        <select id="projFilter"><option value="all">Todos os projetos</option><option value="FST">FST · FastShop</option><option value="VENA">VENA · Venâncio</option><option value="DCT">DCT · Decathlon</option><option value="SAN">SAN · Pague Menos</option></select>
       </div>
       <div class="control"><label for="resFilter">Recurso</label>
         <select id="resFilter"><option value="all">Todos os recursos</option></select>
@@ -118,7 +118,7 @@ a:hover { text-decoration: underline; }
   </div>
 
   <div id="errorBox"></div>
-  <div id="loadingBox" class="loading"><span class="spinner"></span>Cruzando épicos de FST, VENA, DCT e PGM…</div>
+  <div id="loadingBox" class="loading"><span class="spinner"></span>Cruzando épicos de FST, VENA, DCT e SAN…</div>
 
   <div id="content" style="display:none">
     <div class="kpis" id="kpis"></div>
@@ -130,7 +130,7 @@ a:hover { text-decoration: underline; }
         <span class="legend-item"><span class="legend-swatch fst"></span> FST</span>
         <span class="legend-item"><span class="legend-swatch vena"></span> VENA</span>
         <span class="legend-item"><span class="legend-swatch dct"></span> DCT</span>
-        <span class="legend-item"><span class="legend-swatch pgm"></span> PGM</span>
+        <span class="legend-item"><span class="legend-swatch pgm"></span> SAN</span>
         <span class="legend-item"><span class="legend-swatch blocked"></span> Bloqueado</span>
         <span class="legend-item"><span class="legend-swatch est"></span> Data estimada</span>
         <span class="legend-item"><span class="legend-swatch nodue"></span> Sem due</span>
@@ -165,8 +165,8 @@ a:hover { text-decoration: underline; }
 const JIRA_BASE = 'https://kruzer.atlassian.net';
 const FIELDS = ['summary','status','assignee','duedate','created','resolutiondate','labels','customfield_10015','project'].concat((window.KruzerCapacity && KruzerCapacity.DEV_DUE_FIELD) ? [KruzerCapacity.DEV_DUE_FIELD] : []);
 const MS_DAY = 86400000;
-const PROJ_COLOR = { FST: '#F79009', VENA: '#3151CE', DCT: '#14B8A6', PGM: '#DB2777' };
-const PROJECTS = ['FST', 'VENA', 'DCT', 'PGM'];
+const PROJ_COLOR = { FST: '#F79009', VENA: '#3151CE', DCT: '#14B8A6', SAN: '#DB2777' };
+const PROJECTS = ['FST', 'VENA', 'DCT', 'SAN'];
 const NODUE_COLOR = '#B45309'; // marcador "sem due" — âmbar escuro, distinto das cores de projeto
 
 function parseDate(s){ if(!s) return null; const d = new Date(s.length === 10 ? s + 'T00:00:00' : s); return isNaN(d) ? null : d; }
@@ -401,7 +401,7 @@ async function loadAndRender(){
   document.getElementById('content').style.display = 'none';
   const btn = document.getElementById('refreshBtn'); btn.disabled = true; btn.textContent = 'Atualizando…';
   try {
-    const jql = `project in (FST, VENA, DCT, PGM) AND issuetype = Epic ORDER BY created DESC`;
+    const jql = `project in (FST, VENA, DCT, SAN) AND issuetype = Epic ORDER BY created DESC`;
     const issues = await KruzerAPI.fetchAll({ jql, fields: FIELDS });
     RAW = issues.map(normalize);
     populateResourceFilter();
@@ -410,7 +410,7 @@ async function loadAndRender(){
     renderGantt();
     requestAnimationFrame(renderGantt); // re-mede a largura após o layout assentar
     document.getElementById('subtitle').textContent =
-      `${RAW.length} épicos lidos (FST · VENA · DCT · PGM) • atualizado ${new Date().toLocaleString('pt-BR')}`;
+      `${RAW.length} épicos lidos (FST · VENA · DCT · SAN) • atualizado ${new Date().toLocaleString('pt-BR')}`;
   } catch (e) {
     document.getElementById('loadingBox').style.display = 'none';
     document.getElementById('errorBox').innerHTML = `<div class="error"><b>Falha ao carregar dados:</b> ${escapeHtml(e.message)}</div>`;
