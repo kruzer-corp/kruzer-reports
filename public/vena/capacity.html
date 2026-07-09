@@ -217,6 +217,33 @@ a:hover { text-decoration: underline; }
 .lane.dedicated .lane-head { background: #FFEAD5; border-right-color: #FDBA74; }
 .lane.dedicated .lane-head .nm { color: #9A3412; }
 .lane.dedicated .lane-head .tag99 { font-size: 9px; font-weight: 700; color: #C2410C; text-transform: uppercase; letter-spacing: .04em; }
+
+/* ── Explosão hierárquica (filtro de níveis na tabela detalhada) ─────────── */
+.hier-ctrl { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.hier-main { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--kruzer-navy); cursor: pointer; white-space: nowrap; padding: 7px 10px; border: 1px solid var(--kruzer-neutral-300); border-radius: 8px; background: #fff; }
+.hier-main input { cursor: pointer; }
+.hier-main.loading { opacity: .6; cursor: wait; }
+.type-filters { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.type-filters .tf-lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--kruzer-neutral-700); font-weight: 600; }
+.type-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--kruzer-navy-300); background: var(--kruzer-neutral-100); border: 1px solid var(--kruzer-neutral-300); border-radius: 999px; padding: 3px 10px; cursor: pointer; }
+.type-chip input { cursor: pointer; }
+.hier-note { font-size: 12px; color: var(--kruzer-neutral-700); font-style: italic; margin-bottom: 10px; }
+table.hier-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.hier-table th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; color: var(--kruzer-neutral-700); font-weight: 600; padding: 8px 10px; border-bottom: 2px solid var(--kruzer-neutral-300); }
+table.hier-table td { padding: 7px 10px; border-bottom: 1px solid var(--kruzer-neutral-300); vertical-align: middle; }
+table.hier-table td.num, table.hier-table td.dt, table.hier-table td.loc { white-space: nowrap; font-variant-numeric: tabular-nums; }
+table.hier-table td.s { color: var(--kruzer-navy); max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+table.hier-table tr.epic-row td.k a { font-weight: 700; color: var(--kruzer-primary); text-decoration: none; }
+table.hier-table tr.child-row td { background: #FAFBFD; border-bottom: 1px dashed var(--kruzer-neutral-300); font-size: 12.5px; }
+table.hier-table tr.child-row td.s.child { color: var(--kruzer-navy-300); }
+table.hier-table tr.child-row td.k a { color: var(--kruzer-primary); text-decoration: none; font-weight: 600; }
+table.hier-table .tree-guide { color: var(--kruzer-neutral-500); margin-right: 6px; }
+.child-status { font-size: 11px; color: var(--kruzer-navy-300); background: var(--kruzer-neutral-100); border: 1px solid var(--kruzer-neutral-300); border-radius: 999px; padding: 2px 8px; }
+.tree-caret { display: inline-flex; align-items: center; gap: 3px; margin-right: 6px; font-size: 9px; color: var(--kruzer-neutral-700); cursor: pointer; user-select: none; transition: transform .12s; vertical-align: middle; }
+tr.open .tree-caret { transform: rotate(90deg); }
+.tree-caret .desc-count { font-size: 10px; font-weight: 700; color: var(--kruzer-primary-700); background: var(--kruzer-primary-100); border-radius: 999px; padding: 0 5px; }
+tr.open .tree-caret .desc-count { transform: rotate(-90deg); }
+.type-badge { display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .02em; padding: 1px 7px; border-radius: 4px; background: var(--kruzer-primary-100); color: var(--kruzer-primary-700); }
 </style>
 </head>
 <body>
@@ -758,7 +785,76 @@ function renderHeatmap(sched){
 }
 
 let gridInst = null;
+// ============================================================================
+// Explosão hierárquica (filtro de níveis na tabela detalhada). Estrutura
+// SEPARADA do CHILDREN_BY_EPIC (rollup de SP) — não toca no scheduling. Default:
+// só épicos (GridJS/esteira intocados). A esteira segue no nível de épico.
+// ============================================================================
+const CHILD_HIER_FIELDS = ['summary','status','priority','issuetype','parent','customfield_10014','customfield_10016','customfield_10015','duedate','labels'];
+let CHILDREN_HIER = {}, DISCOVERED_TYPES = [], TYPE_ON = {}, EXPLODED = false, HIER_FETCHED = false;
+const EXPANDED = new Set();
+function prioTierH(name){ const n=(name||'').toLowerCase(); if(n.includes('highest'))return'P0'; if(n.includes('high'))return'P1'; if(n.includes('medium'))return'P2'; if(n.includes('low'))return'P3'; return'—'; }
+function normalizeChildHier(issue){
+  const f = issue.fields || {}; const catKey = f.status?.statusCategory?.key || '';
+  return { key:issue.key, url:`${JIRA_BASE}/browse/${issue.key}`, summary:f.summary||'',
+    jiraStatus:f.status?.name||'—', priority:prioTierH(f.priority?.name), issueType:f.issuetype?.name||'Task',
+    parentKey:f.parent?.key||f.customfield_10014||null, sp:f.customfield_10016!=null?Number(f.customfield_10016):null,
+    jiraStart:parseDate(f.customfield_10015), jiraDue:parseDate(f.duedate), labels:f.labels||[], done:catKey==='done' };
+}
+function childrenOf(k){ return CHILDREN_HIER[k]||[]; }
+function descendantsOf(k,depth,out){ out=out||[]; depth=depth||1; for(const c of childrenOf(k)){ c._depth=depth; out.push(c); descendantsOf(c.key,depth+1,out); } return out; }
+async function fetchHierarchy(){
+  if (HIER_FETCHED) return;
+  const jql=`project = ${PROJECT} AND issuetype != Epic ORDER BY rank ASC`;
+  const issues=await KruzerAPI.fetchAll({ jql, fields:CHILD_HIER_FIELDS });
+  const kids=issues.map(normalizeChildHier).filter(e=>!isClosedNotHyper(e));
+  CHILDREN_HIER={}; kids.forEach(k=>{ const p=k.parentKey||'__orphan__'; (CHILDREN_HIER[p]=CHILDREN_HIER[p]||[]).push(k); });
+  const set=new Set(['Epic']); kids.forEach(k=>set.add(k.issueType||'Task')); DISCOVERED_TYPES=[...set];
+  DISCOVERED_TYPES.forEach(t=>{ if(!(t in TYPE_ON)) TYPE_ON[t]=true; });
+  HIER_FETCHED=true;
+}
+function injectHierControl(){
+  const bar=document.getElementById('toolbar'); if(!bar||document.getElementById('hierToggle'))return;
+  const w=document.createElement('div'); w.className='hier-ctrl';
+  w.innerHTML=`<label class="hier-main" title="Explode os épicos nos níveis abaixo (stories, sub-tasks) na tabela detalhada"><input type="checkbox" id="hierToggle"> Explodir hierarquia</label><span class="type-filters" id="typeFilters"></span>`;
+  bar.appendChild(w); document.getElementById('hierToggle').addEventListener('change', onHierToggle);
+}
+function renderTypeFilters(){
+  const c=document.getElementById('typeFilters'); if(!c)return;
+  if(!EXPLODED){ c.innerHTML=''; return; }
+  c.innerHTML='<span class="tf-lbl">níveis:</span>'+DISCOVERED_TYPES.filter(t=>t!=='Epic').map(t=>`<label class="type-chip"><input type="checkbox" data-type="${escapeHtml(t)}" ${TYPE_ON[t]!==false?'checked':''}> ${escapeHtml(t)}</label>`).join('');
+  c.querySelectorAll('input[data-type]').forEach(inp=>inp.addEventListener('change',()=>{ TYPE_ON[inp.dataset.type]=inp.checked; refreshChildVis(); }));
+}
+async function onHierToggle(e){
+  EXPLODED=e.target.checked; const box=document.getElementById('hierToggle');
+  if(EXPLODED&&!HIER_FETCHED){ box.disabled=true; box.parentElement.classList.add('loading');
+    try{ await fetchHierarchy(); }catch(err){ toast('Falha na hierarquia: '+err.message); EXPLODED=false; box.checked=false; }
+    finally{ box.disabled=false; box.parentElement.classList.remove('loading'); } }
+  EXPANDED.clear(); renderTypeFilters(); if(LAST_SCHEDULE) renderTable(LAST_SCHEDULE);
+}
+function refreshChildVis(){ document.querySelectorAll('#epicTable tr.child-row').forEach(tr=>{ tr.style.display=(EXPANDED.has(tr.dataset.epic)&&TYPE_ON[tr.dataset.type]!==false)?'':'none'; }); }
+function wireHierCarets(){ document.querySelectorAll('#epicTable .tree-caret').forEach(el=>{ const t=()=>{ const k=el.dataset.key; if(EXPANDED.has(k))EXPANDED.delete(k); else EXPANDED.add(k); el.closest('tr').classList.toggle('open',EXPANDED.has(k)); refreshChildVis(); }; el.addEventListener('click',t); el.addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); t(); } }); }); }
+function renderTableExploded(sched){
+  const rows=[];
+  sched.epics.forEach(e=>{
+    const st=STATUS_MAP[e.status]||STATUS_MAP['Backlog'];
+    const nDesc=descendantsOf(e.key).length;
+    const caret=nDesc?`<span class="tree-caret" data-key="${e.key}" role="button" tabindex="0" title="Explodir níveis">▶<span class="desc-count">${nDesc}</span></span>`:'';
+    const sp=e.spSource==='placeholder'?'?':String(e.effectiveSp);
+    const loc=e.inBacklog?'Backlog':(e.trackIdx!=null?'T'+(e.trackIdx+1):'—');
+    rows.push(`<tr class="epic-row" data-key="${e.key}"><td class="k">${caret}<a href="${e.url}" target="_blank" rel="noopener">${e.key}</a></td><td class="s">${escapeHtml(e.summary)}</td><td><span class="badge ${st.cls}">${escapeHtml(e.status)}</span></td><td><span class="badge prio-${String(e.priority).toLowerCase()}">${e.priority}</span></td><td class="num">${sp}</td><td class="loc">${loc}</td><td class="dt">${e.scheduledStart?fmtBR(e.scheduledStart):'—'}</td><td class="dt">${e.scheduledEnd?fmtBR(e.scheduledEnd):'—'}</td></tr>`);
+    descendantsOf(e.key).forEach(ch=>{
+      const indent=8+(ch._depth||1)*18;
+      rows.push(`<tr class="child-row" data-epic="${e.key}" data-type="${escapeHtml(ch.issueType)}" style="display:none"><td class="k child" style="padding-left:${indent}px"><span class="tree-guide">└</span><a href="${ch.url}" target="_blank" rel="noopener">${ch.key}</a></td><td class="s child">${escapeHtml(ch.summary)}</td><td><span class="child-status">${escapeHtml(ch.jiraStatus)}</span></td><td><span class="type-badge">${escapeHtml(ch.issueType)}</span></td><td class="num">${ch.sp!=null?ch.sp:'—'}</td><td class="loc">—</td><td class="dt">${ch.jiraStart?fmtBR(ch.jiraStart):'—'}</td><td class="dt">${ch.jiraDue?fmtBR(ch.jiraDue):'—'}</td></tr>`);
+    });
+  });
+  const c=document.getElementById('epicTable');
+  c.innerHTML=`<div class="hier-note">Explodido: épicos → filhos (por parent). A esteira acima segue no nível de épico.</div><table class="hier-table"><thead><tr><th>Key</th><th>Resumo</th><th>Status</th><th>Prio / Tipo</th><th>SP</th><th>Local</th><th>Início</th><th>Fim</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
+  wireHierCarets(); refreshChildVis();
+}
+
 function renderTable(sched){
+  if (EXPLODED) return renderTableExploded(sched);
   const esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   const cell = (inner, titleText, cls) => gridjs.html(`<div class="${cls}" title="${esc(titleText)}">${inner}</div>`);
 
@@ -1140,6 +1236,10 @@ async function loadData(isRefresh){
       });
     }
 
+    // Hierarquia (explosão de níveis) — estrutura própria, stale a cada load.
+    HIER_FETCHED = false; CHILDREN_HIER = {}; EXPANDED.clear();
+    if (EXPLODED) { try { await fetchHierarchy(); } catch (err) { toast('Falha na hierarquia: ' + err.message); } }
+
     // 3) merge com estado local (preserva overrides)
     if (!STATE) STATE = loadState();
     // remove de overrides épicos que não existem mais
@@ -1152,6 +1252,8 @@ async function loadData(isRefresh){
     document.getElementById('loadingBox').style.display = 'none';
     document.getElementById('toolbar').style.display = '';
     document.getElementById('content').style.display = '';
+    injectHierControl();
+    renderTypeFilters();
     render();
   } catch (e){
     document.getElementById('loadingBox').style.display = 'none';
