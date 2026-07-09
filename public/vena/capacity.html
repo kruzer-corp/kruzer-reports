@@ -791,7 +791,7 @@ let gridInst = null;
 // só épicos (GridJS/esteira intocados). A esteira segue no nível de épico.
 // ============================================================================
 const CHILD_HIER_FIELDS = ['summary','status','priority','issuetype','parent','customfield_10014','customfield_10016','customfield_10015','duedate','labels'];
-let CHILDREN_HIER = {}, DISCOVERED_TYPES = [], TYPE_ON = {}, EXPLODED = false, HIER_FETCHED = false;
+let CHILDREN_HIER = {}, DISCOVERED_TYPES = [], TYPE_ON = {}, EXPLODED = false, HIER_FETCHED = false, HIER_BUSY = false;
 const EXPANDED = new Set();
 function prioTierH(name){ const n=(name||'').toLowerCase(); if(n.includes('highest'))return'P0'; if(n.includes('high'))return'P1'; if(n.includes('medium'))return'P2'; if(n.includes('low'))return'P3'; return'—'; }
 function normalizeChildHier(issue){
@@ -826,11 +826,15 @@ function renderTypeFilters(){
   c.querySelectorAll('input[data-type]').forEach(inp=>inp.addEventListener('change',()=>{ TYPE_ON[inp.dataset.type]=inp.checked; refreshChildVis(); }));
 }
 async function onHierToggle(e){
-  EXPLODED=e.target.checked; const box=document.getElementById('hierToggle');
-  if(EXPLODED&&!HIER_FETCHED){ box.disabled=true; box.parentElement.classList.add('loading');
+  const box=e.target;
+  if(HIER_BUSY){ box.checked=EXPLODED; return; }   // ignora toggles durante o fetch
+  EXPLODED=box.checked;
+  if(EXPLODED&&!HIER_FETCHED){ HIER_BUSY=true; box.parentElement.classList.add('loading');
     try{ await fetchHierarchy(); }catch(err){ toast('Falha na hierarquia: '+err.message); EXPLODED=false; box.checked=false; }
-    finally{ box.disabled=false; box.parentElement.classList.remove('loading'); } }
-  EXPANDED.clear(); renderTypeFilters(); if(LAST_SCHEDULE) renderTable(LAST_SCHEDULE);
+    finally{ HIER_BUSY=false; box.parentElement.classList.remove('loading'); } }
+  EXPANDED.clear(); renderTypeFilters();
+  try { if(LAST_SCHEDULE) renderTable(LAST_SCHEDULE); }
+  catch(err){ console.error('[hier] render falhou:', err); toast('Erro ao renderizar hierarquia: '+err.message); }
 }
 function refreshChildVis(){ document.querySelectorAll('#epicTable tr.child-row').forEach(tr=>{ tr.style.display=(EXPANDED.has(tr.dataset.epic)&&TYPE_ON[tr.dataset.type]!==false)?'':'none'; }); }
 function wireHierCarets(){ document.querySelectorAll('#epicTable .tree-caret').forEach(el=>{ const t=()=>{ const k=el.dataset.key; if(EXPANDED.has(k))EXPANDED.delete(k); else EXPANDED.add(k); el.closest('tr').classList.toggle('open',EXPANDED.has(k)); refreshChildVis(); }; el.addEventListener('click',t); el.addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); t(); } }); }); }

@@ -221,7 +221,7 @@ const CHILD_HIER_FIELDS = EPIC_FIELDS.concat(['parent','issuetype']);
 let CHILDREN_HIER = {};        // parentKey -> [filho normalizado]
 let DISCOVERED_TYPES = [];     // tipos presentes (Epic primeiro)
 let TYPE_ON = {};              // issueType -> bool
-let EXPLODED = false, HIER_FETCHED = false;
+let EXPLODED = false, HIER_FETCHED = false, HIER_BUSY = false;
 const EXPANDED = new Set();
 
 function normalizeChild(issue){
@@ -278,17 +278,19 @@ function renderTypeFilters(){
   c.querySelectorAll('input[data-type]').forEach(inp => inp.addEventListener('change', () => { TYPE_ON[inp.dataset.type] = inp.checked; refreshChildVis(); }));
 }
 async function onHierToggle(e){
-  EXPLODED = e.target.checked;
-  const box = document.getElementById('hierToggle');
+  const box = e.target;
+  if (HIER_BUSY){ box.checked = EXPLODED; return; }   // ignora toggles durante o fetch
+  EXPLODED = box.checked;
   if (EXPLODED && !HIER_FETCHED){
-    box.disabled = true; box.parentElement.classList.add('loading');
+    HIER_BUSY = true; box.parentElement.classList.add('loading');
     try { await fetchHierarchy(); }
     catch (err){ toast('Falha na hierarquia: ' + err.message); EXPLODED = false; box.checked = false; }
-    finally { box.disabled = false; box.parentElement.classList.remove('loading'); }
+    finally { HIER_BUSY = false; box.parentElement.classList.remove('loading'); }
   }
   EXPANDED.clear();
   renderTypeFilters();
-  if (LAST_SCHEDULE) renderTable(LAST_SCHEDULE);
+  try { if (LAST_SCHEDULE) renderTable(LAST_SCHEDULE); }
+  catch (err){ console.error('[hier] render falhou:', err); toast('Erro ao renderizar hierarquia: ' + err.message); }
 }
 function refreshChildVis(){
   document.querySelectorAll('#epicTable tr.child-row').forEach(tr => {

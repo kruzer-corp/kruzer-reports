@@ -241,6 +241,7 @@ let DISCOVERED_TYPES = [];     // tipos presentes (Epic primeiro)
 let TYPE_ON = {};              // issueType -> bool (Epic sempre on)
 let EXPLODED = false;          // hierarquia ligada?
 let HIER_FETCHED = false;      // já buscou os filhos deste RAW?
+let HIER_BUSY = false;         // fetch em andamento (guard de reentrância)
 const EXPANDED = new Set();    // épicos expandidos na tabela
 
 function childrenOf(key){ return CHILDREN_BY_PARENT[key] || []; }
@@ -287,18 +288,23 @@ function renderTypeFilters(){
   }));
 }
 async function onHierToggle(e){
-  EXPLODED = e.target.checked;
-  const box = document.getElementById('hierToggle');
+  const box = e.target;
+  // Ignora toggles enquanto um fetch está em andamento (evita dessincronizar o
+  // estado). NÃO desabilita o checkbox — desabilitar o controle recém-clicado
+  // dentro do próprio handler pode travar o toggle em alguns navegadores.
+  if (HIER_BUSY){ box.checked = EXPLODED; return; }
+  EXPLODED = box.checked;
   if (EXPLODED && !HIER_FETCHED){
-    box.disabled = true; box.parentElement.classList.add('loading');
+    HIER_BUSY = true; box.parentElement.classList.add('loading');
     try { await fetchHierarchy(); }
     catch (err){ toast('Falha ao buscar hierarquia: ' + err.message, true); EXPLODED = false; box.checked = false; }
-    finally { box.disabled = false; box.parentElement.classList.remove('loading'); }
+    finally { HIER_BUSY = false; box.parentElement.classList.remove('loading'); }
   }
   EXPANDED.clear();
-  renderTypeFilters();
-  renderTable();
-  renderGantt();
+  // Renders isolados em try/catch: um erro pontual não deixa o toggle num estado
+  // quebrado (rejeição não tratada num handler async).
+  try { renderTypeFilters(); renderTable(); renderGantt(); }
+  catch (err){ console.error('[hier] render falhou:', err); toast('Erro ao renderizar hierarquia: ' + err.message, true); }
 }
 
 // ---- Render ----
