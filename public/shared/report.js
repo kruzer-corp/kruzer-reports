@@ -4,7 +4,7 @@
 // do FST e os status nativos do VENA). Rede de segurança: scripts/render-snapshot.js.
 window.KruzerReport = { mount: function (CFG) {
 const PROJECT = CFG.project, JIRA_BASE = 'https://kruzer.atlassian.net';
-const FIELDS = ['summary','status','priority','issuetype','created','resolutiondate','labels','duedate','description','customfield_10015','timeoriginalestimate','aggregatetimeoriginalestimate'].concat(KruzerCapacity.DEV_DUE_FIELD ? [KruzerCapacity.DEV_DUE_FIELD] : []);
+const FIELDS = ['summary','status','priority','issuetype','parent','created','resolutiondate','labels','duedate','description','customfield_10015','timeoriginalestimate','aggregatetimeoriginalestimate'].concat(KruzerCapacity.DEV_DUE_FIELD ? [KruzerCapacity.DEV_DUE_FIELD] : []);
 const REMARK_STORE = CFG.remarkStore;
 
 // Buckets de status, do mais maduro (conclusão) ao mais inicial.
@@ -175,6 +175,9 @@ function normalize(issue){
   out.estH = estSec != null ? Math.round(estSec / 3600 * 10) / 10 : null;
   out.committed = !!out.startDate || out.bucket === 'execucao';
   out.done = (f.status?.statusCategory?.key === 'done'); // Done no JIRA → fora do cálculo da esteira
+  // Hierarquia: tipo do issue + chave do pai (parent nativo ou epic-link legado).
+  out.issueType = f.issuetype?.name || 'Task';
+  out.parentKey = f.parent?.key || f.customfield_10014 || null;
   return out;
 }
 
@@ -215,6 +218,76 @@ function isClosedNotHyper(e){ return e.done && !isHyperCareEpic(e); }
 
 let RAW = [];
 
+// ===========================================================================
+// Explosão hierárquica (filtro de níveis). Default: SÓ épicos (comportamento
+// original intocado). Ligada, busca a árvore do projeto (issuetype != Epic),
+// aninha por `parent` e deixa filtrar por tipo (descoberto dinamicamente).
+// Escopo: só a TABELA de status. O gantt/computeSchedule seguem épico-only.
+// ===========================================================================
+let CHILDREN_BY_PARENT = {};   // parentKey -> [filho normalizado] (qualquer nível)
+let DISCOVERED_TYPES = [];     // tipos presentes (Epic primeiro)
+let TYPE_ON = {};              // issueType -> bool (Epic sempre on)
+let EXPLODED = false;          // hierarquia ligada?
+let HIER_FETCHED = false;      // já buscou os filhos deste RAW?
+const EXPANDED = new Set();    // épicos expandidos na tabela
+
+function childrenOf(key){ return CHILDREN_BY_PARENT[key] || []; }
+function hasDescendants(key){ return childrenOf(key).length > 0; }
+// Pré-ordem: todos os descendentes de um épico (feature → story → sub-task…).
+function descendantsOf(key, depth, out){
+  out = out || []; depth = depth || 1;
+  for (const c of childrenOf(key)) { c._depth = depth; out.push(c); descendantsOf(c.key, depth + 1, out); }
+  return out;
+}
+
+async function fetchHierarchy(){
+  if (HIER_FETCHED) return;
+  const jql = `project = ${PROJECT} AND issuetype != Epic ORDER BY rank ASC`;
+  const issues = await KruzerAPI.fetchAll({ jql, fields: FIELDS });
+  const kids = issues.map(normalize).filter(e => !isClosedNotHyper(e));
+  CHILDREN_BY_PARENT = {};
+  kids.forEach(k => { const p = k.parentKey || '__orphan__'; (CHILDREN_BY_PARENT[p] = CHILDREN_BY_PARENT[p] || []).push(k); });
+  const set = new Set(['Epic']);
+  RAW.forEach(e => set.add(e.issueType || 'Epic'));
+  kids.forEach(k => set.add(k.issueType || 'Task'));
+  DISCOVERED_TYPES = [...set];
+  DISCOVERED_TYPES.forEach(t => { if (!(t in TYPE_ON)) TYPE_ON[t] = true; });
+  HIER_FETCHED = true;
+}
+
+function injectHierControl(){
+  const bar = document.querySelector('.toolbar');
+  if (!bar || document.getElementById('hierToggle')) return;
+  const wrap = document.createElement('div');
+  wrap.className = 'hier-ctrl export-hide';
+  wrap.innerHTML = `<label class="hier-main" title="Explode os épicos nos níveis abaixo (features, stories, sub-tasks) — aninhado por parent"><input type="checkbox" id="hierToggle"> Explodir hierarquia</label><span class="type-filters" id="typeFilters"></span>`;
+  bar.appendChild(wrap);
+  document.getElementById('hierToggle').addEventListener('change', onHierToggle);
+}
+function renderTypeFilters(){
+  const c = document.getElementById('typeFilters');
+  if (!c) return;
+  if (!EXPLODED){ c.innerHTML = ''; return; }
+  c.innerHTML = '<span class="tf-lbl">níveis:</span>' + DISCOVERED_TYPES.filter(t => t !== 'Epic').map(t =>
+    `<label class="type-chip"><input type="checkbox" data-type="${escapeHtml(t)}" ${TYPE_ON[t] !== false ? 'checked' : ''}> ${escapeHtml(t)}</label>`).join('');
+  c.querySelectorAll('input[data-type]').forEach(inp => inp.addEventListener('change', () => {
+    TYPE_ON[inp.dataset.type] = inp.checked; renderTable();
+  }));
+}
+async function onHierToggle(e){
+  EXPLODED = e.target.checked;
+  const box = document.getElementById('hierToggle');
+  if (EXPLODED && !HIER_FETCHED){
+    box.disabled = true; box.parentElement.classList.add('loading');
+    try { await fetchHierarchy(); }
+    catch (err){ toast('Falha ao buscar hierarquia: ' + err.message, true); EXPLODED = false; box.checked = false; }
+    finally { box.disabled = false; box.parentElement.classList.remove('loading'); }
+  }
+  EXPANDED.clear();
+  renderTypeFilters();
+  renderTable();
+}
+
 // ---- Render ----
 function renderKPIs(){
   const counts = {}; BUCKETS.forEach(b => counts[b.id] = 0);
@@ -237,6 +310,47 @@ function sortWithin(arr){
   });
 }
 
+function epicRowEl(i, b){
+  const tr = document.createElement('tr');
+  tr.dataset.bucket = i.bucket; tr.dataset.prio = i.priorityTier; tr.dataset.key = i.key;
+  tr.dataset.text = `${i.key} ${i.dmnd} ${i.name}`.toLowerCase();
+  const start = fmtDate(i.startDate);
+  const nDesc = EXPLODED ? descendantsOf(i.key).length : 0;
+  const caret = (EXPLODED && nDesc)
+    ? `<span class="tree-caret" data-key="${i.key}" role="button" tabindex="0" title="Explodir níveis">▶<span class="desc-count">${nDesc}</span></span>` : '';
+  tr.innerHTML =
+    `<td class="key">${caret}<a href="${i.url}" target="_blank" rel="noopener">${i.key}</a></td>` +
+    `<td class="key">${i.dmnd || '<span class="empty">—</span>'}</td>` +
+    `<td class="name">${escapeHtml(i.name)}</td>` +
+    `<td><span class="badge ${b.badgeCls}">${b.label}</span></td>` +
+    `<td><select class="prio-edit prio-${i.priorityTier.toLowerCase()}" data-key="${i.key}" title="Editar prioridade → grava no JIRA">${['P0','P1','P2','P3'].map(p=>`<option value="${p}" ${p===i.priorityTier?'selected':''}>${p}</option>`).join('')}</select></td>` +
+    `<td class="date">${start || '<span class="empty">—</span>'}</td>` +
+    `<td class="date">${ (i.dueDate||'').slice(0,10)
+        ? `<input type="date" class="due-edit" data-key="${i.key}" value="${(i.dueDate||'').slice(0,10)}" title="Editar Due Date → grava no épico do JIRA">`
+        : `<span class="empty due-empty" data-key="${i.key}" role="button" tabindex="0" title="Definir Due Date → grava no épico do JIRA">—</span>` }${ i.devDue ? `<div class="dev-due" title="Due Date Dev — entrega do desenvolvimento p/ testes (não é o goal final do projeto)">🔧 dev ${fmtDate(i.devDue)}</div>` : '' }</td>` +
+    `<td class="remarks"><div class="remark-edit" contenteditable="true" data-key="${i.key}" title="Editar remark → adiciona comentário no épico do JIRA">${escapeHtml(remarkFor(i))}</div></td>`;
+  return tr;
+}
+// Linha de descendente (feature/story/sub-task…) — read-only, indentada por nível.
+function childRowEl(c, epicKey){
+  const bk = bucketById(c.bucket) || bucketById('backlog');
+  const tr = document.createElement('tr');
+  tr.className = 'child-row';
+  tr.dataset.epic = epicKey; tr.dataset.type = c.issueType || 'Task'; tr.dataset.depth = c._depth || 1;
+  tr.dataset.text = `${c.key} ${c.name}`.toLowerCase();
+  const indent = 10 + (c._depth || 1) * 18;
+  const start = fmtDate(c.startDate), due = fmtDate(c.dueDate);
+  tr.innerHTML =
+    `<td class="key child" style="padding-left:${indent}px"><span class="tree-guide">└</span><a href="${c.url}" target="_blank" rel="noopener">${c.key}</a></td>` +
+    `<td class="key"><span class="type-badge">${escapeHtml(c.issueType || 'Task')}</span></td>` +
+    `<td class="name child">${escapeHtml(c.name)}</td>` +
+    `<td><span class="badge ${bk.badgeCls}">${bk.label}</span></td>` +
+    `<td><span class="prio-ro prio-${(c.priorityTier||'P3').toLowerCase()}">${c.priorityTier || '—'}</span></td>` +
+    `<td class="date">${start || '<span class="empty">—</span>'}</td>` +
+    `<td class="date">${due || '<span class="empty">—</span>'}</td>` +
+    `<td class="remarks"><span class="child-remark">${escapeHtml(c.remarkDefault || '')}</span></td>`;
+  return tr;
+}
 function renderTable(){
   const grouped = {}; TABLE_ORDER.forEach(id => grouped[id] = []);
   RAW.forEach(i => grouped[i.bucket].push(i));
@@ -252,28 +366,27 @@ function renderTable(){
     tb.appendChild(dv);
 
     items.forEach(i => {
-      const tr = document.createElement('tr');
-      tr.dataset.bucket = i.bucket; tr.dataset.prio = i.priorityTier;
-      tr.dataset.text = `${i.key} ${i.dmnd} ${i.name}`.toLowerCase();
-      const start = fmtDate(i.startDate), due = fmtDate(i.dueDate);
-      tr.innerHTML =
-        `<td class="key"><a href="${i.url}" target="_blank" rel="noopener">${i.key}</a></td>` +
-        `<td class="key">${i.dmnd || '<span class="empty">—</span>'}</td>` +
-        `<td class="name">${escapeHtml(i.name)}</td>` +
-        `<td><span class="badge ${b.badgeCls}">${b.label}</span></td>` +
-        `<td><select class="prio-edit prio-${i.priorityTier.toLowerCase()}" data-key="${i.key}" title="Editar prioridade → grava no JIRA">${['P0','P1','P2','P3'].map(p=>`<option value="${p}" ${p===i.priorityTier?'selected':''}>${p}</option>`).join('')}</select></td>` +
-        `<td class="date">${start || '<span class="empty">—</span>'}</td>` +
-        `<td class="date">${ (i.dueDate||'').slice(0,10)
-            ? `<input type="date" class="due-edit" data-key="${i.key}" value="${(i.dueDate||'').slice(0,10)}" title="Editar Due Date → grava no épico do JIRA">`
-            : `<span class="empty due-empty" data-key="${i.key}" role="button" tabindex="0" title="Definir Due Date → grava no épico do JIRA">—</span>` }${ i.devDue ? `<div class="dev-due" title="Due Date Dev — entrega do desenvolvimento p/ testes (não é o goal final do projeto)">🔧 dev ${fmtDate(i.devDue)}</div>` : '' }</td>` +
-        `<td class="remarks"><div class="remark-edit" contenteditable="true" data-key="${i.key}" title="Editar remark → adiciona comentário no épico do JIRA">${escapeHtml(remarkFor(i))}</div></td>`;
-      tb.appendChild(tr);
+      tb.appendChild(epicRowEl(i, b));
+      if (EXPLODED) descendantsOf(i.key).forEach(c => tb.appendChild(childRowEl(c, i.key)));
     });
   });
   wireRemarkEditors();
   wireDueEditors();
   wirePrioEditors();
+  if (EXPLODED) wireCarets();
   applyFilter();
+}
+function wireCarets(){
+  document.querySelectorAll('.tree-caret').forEach(el => {
+    const toggle = () => {
+      const key = el.dataset.key;
+      if (EXPANDED.has(key)) EXPANDED.delete(key); else EXPANDED.add(key);
+      el.closest('tr').classList.toggle('open', EXPANDED.has(key));
+      applyFilter();
+    };
+    el.addEventListener('click', toggle);
+    el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); toggle(); } });
+  });
 }
 
 function wireRemarkEditors(){
@@ -641,21 +754,39 @@ function applyFilter(){
   const st = document.getElementById('filter-status').value;
   const pr = document.getElementById('filter-prio').value;
   const filtering = !!(q || st || pr);
-  document.querySelectorAll('#tbody tr').forEach(tr => {
-    if (tr.classList.contains('group-divider')) {
-      // Esconde dividers quando há qualquer filtro ativo (lista vira plana).
-      tr.style.display = filtering ? 'none' : '';
-      return;
-    }
+  const tb = document.getElementById('tbody');
+  const epicVisible = {};
+  // Passo 1 — dividers + linhas de épico (regras originais).
+  tb.querySelectorAll('tr').forEach(tr => {
+    if (tr.classList.contains('group-divider')) { tr.style.display = filtering ? 'none' : ''; return; }
+    if (tr.classList.contains('child-row')) return;
     const matchText = !q || (tr.dataset.text || '').includes(q);
     const matchStatus = !st || tr.dataset.bucket === st;
     const matchPrio = !pr || tr.dataset.prio === pr;
-    tr.style.display = (matchText && matchStatus && matchPrio) ? '' : 'none';
+    const vis = matchText && matchStatus && matchPrio;
+    tr.style.display = vis ? '' : 'none';
+    if (tr.dataset.key) epicVisible[tr.dataset.key] = vis;
+  });
+  // Passo 2 — filhos: seguem tipo + épico visível + expandido; na busca, revelam plano.
+  const revealEpic = {};
+  tb.querySelectorAll('tr.child-row').forEach(tr => {
+    const epic = tr.dataset.epic;
+    const typeOn = TYPE_ON[tr.dataset.type] !== false;
+    const matchText = !q || (tr.dataset.text || '').includes(q);
+    const vis = q ? (typeOn && matchText) : (typeOn && !!epicVisible[epic] && EXPANDED.has(epic));
+    tr.style.display = vis ? '' : 'none';
+    if (vis && q) revealEpic[epic] = true;
+  });
+  // Busca que casou num filho → garante o épico-pai visível.
+  if (q) Object.keys(revealEpic).forEach(epic => {
+    const row = tb.querySelector(`tr[data-key="${CSS.escape(epic)}"]:not(.child-row)`);
+    if (row) row.style.display = '';
   });
 }
 
 function renderAll(){
   renderKPIs();
+  renderTypeFilters();
   renderTable();
   renderGantt();
   requestAnimationFrame(renderGantt); // re-mede a largura do Gantt após o layout assentar
@@ -676,6 +807,9 @@ async function loadAndRender(){
     REMARK_OVERRIDES = loadRemarks();
     // Encerrados (Done/Resolved/Canceled…) saem da listagem; Hyper Care permanece.
     RAW = issues.map(normalize).filter(e => !isClosedNotHyper(e));
+    // Dados novos → hierarquia fica stale; re-busca se estiver explodida.
+    HIER_FETCHED = false; CHILDREN_BY_PARENT = {}; EXPANDED.clear();
+    if (EXPLODED) { try { await fetchHierarchy(); } catch (err) { toast('Falha ao buscar hierarquia: ' + err.message, true); } }
     document.getElementById('loadingBox').style.display = 'none';
     document.getElementById('content').style.display = '';
     renderAll();
@@ -829,6 +963,7 @@ async function exportPDF(){
 
 document.getElementById('fuAdd').addEventListener('click', addFollowup);
 document.getElementById('exportBtn').addEventListener('click', exportPDF);
+injectHierControl();
 renderFollowups();
 document.getElementById('refreshBtn').addEventListener('click', loadAndRender);
 document.getElementById('search').addEventListener('input', applyFilter);
