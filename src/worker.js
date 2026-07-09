@@ -410,7 +410,7 @@ async function handleJqlProxy(request, env) {
 //                 byDay:{ 'YYYY-MM-DD': secs }, hasWorklog,
 //                 issues: [ { key, summary, projectKey, issuetype,
 //                             totalSeconds, byDay } ] } ] }
-const COCKPIT_PROJECTS = ['FST', 'VENA', 'DCT', 'J4PM', 'KRZR'];
+const COCKPIT_PROJECTS = ['FST', 'VENA', 'DCT', 'PGM', 'KRZR'];
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 // Contas de sistema/admin que não representam recurso do time — fora da view.
 const EXCLUDED_WORKLOG_NAMES = new Set(['admin kruzer']);
