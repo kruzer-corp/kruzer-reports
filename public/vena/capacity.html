@@ -239,11 +239,20 @@ table.hier-table tr.child-row td.s.child { color: var(--kruzer-navy-300); }
 table.hier-table tr.child-row td.k a { color: var(--kruzer-primary); text-decoration: none; font-weight: 600; }
 table.hier-table .tree-guide { color: var(--kruzer-neutral-500); margin-right: 6px; }
 .child-status { font-size: 11px; color: var(--kruzer-navy-300); background: var(--kruzer-neutral-100); border: 1px solid var(--kruzer-neutral-300); border-radius: 999px; padding: 2px 8px; }
-.tree-caret { display: inline-flex; align-items: center; gap: 3px; margin-right: 6px; font-size: 9px; color: var(--kruzer-neutral-700); cursor: pointer; user-select: none; transition: transform .12s; vertical-align: middle; }
-tr.open .tree-caret { transform: rotate(90deg); }
+.tree-caret { display: inline-flex; align-items: center; gap: 3px; margin-right: 6px; font-size: 9px; color: var(--kruzer-neutral-700); cursor: pointer; user-select: none; vertical-align: middle; }
+.tree-caret .caret-ico { display: inline-block; transition: transform .12s; }
+tr.open .tree-caret .caret-ico { transform: rotate(90deg); }
 .tree-caret .desc-count { font-size: 10px; font-weight: 700; color: var(--kruzer-primary-700); background: var(--kruzer-primary-100); border-radius: 999px; padding: 0 5px; }
-tr.open .tree-caret .desc-count { transform: rotate(-90deg); }
 .type-badge { display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .02em; padding: 1px 7px; border-radius: 4px; background: var(--kruzer-primary-100); color: var(--kruzer-primary-700); }
+.block .blk-caret { position: absolute; top: 3px; right: 4px; font-size: 8px; line-height: 1; cursor: pointer; color: rgba(255,255,255,.9); z-index: 3; padding: 1px 2px; }
+.block.placeholder .blk-caret, .block.s-neutral .blk-caret { color: var(--kruzer-navy); }
+.block .blk-caret .caret-ico { display: inline-block; transition: transform .12s; }
+.block.open .blk-caret .caret-ico { transform: rotate(90deg); }
+.block.child-block { height: 30px; opacity: .95; cursor: default; box-shadow: none; border: 1px dashed rgba(255,255,255,.55); align-self: center; }
+.block.child-block .bk { font-size: 10px; }
+.block.child-block .bs { font-size: 9px; opacity: .9; }
+.block.child-block .ctype { font-size: 8px; font-weight: 700; text-transform: uppercase; opacity: .8; }
+.block.child-block.s-neutral, .block.child-block.s-backlog { border-color: rgba(0,0,0,.2); }
 </style>
 </head>
 <body>
@@ -668,6 +677,10 @@ function renderBoard(sched){
   ruler.innerHTML = rh;
 
   // ---- Lanes ----
+  // Cada épico + (se expandido) os blocos-filho logo após, na mesma track.
+  const strip = list => list.flatMap(e => (EXPLODED && EXPANDED.has(e.key))
+    ? [blockHtml(e), ...descendantsOf(e.key).filter(c => TYPE_ON[c.issueType] !== false).map(childBlockHtml)]
+    : [blockHtml(e)]).join('');
   const lanes = document.getElementById('lanes');
   let lh = '';
   // zona de horizonte (vermelho claro) e linha de HOJE atravessando as lanes
@@ -687,7 +700,7 @@ function renderBoard(sched){
         <div class="mt">→ ${fmtBR(lastEnd)}</div>
       </div>
       <div class="lane-strip" data-dedicated="1" style="min-width:${boardW}px">
-        ${blockHtml(e)}
+        ${strip([e])}
       </div>
     </div>`;
   }
@@ -703,11 +716,28 @@ function renderBoard(sched){
         <div class="mt">→ ${fmtBR(lastEnd)}</div>
       </div>
       <div class="lane-strip" data-track="${ti}" style="min-width:${boardW}px">
-        ${items.map(e => blockHtml(e)).join('')}
+        ${strip(items)}
       </div>
     </div>`;
   }
   lanes.innerHTML = lh;
+  wireBoardCarets();
+}
+function rerenderExpansion(){
+  if (!LAST_SCHEDULE) return;
+  renderBoard(LAST_SCHEDULE);
+  renderTable(LAST_SCHEDULE);
+  wireSortables();
+}
+function wireBoardCarets(){
+  document.querySelectorAll('#lanes .blk-caret').forEach(el => {
+    el.addEventListener('click', ev => {
+      ev.stopPropagation();
+      const k = el.dataset.key;
+      if (EXPANDED.has(k)) EXPANDED.delete(k); else EXPANDED.add(k);
+      rerenderExpansion();
+    });
+  });
 }
 
 function blockHtml(e){
@@ -731,13 +761,25 @@ function blockHtml(e){
     if (offPx > 2 && offPx < w) dueMark = `<div class="due-mark" style="left:${offPx}px" title="Due prometido: ${fmtBR(e.jiraDue)}"></div>`;
   }
   const depFlag = (e.dependencies && e.dependencies.length) ? `<span class="dep-flag" title="Depende de ${e.dependencies.join(', ')}">⛓ ${e.dependencies.length}</span>` : '';
-  return `<div class="${cls.join(' ')}" data-key="${e.key}" style="width:${w}px" title="${escapeHtml(e.key+' · '+e.summary)}">
-    <span class="bk">${e.key}</span>
+  const nDesc = EXPLODED ? descendantsOf(e.key).length : 0;
+  const blkCaret = nDesc ? `<span class="blk-caret" data-key="${e.key}" title="Expandir níveis (${nDesc})"><span class="caret-ico">▶</span></span>` : '';
+  return `<div class="${cls.join(' ')}${EXPANDED.has(e.key)?' open':''}" data-key="${e.key}" style="width:${w}px" title="${escapeHtml(e.key+' · '+e.summary)}">
+    ${blkCaret}<span class="bk">${e.key}</span>
     <span class="bs">${escapeHtml(truncSum)}</span>
     <span class="sp-tag">${isPlaceholder ? '?' : e.effectiveSp}</span>
     <span class="src-dot">${srcLabel}</span>
     ${depFlag}${dueMark}${overlays}
     <div class="resize-handle" data-key="${e.key}"></div>
+  </div>`;
+}
+function childBlockHtml(c){
+  const st = STATUS_MAP[c.status] || STATUS_MAP['Backlog'];
+  const w = Math.max(24, (c.sp || 0) * PX_PER_SP);
+  const trunc = c.summary.length > 20 ? c.summary.slice(0,18)+'…' : c.summary;
+  return `<div class="block child-block ${st.blk}" data-key="${c.key}" style="width:${w}px" title="${escapeHtml(c.key+' · '+(c.issueType||'')+' · '+c.summary)}">
+    <span class="bk">└ ${c.key}</span>
+    <span class="bs">${escapeHtml(trunc)}</span>
+    <span class="ctype">${escapeHtml(c.issueType||'')}</span>
   </div>`;
 }
 
@@ -816,7 +858,7 @@ async function fetchHierarchy(){
 function injectHierControl(){
   const bar=document.getElementById('toolbar'); if(!bar||document.getElementById('hierToggle'))return;
   const w=document.createElement('div'); w.className='hier-ctrl';
-  w.innerHTML=`<label class="hier-main" title="Explode os épicos nos níveis abaixo (stories, sub-tasks) na tabela detalhada"><input type="checkbox" id="hierToggle"> Explodir hierarquia</label><span class="type-filters" id="typeFilters"></span>`;
+  w.innerHTML=`<label class="hier-main" title="Expande os épicos nos níveis abaixo (stories, sub-tasks) na tabela e na esteira"><input type="checkbox" id="hierToggle"> Expandir visão</label><span class="type-filters" id="typeFilters"></span>`;
   bar.appendChild(w); document.getElementById('hierToggle').addEventListener('change', onHierToggle);
 }
 function renderTypeFilters(){
@@ -832,18 +874,19 @@ async function onHierToggle(e){
   if(EXPLODED&&!HIER_FETCHED){ HIER_BUSY=true; box.parentElement.classList.add('loading');
     try{ await fetchHierarchy(); }catch(err){ toast('Falha na hierarquia: '+err.message); EXPLODED=false; box.checked=false; }
     finally{ HIER_BUSY=false; box.parentElement.classList.remove('loading'); } }
+  // Liga/desliga; NÃO auto-expande tudo (centenas de blocos travariam a esteira).
   EXPANDED.clear(); renderTypeFilters();
-  try { if(LAST_SCHEDULE) renderTable(LAST_SCHEDULE); }
+  try { rerenderExpansion(); }
   catch(err){ console.error('[hier] render falhou:', err); toast('Erro ao renderizar hierarquia: '+err.message); }
 }
 function refreshChildVis(){ document.querySelectorAll('#epicTable tr.child-row').forEach(tr=>{ tr.style.display=(EXPANDED.has(tr.dataset.epic)&&TYPE_ON[tr.dataset.type]!==false)?'':'none'; }); }
-function wireHierCarets(){ document.querySelectorAll('#epicTable .tree-caret').forEach(el=>{ const t=()=>{ const k=el.dataset.key; if(EXPANDED.has(k))EXPANDED.delete(k); else EXPANDED.add(k); el.closest('tr').classList.toggle('open',EXPANDED.has(k)); refreshChildVis(); }; el.addEventListener('click',t); el.addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); t(); } }); }); }
+function wireHierCarets(){ document.querySelectorAll('#epicTable .tree-caret').forEach(el=>{ const t=()=>{ const k=el.dataset.key; if(EXPANDED.has(k))EXPANDED.delete(k); else EXPANDED.add(k); rerenderExpansion(); }; el.addEventListener('click',t); el.addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); t(); } }); }); }
 function renderTableExploded(sched){
   const rows=[];
   sched.epics.forEach(e=>{
     const st=STATUS_MAP[e.status]||STATUS_MAP['Backlog'];
     const nDesc=descendantsOf(e.key).length;
-    const caret=nDesc?`<span class="tree-caret" data-key="${e.key}" role="button" tabindex="0" title="Explodir níveis">▶<span class="desc-count">${nDesc}</span></span>`:'';
+    const caret=nDesc?`<span class="tree-caret" data-key="${e.key}" role="button" tabindex="0" title="Expandir níveis"><span class="caret-ico">▶</span><span class="desc-count">${nDesc}</span></span>`:'';
     const sp=e.spSource==='placeholder'?'?':String(e.effectiveSp);
     const loc=e.inBacklog?'Backlog':(e.trackIdx!=null?'T'+(e.trackIdx+1):'—');
     rows.push(`<tr class="epic-row" data-key="${e.key}"><td class="k">${caret}<a href="${e.url}" target="_blank" rel="noopener">${e.key}</a></td><td class="s">${escapeHtml(e.summary)}</td><td><span class="badge ${st.cls}">${escapeHtml(e.status)}</span></td><td><span class="badge prio-${String(e.priority).toLowerCase()}">${e.priority}</span></td><td class="num">${sp}</td><td class="loc">${loc}</td><td class="dt">${e.scheduledStart?fmtBR(e.scheduledStart):'—'}</td><td class="dt">${e.scheduledEnd?fmtBR(e.scheduledEnd):'—'}</td></tr>`);
@@ -914,9 +957,9 @@ function wireSortables(){
     sortables.push(new Sortable(strip, {
       group: 'epics',
       animation: 140,
-      filter: committedFilter + (committedFilter?',':'') + '.resize-handle',
+      filter: committedFilter + (committedFilter?',':'') + '.resize-handle,.child-block,.blk-caret',
       preventOnFilter: false,
-      draggable: '.block',
+      draggable: '.block:not(.child-block)',
       ghostClass: 'sortable-ghost',
       chosenClass: 'sortable-chosen',
       onEnd: onDragEnd,

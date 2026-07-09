@@ -273,7 +273,7 @@ function injectHierControl(){
   if (!bar || document.getElementById('hierToggle')) return;
   const wrap = document.createElement('div');
   wrap.className = 'hier-ctrl export-hide';
-  wrap.innerHTML = `<label class="hier-main" title="Explode os épicos nos níveis abaixo (features, stories, sub-tasks) — aninhado por parent"><input type="checkbox" id="hierToggle"> Explodir hierarquia</label><span class="type-filters" id="typeFilters"></span>`;
+  wrap.innerHTML = `<label class="hier-main" title="Expande os épicos nos níveis abaixo (features, stories, sub-tasks) — aninhado por parent, na tabela e na timeline"><input type="checkbox" id="hierToggle"> Expandir visão</label><span class="type-filters" id="typeFilters"></span>`;
   bar.appendChild(wrap);
   document.getElementById('hierToggle').addEventListener('change', onHierToggle);
 }
@@ -300,7 +300,10 @@ async function onHierToggle(e){
     catch (err){ toast('Falha ao buscar hierarquia: ' + err.message, true); EXPLODED = false; box.checked = false; }
     finally { HIER_BUSY = false; box.parentElement.classList.remove('loading'); }
   }
+  // "Expandir visão" = expande tudo (tabela E timeline). Ligar já mostra a
+  // cascata; carets ainda permitem recolher épicos individuais depois.
   EXPANDED.clear();
+  if (EXPLODED) RAW.forEach(e => { if (hasDescendants(e.key)) EXPANDED.add(e.key); });
   // Renders isolados em try/catch: um erro pontual não deixa o toggle num estado
   // quebrado (rejeição não tratada num handler async).
   try { renderTypeFilters(); renderTable(); renderGantt(); }
@@ -337,7 +340,7 @@ function epicRowEl(i, b){
   const start = fmtDate(i.startDate);
   const nDesc = EXPLODED ? descendantsOf(i.key).length : 0;
   const caret = (EXPLODED && nDesc)
-    ? `<span class="tree-caret" data-key="${i.key}" role="button" tabindex="0" title="Explodir níveis">▶<span class="desc-count">${nDesc}</span></span>` : '';
+    ? `<span class="tree-caret" data-key="${i.key}" role="button" tabindex="0" title="Expandir níveis"><span class="caret-ico">▶</span><span class="desc-count">${nDesc}</span></span>` : '';
   tr.innerHTML =
     `<td class="key">${caret}<a href="${i.url}" target="_blank" rel="noopener">${i.key}</a></td>` +
     `<td class="key">${i.dmnd || '<span class="empty">—</span>'}</td>` +

@@ -266,7 +266,7 @@ function injectHierControl(){
   if (!bar || document.getElementById('hierToggle')) return;
   const wrap = document.createElement('div');
   wrap.className = 'hier-ctrl';
-  wrap.innerHTML = `<label class="hier-main" title="Explode os épicos nos níveis abaixo (features, stories, sub-tasks) na tabela detalhada"><input type="checkbox" id="hierToggle"> Explodir hierarquia</label><span class="type-filters" id="typeFilters"></span>`;
+  wrap.innerHTML = `<label class="hier-main" title="Expande os épicos nos níveis abaixo (features, stories, sub-tasks) na tabela e na esteira"><input type="checkbox" id="hierToggle"> Expandir visão</label><span class="type-filters" id="typeFilters"></span>`;
   bar.appendChild(wrap);
   document.getElementById('hierToggle').addEventListener('change', onHierToggle);
 }
@@ -287,9 +287,12 @@ async function onHierToggle(e){
     catch (err){ toast('Falha na hierarquia: ' + err.message); EXPLODED = false; box.checked = false; }
     finally { HIER_BUSY = false; box.parentElement.classList.remove('loading'); }
   }
+  // Liga/desliga a explosão. NÃO auto-expande tudo na esteira (centenas de blocos
+  // inline travariam o board) — o toggle habilita os carets; o usuário expande
+  // épico a épico (na esteira ou na tabela). Off recolhe tudo.
   EXPANDED.clear();
   renderTypeFilters();
-  try { if (LAST_SCHEDULE) renderTable(LAST_SCHEDULE); }
+  try { rerenderExpansion(); }
   catch (err){ console.error('[hier] render falhou:', err); toast('Erro ao renderizar hierarquia: ' + err.message); }
 }
 function refreshChildVis(){
@@ -302,8 +305,7 @@ function wirePlannerCarets(){
     const toggle = () => {
       const k = el.dataset.key;
       if (EXPANDED.has(k)) EXPANDED.delete(k); else EXPANDED.add(k);
-      el.closest('tr').classList.toggle('open', EXPANDED.has(k));
-      refreshChildVis();
+      rerenderExpansion();   // atualiza tabela E esteira juntas
     };
     el.addEventListener('click', toggle);
     el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); toggle(); } });
@@ -315,7 +317,7 @@ function renderTableExploded(sched){
   sched.epics.forEach(e => {
     const st = STATUS_MAP[e.status] || STATUS_MAP['Backlog'];
     const nDesc = descendantsOf(e.key).length;
-    const caret = nDesc ? `<span class="tree-caret" data-key="${e.key}" role="button" tabindex="0" title="Explodir níveis">▶<span class="desc-count">${nDesc}</span></span>` : '';
+    const caret = nDesc ? `<span class="tree-caret" data-key="${e.key}" role="button" tabindex="0" title="Expandir níveis"><span class="caret-ico">▶</span><span class="desc-count">${nDesc}</span></span>` : '';
     const sp = e.spSource === 'placeholder' ? '?' : e.effectiveSp + 'h';
     const loc = e.inBacklog ? 'Backlog' : (e.trackIdx != null ? 'T' + (e.trackIdx + 1) : '—');
     rows.push(`<tr class="epic-row" data-key="${e.key}">
@@ -462,6 +464,10 @@ function renderBoard(sched){
   ruler.innerHTML = rh;
 
   // ---- Lanes ----
+  // Renderiza uma track: cada épico + (se expandido) os blocos-filho logo após.
+  const strip = list => list.flatMap(e => (EXPLODED && EXPANDED.has(e.key))
+    ? [blockHtml(e), ...descendantsOf(e.key).filter(c => TYPE_ON[c.issueType] !== false).map(childBlockHtml)]
+    : [blockHtml(e)]).join('');
   const lanes = document.getElementById('lanes');
   let lh = '';
   // zona de horizonte (vermelho claro) e linha de HOJE atravessando as lanes
@@ -481,7 +487,7 @@ function renderBoard(sched){
         <div class="mt">→ ${fmtBR(lastEnd)}</div>
       </div>
       <div class="lane-strip" data-dedicated="1" style="min-width:${boardW}px">
-        ${blockHtml(e)}
+        ${strip([e])}
       </div>
     </div>`;
   }
@@ -497,11 +503,30 @@ function renderBoard(sched){
         <div class="mt">→ ${fmtBR(lastEnd)}</div>
       </div>
       <div class="lane-strip" data-track="${ti}" style="min-width:${boardW}px">
-        ${items.map(e => blockHtml(e)).join('')}
+        ${strip(items)}
       </div>
     </div>`;
   }
   lanes.innerHTML = lh;
+  wireBoardCarets();
+}
+
+// Re-renderiza board + tabela juntos (mantém expansão sincronizada) + re-wire drag.
+function rerenderExpansion(){
+  if (!LAST_SCHEDULE) return;
+  renderBoard(LAST_SCHEDULE);
+  renderTable(LAST_SCHEDULE);
+  wireSortables();
+}
+function wireBoardCarets(){
+  document.querySelectorAll('#lanes .blk-caret').forEach(el => {
+    el.addEventListener('click', ev => {
+      ev.stopPropagation();
+      const k = el.dataset.key;
+      if (EXPANDED.has(k)) EXPANDED.delete(k); else EXPANDED.add(k);
+      rerenderExpansion();
+    });
+  });
 }
 
 function blockHtml(e){
@@ -525,13 +550,27 @@ function blockHtml(e){
     if (offPx > 2 && offPx < w) dueMark = `<div class="due-mark" style="left:${offPx}px" title="Due prometido: ${fmtBR(e.jiraDue)}"></div>`;
   }
   const depFlag = (e.dependencies && e.dependencies.length) ? `<span class="dep-flag" title="Depende de ${e.dependencies.join(', ')}">⛓ ${e.dependencies.length}</span>` : '';
-  return `<div class="${cls.join(' ')}" data-key="${e.key}" style="width:${w}px" title="${escapeHtml(e.key+' · '+e.summary)}">
-    <span class="bk">${e.key}</span>
+  const nDesc = EXPLODED ? descendantsOf(e.key).length : 0;
+  const blkCaret = nDesc ? `<span class="blk-caret" data-key="${e.key}" title="Expandir níveis (${nDesc})"><span class="caret-ico">▶</span></span>` : '';
+  return `<div class="${cls.join(' ')}${EXPANDED.has(e.key)?' open':''}" data-key="${e.key}" style="width:${w}px" title="${escapeHtml(e.key+' · '+e.summary)}">
+    ${blkCaret}<span class="bk">${e.key}</span>
     <span class="bs">${escapeHtml(truncSum)}</span>
     <span class="sp-tag">${isPlaceholder ? '?' : e.effectiveSp}</span>
     <span class="src-dot">${srcLabel}</span>
     ${depFlag}${dueMark}${overlays}
     <div class="resize-handle" data-key="${e.key}"></div>
+  </div>`;
+}
+// Bloco de filho (feature/story/…) na esteira — fino, marcado, não-arrastável.
+// Largura ∝ horas estimadas do próprio filho (min 24px). Aparece logo após o pai.
+function childBlockHtml(c){
+  const st = STATUS_MAP[c.status] || STATUS_MAP['Backlog'];
+  const w = Math.max(24, (c.jiraEstimateH || 0) * PX_PER_SP);
+  const trunc = c.summary.length > 20 ? c.summary.slice(0,18)+'…' : c.summary;
+  return `<div class="block child-block ${st.blk}" data-key="${c.key}" style="width:${w}px" title="${escapeHtml(c.key+' · '+(c.issueType||'')+' · '+c.summary)}">
+    <span class="bk">└ ${c.key}</span>
+    <span class="bs">${escapeHtml(trunc)}</span>
+    <span class="ctype">${escapeHtml(c.issueType||'')}</span>
   </div>`;
 }
 
@@ -633,9 +672,9 @@ function wireSortables(){
     sortables.push(new Sortable(strip, {
       group: 'epics',
       animation: 140,
-      filter: committedFilter + (committedFilter?',':'') + '.resize-handle',
+      filter: committedFilter + (committedFilter?',':'') + '.resize-handle,.child-block,.blk-caret',
       preventOnFilter: false,
-      draggable: '.block',
+      draggable: '.block:not(.child-block)',
       ghostClass: 'sortable-ghost',
       chosenClass: 'sortable-chosen',
       onEnd: onDragEnd,
