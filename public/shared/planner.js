@@ -212,6 +212,139 @@ function resolveSp(epic){
 }
 
 // ============================================================================
+// Explosão hierárquica (filtro de níveis na tabela "Épicos detalhados").
+// Default: só épicos (GridJS intocado → esteira e goldens inalterados). Ligada,
+// busca a árvore (issuetype != Epic) sob demanda, aninha por `parent` e mostra
+// filhos indentados numa tabela custom. A ESTEIRA (board) segue épico-only.
+// ============================================================================
+const CHILD_HIER_FIELDS = EPIC_FIELDS.concat(['parent','issuetype']);
+let CHILDREN_HIER = {};        // parentKey -> [filho normalizado]
+let DISCOVERED_TYPES = [];     // tipos presentes (Epic primeiro)
+let TYPE_ON = {};              // issueType -> bool
+let EXPLODED = false, HIER_FETCHED = false;
+const EXPANDED = new Set();
+
+function normalizeChild(issue){
+  const f = issue.fields || {};
+  const catKey = f.status?.statusCategory?.key || '';
+  const o = f.timeoriginalestimate, a = f.aggregatetimeoriginalestimate;
+  const estSec = (o != null && o > 0) ? o : ((a != null && a > 0) ? a : null);
+  return {
+    key: issue.key, url: `${JIRA_BASE}/browse/${issue.key}`,
+    summary: f.summary || '',
+    status: bucketFor(f.labels || [], f.status?.name || '', catKey),
+    jiraStatus: f.status?.name || '',
+    priority: priorityTier(f.priority?.name),
+    jiraStart: parseDate(f.customfield_10015),
+    jiraDue: parseDate(f.duedate),
+    jiraEstimateH: estSec != null ? Math.round(estSec / 3600 * 10) / 10 : null,
+    issueType: f.issuetype?.name || 'Task',
+    parentKey: f.parent?.key || f.customfield_10014 || null,
+    labels: f.labels || [], done: catKey === 'done',
+  };
+}
+function childrenOf(key){ return CHILDREN_HIER[key] || []; }
+function descendantsOf(key, depth, out){
+  out = out || []; depth = depth || 1;
+  for (const c of childrenOf(key)) { c._depth = depth; out.push(c); descendantsOf(c.key, depth + 1, out); }
+  return out;
+}
+async function fetchHierarchy(){
+  if (HIER_FETCHED) return;
+  const jql = `project = ${PROJECT} AND issuetype != Epic ORDER BY rank ASC`;
+  const issues = await KruzerAPI.fetchAll({ jql, fields: CHILD_HIER_FIELDS });
+  const kids = issues.map(normalizeChild).filter(e => !isClosedNotHyper(e));
+  CHILDREN_HIER = {};
+  kids.forEach(k => { const p = k.parentKey || '__orphan__'; (CHILDREN_HIER[p] = CHILDREN_HIER[p] || []).push(k); });
+  const set = new Set(['Epic']); kids.forEach(k => set.add(k.issueType || 'Task'));
+  DISCOVERED_TYPES = [...set];
+  DISCOVERED_TYPES.forEach(t => { if (!(t in TYPE_ON)) TYPE_ON[t] = true; });
+  HIER_FETCHED = true;
+}
+function injectHierControl(){
+  const bar = document.getElementById('toolbar');
+  if (!bar || document.getElementById('hierToggle')) return;
+  const wrap = document.createElement('div');
+  wrap.className = 'hier-ctrl';
+  wrap.innerHTML = `<label class="hier-main" title="Explode os épicos nos níveis abaixo (features, stories, sub-tasks) na tabela detalhada"><input type="checkbox" id="hierToggle"> Explodir hierarquia</label><span class="type-filters" id="typeFilters"></span>`;
+  bar.appendChild(wrap);
+  document.getElementById('hierToggle').addEventListener('change', onHierToggle);
+}
+function renderTypeFilters(){
+  const c = document.getElementById('typeFilters'); if (!c) return;
+  if (!EXPLODED){ c.innerHTML = ''; return; }
+  c.innerHTML = '<span class="tf-lbl">níveis:</span>' + DISCOVERED_TYPES.filter(t => t !== 'Epic').map(t =>
+    `<label class="type-chip"><input type="checkbox" data-type="${escapeHtml(t)}" ${TYPE_ON[t] !== false ? 'checked' : ''}> ${escapeHtml(t)}</label>`).join('');
+  c.querySelectorAll('input[data-type]').forEach(inp => inp.addEventListener('change', () => { TYPE_ON[inp.dataset.type] = inp.checked; refreshChildVis(); }));
+}
+async function onHierToggle(e){
+  EXPLODED = e.target.checked;
+  const box = document.getElementById('hierToggle');
+  if (EXPLODED && !HIER_FETCHED){
+    box.disabled = true; box.parentElement.classList.add('loading');
+    try { await fetchHierarchy(); }
+    catch (err){ toast('Falha na hierarquia: ' + err.message); EXPLODED = false; box.checked = false; }
+    finally { box.disabled = false; box.parentElement.classList.remove('loading'); }
+  }
+  EXPANDED.clear();
+  renderTypeFilters();
+  if (LAST_SCHEDULE) renderTable(LAST_SCHEDULE);
+}
+function refreshChildVis(){
+  document.querySelectorAll('#epicTable tr.child-row').forEach(tr => {
+    tr.style.display = (EXPANDED.has(tr.dataset.epic) && TYPE_ON[tr.dataset.type] !== false) ? '' : 'none';
+  });
+}
+function wirePlannerCarets(){
+  document.querySelectorAll('#epicTable .tree-caret').forEach(el => {
+    const toggle = () => {
+      const k = el.dataset.key;
+      if (EXPANDED.has(k)) EXPANDED.delete(k); else EXPANDED.add(k);
+      el.closest('tr').classList.toggle('open', EXPANDED.has(k));
+      refreshChildVis();
+    };
+    el.addEventListener('click', toggle);
+    el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); toggle(); } });
+  });
+}
+// Tabela custom aninhada (substitui o GridJS só quando explodido).
+function renderTableExploded(sched){
+  const rows = [];
+  sched.epics.forEach(e => {
+    const st = STATUS_MAP[e.status] || STATUS_MAP['Backlog'];
+    const nDesc = descendantsOf(e.key).length;
+    const caret = nDesc ? `<span class="tree-caret" data-key="${e.key}" role="button" tabindex="0" title="Explodir níveis">▶<span class="desc-count">${nDesc}</span></span>` : '';
+    const sp = e.spSource === 'placeholder' ? '?' : e.effectiveSp + 'h';
+    const loc = e.inBacklog ? 'Backlog' : (e.trackIdx != null ? 'T' + (e.trackIdx + 1) : '—');
+    rows.push(`<tr class="epic-row" data-key="${e.key}">
+      <td class="k">${caret}<a href="${e.url}" target="_blank" rel="noopener">${e.key}</a></td>
+      <td class="s">${escapeHtml(e.summary)}</td>
+      <td><span class="badge ${st.cls}">${escapeHtml(e.status)}</span></td>
+      <td><span class="badge prio-${String(e.priority).toLowerCase()}">${e.priority}</span></td>
+      <td class="num">${sp}</td><td class="loc">${loc}</td>
+      <td class="dt">${e.scheduledStart ? fmtBR(e.scheduledStart) : '—'}</td>
+      <td class="dt">${e.scheduledEnd ? fmtBR(e.scheduledEnd) : '—'}</td></tr>`);
+    descendantsOf(e.key).forEach(ch => {
+      const cst = STATUS_MAP[ch.status] || STATUS_MAP['Backlog'];
+      const indent = 8 + (ch._depth || 1) * 18;
+      rows.push(`<tr class="child-row" data-epic="${e.key}" data-type="${escapeHtml(ch.issueType)}" style="display:none">
+        <td class="k child" style="padding-left:${indent}px"><span class="tree-guide">└</span><a href="${ch.url}" target="_blank" rel="noopener">${ch.key}</a></td>
+        <td class="s child">${escapeHtml(ch.summary)}</td>
+        <td><span class="badge ${cst.cls}">${escapeHtml(ch.status)}</span></td>
+        <td><span class="type-badge">${escapeHtml(ch.issueType)}</span></td>
+        <td class="num">${ch.jiraEstimateH != null ? ch.jiraEstimateH + 'h' : '—'}</td><td class="loc">—</td>
+        <td class="dt">${ch.jiraStart ? fmtBR(ch.jiraStart) : '—'}</td>
+        <td class="dt">${ch.jiraDue ? fmtBR(ch.jiraDue) : '—'}</td></tr>`);
+    });
+  });
+  const c = document.getElementById('epicTable');
+  c.innerHTML = `<div class="hier-note">Explodido: épicos → filhos (por parent). A esteira acima segue no nível de épico.</div>
+    <table class="hier-table"><thead><tr><th>Key</th><th>Resumo</th><th>Status</th><th>Prio / Tipo</th><th>h</th><th>Local</th><th>Início</th><th>Fim</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
+  wirePlannerCarets();
+  refreshChildVis();
+}
+
+// ============================================================================
 // Layout default (quando não há override): distribui por prioridade nas tracks
 // ============================================================================
 // Config da engine compartilhada pra este caller (FST: horas, sem dedicada,
@@ -445,6 +578,7 @@ function renderHeatmap(sched){
 
 let gridInst = null;
 function renderTable(sched){
+  if (EXPLODED) return renderTableExploded(sched);
   const esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   const cell = (inner, titleText, cls) => gridjs.html(`<div class="${cls}" title="${esc(titleText)}">${inner}</div>`);
 
@@ -777,6 +911,9 @@ async function loadData(isRefresh){
     // Encerrados (Done/Resolved/Canceled…) não entram na esteira; Hyper Care permanece.
     EPICS = issues.map(normalizeEpic).filter(e => !isClosedNotHyper(e));
     CHILDREN_BY_EPIC = {}; // FastShop estima no próprio épico — sem rollup de filhas
+    // Hierarquia (explosão de níveis) fica stale com dados novos; re-busca se ligada.
+    HIER_FETCHED = false; CHILDREN_HIER = {}; EXPANDED.clear();
+    if (EXPLODED) { try { await fetchHierarchy(); } catch (err) { toast('Falha na hierarquia: ' + err.message); } }
 
     // 3) merge com estado local (preserva overrides)
     if (!STATE) STATE = loadState();
@@ -790,6 +927,8 @@ async function loadData(isRefresh){
     document.getElementById('loadingBox').style.display = 'none';
     document.getElementById('toolbar').style.display = '';
     document.getElementById('content').style.display = '';
+    injectHierControl();
+    renderTypeFilters();
     render();
   } catch (e){
     document.getElementById('loadingBox').style.display = 'none';
