@@ -4,7 +4,18 @@
 // do FST e os status nativos do VENA). Rede de segurança: scripts/render-snapshot.js.
 window.KruzerReport = { mount: function (CFG) {
 const PROJECT = CFG.project, JIRA_BASE = 'https://kruzer.atlassian.net';
-const FIELDS = ['summary','status','priority','issuetype','parent','created','resolutiondate','labels','duedate','description','customfield_10015','timeoriginalestimate','aggregatetimeoriginalestimate'].concat(KruzerCapacity.DEV_DUE_FIELD ? [KruzerCapacity.DEV_DUE_FIELD] : []);
+const FIELDS = ['summary','status','priority','issuetype','parent','issuelinks','created','resolutiondate','labels','duedate','description','customfield_10015','timeoriginalestimate','aggregatetimeoriginalestimate'].concat(KruzerCapacity.DEV_DUE_FIELD ? [KruzerCapacity.DEV_DUE_FIELD] : []);
+
+// Dependências (issuelinks): coleta as chaves que ESTE item bloqueia/precede
+// (link outward do tipo "blocks"/"depends"). Uma aresta dirigida origem→alvo.
+function parseLinks(links){
+  const out = [];
+  (links || []).forEach(l => {
+    const nm = (l.type && l.type.name || '').toLowerCase();
+    if (l.outwardIssue && /block|depend|precede/.test(nm)) out.push(l.outwardIssue.key);
+  });
+  return out;
+}
 const REMARK_STORE = CFG.remarkStore;
 
 // Buckets de status, do mais maduro (conclusão) ao mais inicial.
@@ -178,6 +189,7 @@ function normalize(issue){
   // Hierarquia: tipo do issue + chave do pai (parent nativo ou epic-link legado).
   out.issueType = f.issuetype?.name || 'Task';
   out.parentKey = f.parent?.key || f.customfield_10014 || null;
+  out.blocks = parseLinks(f.issuelinks);   // arestas de dependência (origem→alvo)
   return out;
 }
 
@@ -271,7 +283,7 @@ function renderTypeFilters(){
   c.innerHTML = '<span class="tf-lbl">níveis:</span>' + DISCOVERED_TYPES.filter(t => t !== 'Epic').map(t =>
     `<label class="type-chip"><input type="checkbox" data-type="${escapeHtml(t)}" ${TYPE_ON[t] !== false ? 'checked' : ''}> ${escapeHtml(t)}</label>`).join('');
   c.querySelectorAll('input[data-type]').forEach(inp => inp.addEventListener('change', () => {
-    TYPE_ON[inp.dataset.type] = inp.checked; renderTable();
+    TYPE_ON[inp.dataset.type] = inp.checked; renderTable(); renderGantt();
   }));
 }
 async function onHierToggle(e){
@@ -286,6 +298,7 @@ async function onHierToggle(e){
   EXPANDED.clear();
   renderTypeFilters();
   renderTable();
+  renderGantt();
 }
 
 // ---- Render ----
@@ -313,6 +326,7 @@ function sortWithin(arr){
 function epicRowEl(i, b){
   const tr = document.createElement('tr');
   tr.dataset.bucket = i.bucket; tr.dataset.prio = i.priorityTier; tr.dataset.key = i.key;
+  if (EXPANDED.has(i.key)) tr.classList.add('open');
   tr.dataset.text = `${i.key} ${i.dmnd} ${i.name}`.toLowerCase();
   const start = fmtDate(i.startDate);
   const nDesc = EXPLODED ? descendantsOf(i.key).length : 0;
@@ -383,6 +397,7 @@ function wireCarets(){
       if (EXPANDED.has(key)) EXPANDED.delete(key); else EXPANDED.add(key);
       el.closest('tr').classList.toggle('open', EXPANDED.has(key));
       applyFilter();
+      renderGantt();   // reflete a cascata (barras-filho) na timeline
     };
     el.addEventListener('click', toggle);
     el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); toggle(); } });
@@ -641,11 +656,34 @@ function renderGantt(){
 
   if (!allItems.length){ svg.innerHTML=''; svg.setAttribute('height',0); return; }
 
+  // Quando explodido, injeta barras dos FILHOS dos épicos EXPANDIDos (o mesmo
+  // caret da tabela dirige a cascata na timeline). Filho com datas → barra pelas
+  // suas datas; sem datas → barra tênue (hachura) no span do épico-pai.
+  const D2 = s => s ? new Date(String(s).slice(0,10) + 'T00:00:00') : null;
+  const childBar = (c, parent, depth) => {
+    const s = D2(c.startDate) || parent.start;
+    let e = D2(c.dueDate) || parent.end;
+    if (s && e && e < s) e = addDays(s, 1);
+    const undated = !c.startDate && !c.dueDate;
+    return { key:c.key, url:c.url, name:c.name, start:s, end:e,
+      color: BUCKET_COLOR[c.bucket] || '#48507D', placeholder: undated, undated,
+      statusLabel: (bucketById(c.bucket)||{}).label || '', late:false,
+      dueD: D2(c.dueDate), isChild:true, depth, issueType:c.issueType, effort:null };
+  };
+  const augmented = groups.map(g => {
+    const list = [];
+    [...g.items].sort((a,b)=> a.start - b.start).forEach(e => {
+      list.push(Object.assign({ isChild:false, depth:0 }, e));
+      if (EXPLODED && EXPANDED.has(e.key))
+        descendantsOf(e.key).filter(c => TYPE_ON[c.issueType] !== false).forEach(c => list.push(childBar(c, e, c._depth || 1)));
+    });
+    return Object.assign({}, g, { items:list, epicCount:g.items.length });
+  });
+  const renderItems = augmented.flatMap(g => g.items);
+
   const today = plan.today;
-  // Inclui starts reais no passado (épicos em andamento começam na Start date).
-  // Piso em 1º de abril pra limitar espaço morto; barras anteriores ficam cortadas (‹).
-  const starts = allItems.map(it => it.start.getTime());
-  const ends = allItems.map(it => it.end.getTime());
+  const starts = renderItems.map(it => it.start.getTime());
+  const ends = renderItems.map(it => it.end.getTime());
   const aprFloor = new Date(today.getFullYear(), 3, 1).getTime();
   const minD = new Date(Math.max(Math.min(Math.min(...starts) - 3*MS_DAY, today.getTime() - 3*MS_DAY), aprFloor));
   const horizonMs = plan.horizonEnd ? plan.horizonEnd.getTime() : Math.max(...ends);
@@ -660,10 +698,11 @@ function renderGantt(){
   const xd = d => LEFT + (d - minD)/MS_DAY * PX_DAY;
 
   let totalH = TOP;
-  groups.forEach(g => totalH += GH + g.items.length*ROW);
+  augmented.forEach(g => totalH += GH + g.items.length*ROW);
   totalH += PAD_B;
 
-  let body = '<defs><pattern id="hh" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)"><rect width="6" height="6" fill="#c6cadb"/><rect width="3" height="6" fill="#eef0f6"/></pattern></defs>';
+  let body = '<defs><pattern id="hh" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)"><rect width="6" height="6" fill="#c6cadb"/><rect width="3" height="6" fill="#eef0f6"/></pattern>'
+    + '<marker id="depArrow" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#8b93a7"/></marker></defs>';
 
   let m = new Date(minD.getFullYear(), minD.getMonth(), 1);
   while (m <= maxD){
@@ -681,35 +720,56 @@ function renderGantt(){
     body += `<text class="g-axis" x="${(hx+4).toFixed(1)}" y="${(TOP-2).toFixed(1)}" fill="#F79009">horizonte ${pa.horizonWeeks||''}sem</text>`;
   }
 
+  const barPos = {};   // key -> {x1,x2,y} p/ desenhar as setas de dependência
   let y = TOP;
-  groups.forEach(g=>{
-    const items = [...g.items].sort((a,b)=> a.start - b.start);
-    const sumEff = items.reduce((a,e)=>a+(e.effort||0),0);
-    const lastEnd = items.reduce((mx,e)=> e.end>mx?e.end:mx, today);
+  augmented.forEach(g=>{
+    const sumEff = g.items.reduce((a,e)=> a + (e.isChild ? 0 : (e.effort||0)), 0);
+    const lastEnd = g.items.reduce((mx,e)=> e.end>mx?e.end:mx, today);
     body += `<rect class="g-group-band" x="0" y="${y}" width="${W}" height="${GH}"/>`;
     body += `<text class="g-group-name" x="12" y="${y+GH/2+4}">${escapeHtml(g.label)}</text>`;
-    body += `<text class="g-group-meta" x="200" y="${y+GH/2+4}">${items.length} épicos · ${sumEff}${U} · → ${fmtShort(lastEnd)}</text>`;
+    body += `<text class="g-group-meta" x="200" y="${y+GH/2+4}">${g.epicCount} épicos · ${sumEff}${U} · → ${fmtShort(lastEnd)}</text>`;
     y += GH;
-    items.forEach(e=>{
+    g.items.forEach(e=>{
       const sx = xd(e.start), ex = xd(e.end);
       const clampedLeft = sx < LEFT;
       const bx = Math.max(sx, LEFT), bw = Math.max(6, ex - bx);
-      const by = y + (ROW-18)/2;
+      const H = e.isChild ? 12 : 18;
+      const by = y + (ROW-H)/2;
       const fill = e.placeholder ? 'url(#hh)' : e.color;
       const stroke = e.late ? '#F04438' : 'none', sw = e.late ? 2 : 0;
+      const ind = (e.depth||0) * 14;
       const nm = e.name.length > 30 ? e.name.slice(0,29)+'…' : e.name;
-      body += KruzerComponents.svgLink(e.url, `<text class="g-key" x="12" y="${y+ROW/2+4}">${e.key}</text>`);
-      body += `<text class="g-name" x="70" y="${y+ROW/2+4}">${escapeHtml(nm)}</text>`;
+      const keyCls = e.isChild ? 'g-key g-key-child' : 'g-key';
+      body += KruzerComponents.svgLink(e.url, `<text class="${keyCls}" x="${12+ind}" y="${y+ROW/2+4}">${e.isChild?'└ ':''}${e.key}</text>`);
+      body += `<text class="g-name" x="${88+ind}" y="${y+ROW/2+4}">${escapeHtml(nm)}</text>`;
       body += `<line class="g-rowsep" x1="0" y1="${y+ROW}" x2="${W}" y2="${y+ROW}"/>`;
-      body += `<rect class="gantt-bar" x="${bx.toFixed(1)}" y="${by}" width="${bw.toFixed(1)}" height="18" rx="4" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"`
-        + ` data-key="${e.key}" data-name="${escapeHtml(e.name)}" data-status="${escapeHtml(e.statusLabel)}"`
-        + ` data-eff="${effLabel(e)}" data-start="${fmtShort(e.start)}" data-end="${fmtShort(e.end)}"`
+      body += `<rect class="gantt-bar" x="${bx.toFixed(1)}" y="${by}" width="${bw.toFixed(1)}" height="${H}" rx="${e.isChild?3:4}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"`
+        + ` data-key="${e.key}" data-name="${escapeHtml(e.name)}" data-status="${escapeHtml(e.statusLabel)}${e.isChild?' · '+escapeHtml(e.issueType||''):''}"`
+        + ` data-eff="${e.isChild ? (e.undated?'sem data':'') : effLabel(e)}" data-start="${fmtShort(e.start)}" data-end="${fmtShort(e.end)}"`
         + ` data-due="${e.dueD?fmtShort(e.dueD):''}" data-late="${e.late?'1':''}" data-url="${e.url}"/>`;
-      if (clampedLeft && bw > 16) body += `<polyline points="${(bx+8).toFixed(1)},${by+3} ${(bx+3).toFixed(1)},${by+9} ${(bx+8).toFixed(1)},${by+15}" fill="none" stroke="#fff" stroke-width="1.5"/>`;
-      if (bw > 46) body += `<text class="g-barlabel" x="${(bx+(clampedLeft?14:6)).toFixed(1)}" y="${by+13}" ${e.placeholder?'fill="#232534"':''}>${effLabel(e)}</text>`;
+      if (clampedLeft && bw > 16) body += `<polyline points="${(bx+8).toFixed(1)},${by+3} ${(bx+3).toFixed(1)},${by+H/2} ${(bx+8).toFixed(1)},${by+H-3}" fill="none" stroke="#fff" stroke-width="1.5"/>`;
+      if (!e.isChild && bw > 46) body += `<text class="g-barlabel" x="${(bx+(clampedLeft?14:6)).toFixed(1)}" y="${by+13}" ${e.placeholder?'fill="#232534"':''}>${effLabel(e)}</text>`;
+      barPos[e.key] = { x1: bx, x2: bx+bw, y: by + H/2 };
       y += ROW;
     });
   });
+
+  // Setas de dependência (issuelinks "blocks"): origem→alvo entre barras visíveis.
+  const edges = [];
+  RAW.forEach(o => (o.blocks||[]).forEach(t => edges.push([o.key, t])));
+  Object.values(CHILDREN_BY_PARENT).forEach(arr => arr.forEach(o => (o.blocks||[]).forEach(t => edges.push([o.key, t]))));
+  let depCount = 0;
+  edges.forEach(([from,to]) => {
+    const a = barPos[from], bb = barPos[to];
+    if (!a || !bb) return;
+    depCount++;
+    const x1 = a.x2, midx = Math.max(x1+9, bb.x1-9);
+    body += `<path class="dep-link" d="M ${x1.toFixed(1)} ${a.y.toFixed(1)} L ${(x1+9).toFixed(1)} ${a.y.toFixed(1)} L ${(x1+9).toFixed(1)} ${bb.y.toFixed(1)} L ${(bb.x1-2).toFixed(1)} ${bb.y.toFixed(1)}" fill="none" stroke="#8b93a7" stroke-width="1.3" stroke-dasharray="4 3" marker-end="url(#depArrow)"/>`;
+  });
+  if (depCount) {
+    const cur = document.getElementById('ganttNote').textContent;
+    document.getElementById('ganttNote').textContent = (cur ? cur + ' ' : '') + `↝ ${depCount} dependência(s) (blocks) desenhada(s).`;
+  }
 
   // Linha de hoje — por último (z-index acima das faixas/barras).
   if (today >= minD && today <= maxD){
