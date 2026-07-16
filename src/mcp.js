@@ -19,7 +19,7 @@ const MS_DAY = 86400000;
 const PROJECTS = [
   { key: 'FST',  label: 'FastShop',    model: 'horas',        statusVariant: 'fst',  report: '/fst/',        capacity: '/fst/capacity'  },
   { key: 'VENA', label: 'Venâncio',    model: 'story points', statusVariant: 'vena', report: '/vena/roadmap', capacity: '/vena/capacity' },
-  { key: 'PGM',  label: 'Pague Menos', model: 'horas',        statusVariant: 'fst',  report: '/pgm/',        capacity: '/pgm/capacity'  },
+  { key: 'PMD',  label: 'Pague Menos', model: 'horas',        statusVariant: 'fst',  report: '/pgm/',        capacity: '/pgm/capacity'  },
   { key: 'DCT',  label: 'Decathlon',   model: '—',            statusVariant: 'vena', report: null,           capacity: null             },
 ];
 const EPIC_PROJECTS = PROJECTS.map(p => p.key);
@@ -230,7 +230,7 @@ function assessRisks(epics, schedIdx) {
 const TOOLS = [
   {
     name: 'list_projects',
-    description: 'Lista os projetos/clientes rastreados nos dashboards Kruzer (FST, VENA, DCT, PGM) e o Service Desk KRZR, com o modelo de estimativa (horas vs story points) e as rotas de report/capacity. Use como discovery antes das outras tools.',
+    description: 'Lista os projetos/clientes rastreados nos dashboards Kruzer (FST, VENA, DCT, PMD) e o Service Desk KRZR, com o modelo de estimativa (horas vs story points) e as rotas de report/capacity. Use como discovery antes das outras tools.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     async run() {
       return { projects: PROJECTS, serviceDesk: KRZR_META };
@@ -249,13 +249,13 @@ const TOOLS = [
     description: 'Épicos de um projeto-cliente com o STATUS derivado (bucket: backlog → estimativa → aprovação → execução → UAT → hyper care), prioridade (P0-P3), start/due, se está committed e se está atrasado (due < hoje). Espelha o Status Report do dashboard.',
     inputSchema: {
       type: 'object',
-      properties: { project: { type: 'string', enum: EPIC_PROJECTS, description: 'FST, VENA, DCT ou PGM' } },
+      properties: { project: { type: 'string', enum: EPIC_PROJECTS, description: 'FST, VENA, DCT ou PMD' } },
       required: ['project'], additionalProperties: false,
     },
     async run(args, env, deps) {
       const project = String(args.project || '').toUpperCase();
       const meta = projectMeta(project);
-      if (!meta) throw new Error(`Projeto inválido: "${args.project}". Use FST, VENA, DCT ou PGM.`);
+      if (!meta) throw new Error(`Projeto inválido: "${args.project}". Use FST, VENA, DCT ou PMD.`);
       const jql = `project = ${project} AND issuetype = Epic ORDER BY created DESC`;
       const issues = await deps.jiraSearchAll(env, jql, STATUS_FIELDS, 100, 6);
       const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -307,7 +307,7 @@ const TOOLS = [
     description: 'Cronograma de capacity PUBLICADO de um projeto (lanes/recursos × épicos com datas projetadas), lido do estado compartilhado (D1). É o que a timeline do report espelha. Retorna null se nada foi publicado.',
     inputSchema: {
       type: 'object',
-      properties: { project: { type: 'string', enum: ['FST', 'VENA', 'PGM'], description: 'FST, VENA ou PGM (DCT não tem capacity planner)' } },
+      properties: { project: { type: 'string', enum: ['FST', 'VENA', 'PMD'], description: 'FST, VENA ou PMD (DCT não tem capacity planner)' } },
       required: ['project'], additionalProperties: false,
     },
     async run(args, env, deps) {
@@ -326,7 +326,7 @@ const TOOLS = [
     description: 'Riscos operacionais consolidados (o motor do cockpit executivo): ATRASO (due passado), ATRASO PROJETADO (esteira publicada estoura o due), BLOQUEIO (parado ≥5d), WIP (recurso com ≥3 épicos), SEM ESTIMATIVA, SEM DUE, SUSTAIN. Cada risco vem com a decisão executiva sugerida. Opcionalmente filtra por projeto.',
     inputSchema: {
       type: 'object',
-      properties: { project: { type: 'string', enum: EPIC_PROJECTS, description: 'Opcional: filtra os riscos de um projeto (FST/VENA/DCT/PGM)' } },
+      properties: { project: { type: 'string', enum: EPIC_PROJECTS, description: 'Opcional: filtra os riscos de um projeto (FST/VENA/DCT/PMD)' } },
       additionalProperties: false,
     },
     async run(args, env, deps) {
