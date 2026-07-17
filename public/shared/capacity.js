@@ -182,6 +182,9 @@ window.KruzerCapacity = (function () {
     const squad = state.devs * state.velocityPerDev;
     const throughputPerTrack = squad / state.parallelTracks;
     const floatAll = !!state.whatIfMode;   // what-if: ignora datas reais → fluxo puro
+    // Paralelismo por track (concorrência planejada). 1 = serial (default). O toggle
+    // "permitir sobreposição" no planner grava 2+ aqui. What-if força tudo serial (P=1).
+    const parOf = ti => floatAll ? 1 : Math.max(1, Math.round((state.trackParallelism && state.trackParallelism[ti]) || 1));
 
     const byKey = {};
     const list = epics.map(e => {
@@ -223,7 +226,8 @@ window.KruzerCapacity = (function () {
 
     // Agenda um track: fixa as âncoras nas datas reais e faz os flutuantes fluírem
     // por earliest-fit ao redor das janelas ocupadas (a "esteira" contorna os lotes fixos).
-    function scheduleTrack(track, perTrack) {
+    function scheduleTrack(track, perTrack, par) {
+      par = Math.max(1, par || 1);   // grau de paralelismo da track (1 = serial, como hoje)
       const windows = [];   // janelas [start,end] ocupadas por âncoras (ms), p/ desvio dos flutuantes
       track.forEach(e => {
         const k = kind(e);
@@ -257,28 +261,81 @@ window.KruzerCapacity = (function () {
         }
         return t;
       };
-      let cursor = today;
-      track.forEach(e => {
-        if (kind(e) !== 'float') return;
-        const dur = durOf(e, perTrack);
-        let startMin = cursor;
+      const depFloor = e => {
+        let s = null;
         e.dependencies.forEach(depKey => {
           const dep = byKey[depKey];
-          if (dep && dep.scheduledEnd) startMin = new Date(Math.max(startMin.getTime(), dep.scheduledEnd.getTime()));
+          if (dep && dep.scheduledEnd) s = new Date(Math.max((s || dep.scheduledEnd).getTime(), dep.scheduledEnd.getTime()));
         });
-        startMin = avoid(startOfDay(startMin), dur);
-        e.scheduledStart = startOfDay(startMin);
-        e.scheduledEnd = addDays(e.scheduledStart, dur);
-        e.late = false;
-        cursor = e.scheduledEnd;
-      });
+        return s;
+      };
+      if (par <= 1) {
+        // Serial (comportamento default, intocado): enfileira os flutuantes.
+        let cursor = today;
+        track.forEach(e => {
+          if (kind(e) !== 'float') return;
+          const dur = durOf(e, perTrack);
+          let startMin = cursor;
+          const df = depFloor(e); if (df) startMin = new Date(Math.max(startMin.getTime(), df.getTime()));
+          startMin = avoid(startOfDay(startMin), dur);
+          e.scheduledStart = startOfDay(startMin);
+          e.scheduledEnd = addDays(e.scheduledStart, dur);
+          e.late = false;
+          cursor = e.scheduledEnd;
+        });
+      } else {
+        // Concorrência planejada: a track vira `par` sub-esteiras paralelas, cada
+        // uma com perTrack/par de throughput → cada flutuante fica `par`× mais lento
+        // e eles se SOBREPÕEM (capacidade dividida). List-scheduling: o item entra
+        // na sub-esteira que libera primeiro. Ainda desvia das âncoras (janelas fixas).
+        const subCursor = Array.from({ length: par }, () => today);
+        track.forEach(e => {
+          if (kind(e) !== 'float') return;
+          const dur = durOf(e, perTrack) * par;                 // throughput dividido por `par`
+          let li = 0; for (let i = 1; i < par; i++) if (subCursor[i] < subCursor[li]) li = i;
+          let startMin = subCursor[li];
+          const df = depFloor(e); if (df) startMin = new Date(Math.max(startMin.getTime(), df.getTime()));
+          startMin = avoid(startOfDay(startMin), dur);
+          e.scheduledStart = startOfDay(startMin);
+          e.scheduledEnd = addDays(e.scheduledStart, dur);
+          e.late = false; e.concurrent = true;
+          subCursor[li] = e.scheduledEnd;
+        });
+      }
     }
 
     // resolução de dependências entre tracks: itera até estabilizar (grafo pequeno)
     for (let pass = 0; pass < placed.length + 2; pass++) {
-      tracks.forEach(track => scheduleTrack(track, throughputPerTrack));
-      if (dedEpic) scheduleTrack([dedEpic], dedThroughput);
+      tracks.forEach((track, ti) => scheduleTrack(track, throughputPerTrack, parOf(ti)));
+      if (dedEpic) scheduleTrack([dedEpic], dedThroughput, 1);
     }
+
+    // Detecção de SOBREPOSIÇÃO: pares na mesma track cujas janelas agendadas se
+    // cruzam (âncoras que colidem por datas reais, ou flutuantes concorrentes numa
+    // track com paralelismo>1). Marca os itens e lista os conflitos p/ o planner.
+    const overlaps = [];
+    tracks.forEach((track, ti) => {
+      const its = track.filter(e => e.scheduledStart && e.scheduledEnd);
+      for (let i = 0; i < its.length; i++) for (let j = i + 1; j < its.length; j++) {
+        const a = its[i], b = its[j];
+        const from = Math.max(a.scheduledStart.getTime(), b.scheduledStart.getTime());
+        const to = Math.min(a.scheduledEnd.getTime(), b.scheduledEnd.getTime());
+        if (to <= from) continue;
+        // Só é CONFLITO quando a soma das taxas semanais dos dois estoura a
+        // capacidade da faixa (contenção real). Coexistência benigna (ex.: vários
+        // itens parados/abertos de baixa taxa) e concorrência planejada (capacidade
+        // já dividida, soma ≈ throughput) NÃO viram alerta.
+        const rate = x => x.effectiveSp / Math.max(1, (x.scheduledEnd - x.scheduledStart) / MS_DAY) * 7;
+        const combined = rate(a) + rate(b);
+        if (combined <= throughputPerTrack * 1.0) continue;
+        a.overlapped = true; b.overlapped = true;
+        overlaps.push({ trackIdx: ti, aKey: a.key, bKey: b.key,
+          aName: cleanName(a.summary || a.name || a.key), bName: cleanName(b.summary || b.name || b.key),
+          fromISO: startOfDay(new Date(from)).toISOString(), toISO: startOfDay(new Date(to)).toISOString(),
+          days: Math.max(1, Math.round((to - from) / MS_DAY)),
+          loadPct: Math.round(combined / throughputPerTrack * 100) });
+      }
+    });
 
     const allScheduled = dedEpic ? placed.concat([dedEpic]) : placed;
     allScheduled.forEach(e => { e.overHorizon = e.scheduledStart >= horizonEnd; });
@@ -289,7 +346,7 @@ window.KruzerCapacity = (function () {
     const totalCapacity = squad + (dedEpic ? dedThroughput : 0);
 
     return { today, squad, totalCapacity, throughputPerTrack, dedThroughput, tracks, dedEpic,
-             byKey, epics: list, placed, allScheduled, horizonEnd, totalWeeks };
+             byKey, epics: list, placed, allScheduled, horizonEnd, totalWeeks, overlaps };
   }
 
   return { MS_DAY, startOfDay, addDays, cleanName, keyNum, BLK_HEX, DEV_DUE_FIELD,

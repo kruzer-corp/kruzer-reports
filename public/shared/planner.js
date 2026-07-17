@@ -123,6 +123,7 @@ function defaultState(){
     backlog: [],            // demandKeys fora do plano
     manualSp: {},           // demandKey -> horas (override manual)
     dependencies: {},       // epicKey -> [epicKeys]
+    trackParallelism: {},   // trackIdx -> grau de paralelismo (2+ = sobreposição permitida)
     childDone: {},          // childKey -> bool (override manual de done)
     whatIfMode: false,
     createdAt: new Date().toISOString(),
@@ -418,6 +419,7 @@ function render(){
   renderBoard(sched);
   renderBacklog(sched);
   renderHeatmap(sched);
+  renderOverlaps(sched);
   renderTable(sched);
   wireSortables();
   document.getElementById('subtitle').textContent =
@@ -496,11 +498,14 @@ function renderBoard(sched){
     const items = sched.tracks[ti] || [];
     const sumSp = items.reduce((a,e)=>a+e.effectiveSp,0);
     const lastEnd = items.reduce((m,e)=> e.scheduledEnd&&e.scheduledEnd>m?e.scheduledEnd:m, sched.today);
+    const par = Math.max(1, (STATE.trackParallelism && STATE.trackParallelism[ti]) || 1);
+    const ovBtn = `<button class="lane-overlap${par>1?' on':''}" data-track="${ti}" title="Sobreposição: flutuantes desta track rodam concorrentes, dividindo a capacidade (cada um ${par>1?par+'× ':''}mais lento). Clique p/ alternar 1→2→3.">⇄ ${par>1?('×'+par):'sobrepor'}</button>`;
     lh += `<div class="lane">
       <div class="lane-head">
         <div class="nm">Track ${ti+1}</div>
         <div class="mt">${items.length} épicos · ${sumSp}h</div>
         <div class="mt">→ ${fmtBR(lastEnd)}</div>
+        ${ovBtn}
       </div>
       <div class="lane-strip" data-track="${ti}" style="min-width:${boardW}px">
         ${strip(items)}
@@ -509,6 +514,21 @@ function renderBoard(sched){
   }
   lanes.innerHTML = lh;
   wireBoardCarets();
+  wireLaneOverlap();
+}
+function wireLaneOverlap(){
+  document.querySelectorAll('#lanes .lane-overlap').forEach(b => {
+    b.addEventListener('click', ev => {
+      ev.stopPropagation();
+      const ti = +b.dataset.track;
+      STATE.trackParallelism = STATE.trackParallelism || {};
+      const cur = Math.max(1, STATE.trackParallelism[ti] || 1);
+      const next = cur >= 3 ? 1 : cur + 1;           // cicla 1 → 2 → 3 → 1
+      if (next <= 1) delete STATE.trackParallelism[ti]; else STATE.trackParallelism[ti] = next;
+      persist(); render();
+      toast(next > 1 ? `Track ${ti + 1}: sobreposição ×${next} (capacidade dividida)` : `Track ${ti + 1}: serial (sem sobreposição)`);
+    });
+  });
 }
 
 // Re-renderiza board + tabela juntos (mantém expansão sincronizada) + re-wire drag.
@@ -535,6 +555,7 @@ function blockHtml(e){
   const w = Math.max(30, e.effectiveSp * PX_PER_SP);
   const cls = ['block', isPlaceholder ? 'placeholder' : st.blk];
   if (e.committedLocked) cls.push('committed');
+  if (e.overlapped) cls.push('overlapped');
   const srcLabel = { hours:'horas', manual:'manual', placeholder:'?' }[e.spSource];
   const truncSum = e.summary.length > 26 ? e.summary.slice(0,24)+'…' : e.summary;
   let overlays = '';
@@ -593,28 +614,54 @@ function renderBacklog(sched){
 
 function renderHeatmap(sched){
   const ppwk = sched.throughputPerTrack * PX_PER_SP;
-  const cap = sched.totalCapacity; // SP/sem capacidade total (squad + stream dedicado)
   const el = document.getElementById('heatmap');
-  let html = `<div class="hm-pad lane-head-w">Carga / semana</div><div class="hm-track" style="width:${sched.totalWeeks*ppwk}px">`;
-  for (let w = 0; w < sched.totalWeeks; w++){
-    const wkStart = addDays(sched.today, w*7);
-    const wkEnd = addDays(wkStart, 7);
-    // carga = soma das frações de SP de épicos cruzando a semana
+  const trackW = sched.totalWeeks * ppwk;
+  const weekLoad = (items, wkStart, wkEnd) => {
     let load = 0;
-    sched.allScheduled.forEach(e=>{
+    items.forEach(e => {
       if (!e.scheduledStart || !e.scheduledEnd) return;
       const ov = Math.min(e.scheduledEnd, wkEnd) - Math.max(e.scheduledStart, wkStart);
       if (ov <= 0) return;
-      const durDays = Math.max(1, (e.scheduledEnd - e.scheduledStart)/MS_DAY);
-      load += e.effectiveSp * (ov/MS_DAY) / durDays;
+      const durDays = Math.max(1, (e.scheduledEnd - e.scheduledStart) / MS_DAY);
+      load += e.effectiveSp * (ov / MS_DAY) / durDays;
     });
-    const pct = cap>0 ? load/cap : 0;
-    const lvl = pct < 0.05 ? 'lvl-free' : pct <= 1.0 ? 'lvl-ok' : pct <= 1.1 ? 'lvl-warn' : 'lvl-over';
-    const cls = (pct < 0.05) ? 'lvl-free' : lvl;
-    html += `<div class="hm-cell ${cls}" style="left:${w*ppwk}px; width:${ppwk}px" title="Semana ${w+1} (${fmtBR(wkStart)}): ${load.toFixed(1)}/${cap}h · ${(pct*100).toFixed(0)}%"></div>`;
-  }
-  html += `</div>`;
+    return load;
+  };
+  // Uma linha por TRACK (carga vs capacidade da própria faixa) → mostra em qual
+  // track/semana estoura. Colisão de âncoras numa track = >100% (vermelho);
+  // concorrência planejada ≈ 100% (capacidade dividida, não estoura). + linha Total.
+  const rowHtml = (label, items, capRow, extraCls) => {
+    let cells = '';
+    for (let w = 0; w < sched.totalWeeks; w++){
+      const wkStart = addDays(sched.today, w*7), wkEnd = addDays(wkStart, 7);
+      const load = weekLoad(items, wkStart, wkEnd);
+      const pct = capRow > 0 ? load/capRow : 0;
+      const cls = pct < 0.05 ? 'lvl-free' : pct <= 1.0 ? 'lvl-ok' : pct <= 1.1 ? 'lvl-warn' : 'lvl-over';
+      cells += `<div class="hm-cell ${cls}" style="left:${w*ppwk}px; width:${ppwk}px" title="${label} · Sem ${w+1} (${fmtBR(wkStart)}): ${load.toFixed(1)}/${capRow.toFixed(0)}h · ${(pct*100).toFixed(0)}%"></div>`;
+    }
+    return `<div class="hm-row ${extraCls||''}"><div class="hm-pad lane-head-w">${label}</div><div class="hm-track" style="width:${trackW}px">${cells}</div></div>`;
+  };
+  let html = '';
+  sched.tracks.forEach((items, ti) => { html += rowHtml('Track ' + (ti+1), items, sched.throughputPerTrack); });
+  if (sched.dedEpic) html += rowHtml('Dedicada', [sched.dedEpic], sched.dedThroughput);
+  html += rowHtml('Carga total', sched.allScheduled, sched.totalCapacity, 'total');
   el.innerHTML = html;
+}
+// Callout de conflitos de sobreposição (injetado acima da esteira).
+function ensureOverlapHost(){
+  let h = document.getElementById('overlapAlert');
+  if (!h){ h = document.createElement('div'); h.id = 'overlapAlert'; h.className = 'overlap-alert';
+    const bs = document.getElementById('boardScroll'); if (bs && bs.parentNode) bs.parentNode.insertBefore(h, bs); }
+  return h;
+}
+function renderOverlaps(sched){
+  const h = ensureOverlapHost();
+  const ov = (sched.overlaps || []);
+  if (!ov.length){ h.style.display = 'none'; h.innerHTML = ''; return; }
+  h.style.display = '';
+  const li = ov.slice(0, 8).map(o => `<li>Track ${o.trackIdx+1}: <b>${escapeHtml(o.aKey)}</b> × <b>${escapeHtml(o.bKey)}</b> — ${fmtBR(new Date(o.fromISO))}–${fmtBR(new Date(o.toISO))} (${o.days}d)${o.loadPct?` · <b>${o.loadPct}%</b> da faixa`:''}</li>`).join('');
+  const more = ov.length > 8 ? `<li>+ ${ov.length-8} outra(s)…</li>` : '';
+  h.innerHTML = `<div class="ov-head">⚠ ${ov.length} sobreposição(ões) na esteira — demandas concorrentes disputando a mesma capacidade</div><ul>${li}${more}</ul>`;
 }
 
 let gridInst = null;
