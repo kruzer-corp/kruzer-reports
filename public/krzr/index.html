@@ -104,6 +104,18 @@ a:hover { text-decoration: underline; }
 .col-size-btn { padding: 4px 8px; font-size: 12px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); cursor: pointer; color: var(--ink); }
 .col-size-btn:hover { background: #f0f0f5; }
 .col-size-btn.active { background: var(--brand); color: white; border-color: var(--brand); }
+/* Pivot de priorização (prioridade × status) */
+.pivot-wrap { overflow-x: auto; }
+table.pivot { border-collapse: collapse; width: 100%; font-size: 13px; }
+table.pivot th, table.pivot td { padding: 8px 12px; text-align: center; border-bottom: 1px solid var(--border); white-space: nowrap; }
+table.pivot thead th { font-size: 11px; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); font-weight: 600; border-bottom: 2px solid var(--border); }
+table.pivot th.prio-cell, table.pivot td.prio-cell { text-align: left; font-weight: 600; }
+table.pivot td.num { font-variant-numeric: tabular-nums; }
+table.pivot td.zero { color: var(--kruzer-neutral-500); }
+table.pivot td.tot, table.pivot th.tot { font-weight: 700; background: var(--kruzer-neutral-100); }
+table.pivot tr.total-row td { font-weight: 700; border-top: 2px solid var(--border); background: var(--kruzer-neutral-100); }
+table.pivot tr.total-row td.grand { background: var(--kruzer-primary-700); color: #fff; }
+.prio-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 7px; vertical-align: middle; }
 </style>
 </head>
 <body>
@@ -128,6 +140,7 @@ a:hover { text-decoration: underline; }
       <div class="card"><h2>Open tickets by status</h2><div class="card-sub">Tickets ainda não resolvidos por status atual</div><div class="chart-wrap"><canvas id="statusChart"></canvas></div></div>
       <div class="card"><h2>Tickets by aging bracket</h2><div class="card-sub">Distribuição dos tickets abertos por idade</div><div class="chart-wrap"><canvas id="agingBracketChart"></canvas></div></div>
     </div>
+    <div class="card"><h2>Priorização do cliente — tickets por prioridade</h2><div class="card-sub">Pivot prioridade × status, da menor para a maior criticidade. Mostra como o cliente prioriza a fila e em que estágio cada nível está.</div><div class="pivot-wrap"><table class="pivot" id="priorityPivot"></table></div></div>
     <div class="card"><h2>Aging — tickets abertos</h2><div class="card-sub">Ordenado por idade decrescente. Workdays excluem fins de semana e feriados nacionais brasileiros.</div><div id="agingTable"></div></div>
   </div>
 </div>
@@ -224,12 +237,34 @@ function renderAging(d){const open=d.filter(i=>i.isOpen),buckets={'0–3d':0,'4�
 
 function renderTrend(d){const now=new Date(),sw=startOfWeek(now),weeks=[];for(let i=11;i>=0;i--){const ws=new Date(sw);ws.setDate(ws.getDate()-i*7);weeks.push(ws);}const opened=weeks.map(()=>0),resolved=weeks.map(()=>0);d.forEach(i=>{if(i.created){const idx=weeks.findIndex(w=>i.created>=w&&i.created<new Date(w.getTime()+7*86400000));if(idx>=0)opened[idx]++;}if(i.resolved){const idx=weeks.findIndex(w=>i.resolved>=w&&i.resolved<new Date(w.getTime()+7*86400000));if(idx>=0)resolved[idx]++;}});if(charts.trend)charts.trend.destroy();charts.trend=new Chart(document.getElementById('trendChart'),{type:'line',data:{labels:weeks.map(weekLabel),datasets:[{label:'Opened',data:opened,borderColor:'#4f46e5',backgroundColor:'rgba(79,70,229,0.1)',tension:0.3,fill:true,borderWidth:2},{label:'Resolved',data:resolved,borderColor:'#16a34a',backgroundColor:'rgba(22,163,74,0.1)',tension:0.3,fill:true,borderWidth:2}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'top',align:'end'}},scales:{y:{beginAtZero:true,ticks:{precision:0}}}}});}
 
+// Pivot prioridade × status (statusCategory), da MENOR pra MAIOR criticidade.
+// Conta os tickets no escopo filtrado; mostra a priorização do cliente por estágio.
+function renderPriorityPivot(d){
+  const PRIO_RANK={Lowest:1,Low:2,Medium:3,High:4,Highest:5};
+  const PRIO_COLOR={Lowest:'#16a34a',Low:'#65a30d',Medium:'#eab308',High:'#f97316',Highest:'#dc2626'};
+  const COLS=[['afazer','A fazer'],['andamento','Em andamento'],['concluido','Concluído']];
+  const bucketOf=sc=>{const s=(sc||'').toLowerCase();if(s.includes('progress')||s.includes('andamento'))return'andamento';if(s.includes('done')||s.includes('conclu'))return'concluido';return'afazer';};
+  const rows={};
+  d.forEach(i=>{const p=i.priority||'—';(rows[p]=rows[p]||{afazer:0,andamento:0,concluido:0,total:0});rows[p][bucketOf(i.statusCategory)]++;rows[p].total++;});
+  const order=Object.keys(rows).sort((a,b)=>(PRIO_RANK[a]||0)-(PRIO_RANK[b]||0));
+  const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const colTot={afazer:0,andamento:0,concluido:0,total:0};
+  let body='';
+  order.forEach(p=>{const r=rows[p];COLS.forEach(c=>colTot[c[0]]+=r[c[0]]);colTot.total+=r.total;
+    const dot=PRIO_COLOR[p]?`<span class="prio-dot" style="background:${PRIO_COLOR[p]}"></span>`:'';
+    body+=`<tr><td class="prio-cell">${dot}${esc(p==='—'?'Sem prioridade':p)}</td>`+
+      COLS.map(c=>{const v=r[c[0]];return `<td class="num${v?'':' zero'}">${v||'·'}</td>`;}).join('')+
+      `<td class="num tot">${r.total}</td></tr>`;});
+  const head=`<thead><tr><th class="prio-cell">Prioridade</th>${COLS.map(c=>`<th>${c[1]}</th>`).join('')}<th class="tot">Total</th></tr></thead>`;
+  const foot=`<tfoot><tr class="total-row"><td class="prio-cell">Total</td>${COLS.map(c=>`<td class="num">${colTot[c[0]]}</td>`).join('')}<td class="num grand">${colTot.total}</td></tr></tfoot>`;
+  document.getElementById('priorityPivot').innerHTML=head+`<tbody>${body||'<tr><td colspan="5" style="color:var(--muted)">Sem tickets no escopo.</td></tr>'}</tbody>`+foot;
+}
 function renderTable(d){const open=d.filter(i=>i.isOpen).sort((a,b)=>(b.ageCalDays||0)-(a.ageCalDays||0));const data=open.map(i=>{const days=i.ageCalDays||0,br=agingBracket(days),wd=i.ageWd!=null?i.ageWd.toFixed(1)+'d':'—',sc=statusClass(i.statusCategory);return[i.key,i.summary||'',i.orgs.join(', ')||'—',i.status,i.priority||'—',i.assignee||'—',days,i.url,sc,br.cls,wd];});const c=document.getElementById('agingTable');c.innerHTML='';const host=document.createElement('div');c.appendChild(host);const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');const cell=(inner,titleText,cls)=>gridjs.html(`<div class="${cls}" title="${esc(titleText)}">${inner}</div>`);const grid=new gridjs.Grid({autoWidth:false,columns:[{name:'Key',width:'100px',formatter:(c,row)=>cell(`<a href="${row.cells[7].data}" target="_blank" rel="noopener">${esc(c)}</a>`,c,'cl1')},{name:'Summary',formatter:c=>cell(esc(c),c,'cl2')},{name:'Organização',width:'130px',formatter:c=>cell(esc(c),c,'cl1')},{name:'Status',width:'130px',formatter:(c,row)=>cell(`<span class="badge ${row.cells[8].data}">${esc(c)}</span>`,c,'cl1')},{name:'Prioridade',width:'130px',formatter:c=>cell(esc(c),c,'cl1')},{name:'Responsável',width:'150px',formatter:c=>cell(esc(c),c,'cl2')},{name:'Idade',width:'130px',formatter:(c,row)=>cell(`<span class="badge ${row.cells[9].data}">${esc(c)}d (${esc(row.cells[10].data)})</span>`,c+'d','cl1')},{name:'_url',hidden:true},{name:'_scls',hidden:true},{name:'_acls',hidden:true},{name:'_awd',hidden:true}],data,search:true,sort:true,pagination:{limit:25},style:{table:{'font-size':'13px','table-layout':'fixed','width':'100%'}}});grid.render(host);}
 
 
 function populateOrgs(){const o=new Set();RAW.forEach(i=>i.orgs.forEach(x=>o.add(x)));const s=document.getElementById('orgFilter'),cur=s.value;const esc=v=>String(v).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');s.innerHTML='<option value="all">Todas</option>'+Array.from(o).sort().map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('');if(cur&&(cur==='all'||o.has(cur)))s.value=cur;}
 
-function renderAll(){const f=applyFilter();renderKPIs(f);renderStatus(f);renderAging(f);renderTrend(f);renderTable(f);document.getElementById('subtitle').textContent=`${f.length} tickets no escopo • atualizado ${new Date().toLocaleString('pt-BR')}`;}
+function renderAll(){const f=applyFilter();renderKPIs(f);renderStatus(f);renderAging(f);renderTrend(f);renderPriorityPivot(f);renderTable(f);document.getElementById('subtitle').textContent=`${f.length} tickets no escopo • atualizado ${new Date().toLocaleString('pt-BR')}`;}
 
 async function loadAndRender(){document.getElementById('errorBox').innerHTML='';document.getElementById('loadingBox').style.display='';document.getElementById('content').style.display='none';const btn=document.getElementById('refreshBtn');btn.disabled=true;btn.textContent='Atualizando…';try{generatePeriodOptions();const jql=`project = ${PROJECT} AND (resolution is EMPTY OR resolved >= -120d OR created >= -120d) ORDER BY created DESC`;const issues=await KruzerAPI.fetchAll({jql,fields:FIELDS,expand:['changelog']});RAW=issues.map(normalize);populateOrgs();document.getElementById('loadingBox').style.display='none';document.getElementById('content').style.display='';renderAll();}catch(e){document.getElementById('loadingBox').style.display='none';document.getElementById('errorBox').innerHTML=`<div class="error"><b>Falha ao carregar dados:</b> ${e.message}</div>`;}finally{btn.disabled=false;btn.textContent='Atualizar dados';}}
 
