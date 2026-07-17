@@ -995,7 +995,10 @@ async function exportPDF(){
     let cursorY = M;
     try {
       for (const block of visible){
-        const canvas = await html2canvas(block, { scale: 2, backgroundColor: null, windowWidth: container.scrollWidth, scrollX: 0, scrollY: -window.scrollY, useCORS: true });
+        // Fundo SÓLIDO na captura: JPEG não tem canal alfa, então pixels
+        // transparentes (blocos/áreas sem bg) virariam PRETO no PDF. Captura com a
+        // cor da página (#F4F4F8) elimina a transparência e o preto.
+        const canvas = await html2canvas(block, { scale: 2, backgroundColor: '#F4F4F8', windowWidth: container.scrollWidth, scrollX: 0, scrollY: -window.scrollY, useCORS: true });
         const imgW = usableW, imgH = canvas.height * imgW / canvas.width;
         const imgData = canvas.toDataURL('image/jpeg', 0.95);
         if (imgH <= usableH){
@@ -1010,7 +1013,9 @@ async function exportPDF(){
             const sliceH = Math.min(usableH, remaining);
             const sc = document.createElement('canvas');
             sc.width = canvas.width; sc.height = Math.round(sliceH * pxPerMm);
-            sc.getContext('2d').drawImage(canvas, 0, Math.round(srcYmm*pxPerMm), canvas.width, sc.height, 0, 0, canvas.width, sc.height);
+            const sctx = sc.getContext('2d');
+            sctx.fillStyle = '#F4F4F8'; sctx.fillRect(0, 0, sc.width, sc.height);   // opaco (sem preto em transparência)
+            sctx.drawImage(canvas, 0, Math.round(srcYmm*pxPerMm), canvas.width, sc.height, 0, 0, canvas.width, sc.height);
             pdf.addImage(sc.toDataURL('image/jpeg',0.95), 'JPEG', M, M, imgW, sliceH);
             remaining -= sliceH; srcYmm += sliceH;
             if (remaining > 0){ pdf.addPage(); fillBg(); } else { cursorY = M + sliceH + gap; }
