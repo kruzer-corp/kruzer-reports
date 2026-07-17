@@ -150,9 +150,14 @@ a:hover { text-decoration: underline; }
 .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; }
 @media (max-width: 1100px) { .grid-3 { grid-template-columns: 1fr; } }
 /* Pivot de priorização — abertos por prioridade (compacto, sem scroll) */
+/* Card em coluna flex + tabela altura 100% → linhas distribuídas cobrindo toda a
+   altura, conteúdo centralizado verticalmente (align a par dos gráficos ao lado). */
+.pivot-card { display: flex; flex-direction: column; }
+.pivot-card .pivot-wrap { flex: 1 1 auto; display: flex; }
 .pivot-wrap { overflow: hidden; }
-table.pivot { border-collapse: collapse; width: 100%; font-size: 12px; table-layout: fixed; }
-table.pivot th, table.pivot td { padding: 5px 6px; text-align: center; border-bottom: 1px solid var(--border); }
+table.pivot { border-collapse: collapse; width: 100%; height: 100%; font-size: 12px; table-layout: fixed; }
+table.pivot th, table.pivot td { padding: 5px 6px; text-align: center; border-bottom: 1px solid var(--border); vertical-align: middle; }
+table.pivot td.num.zero { color: var(--muted); font-weight: 600; }
 table.pivot thead th { font-size: 10px; text-transform: uppercase; letter-spacing: .02em; color: var(--muted); font-weight: 600; border-bottom: 2px solid var(--border); }
 table.pivot th.prio-cell, table.pivot td.prio-cell { text-align: left; font-weight: 600; width: 42%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 table.pivot th.num, table.pivot td.num { text-align: right; width: 58px; font-variant-numeric: tabular-nums; font-weight: 700; }
@@ -185,7 +190,7 @@ table.pivot tr.total-row td.grand { background: var(--kruzer-primary-700); color
     <div class="grid-3">
       <div class="card"><h2>Open tickets by status</h2><div class="card-sub">Tickets ainda não resolvidos por status atual</div><div class="chart-wrap"><canvas id="statusChart" role="img" aria-label="Tickets abertos por status"></canvas></div></div>
       <div class="card"><h2>Tickets by aging bracket</h2><div class="card-sub">Distribuição dos tickets abertos por idade</div><div class="chart-wrap"><canvas id="agingBracketChart" role="img" aria-label="Tickets por faixa de idade"></canvas></div></div>
-      <div class="card"><h2>Priorização do cliente</h2><div class="card-sub">Tickets abertos por prioridade, da menor para a maior criticidade.</div><div class="pivot-wrap"><table class="pivot" id="priorityPivot"></table></div></div>
+      <div class="card pivot-card"><h2>Priorização do cliente</h2><div class="card-sub">Tickets abertos por prioridade, da menor para a maior criticidade.</div><div class="pivot-wrap"><table class="pivot" id="priorityPivot"></table></div></div>
     </div>
     <div class="grid-2">
       <div class="card"><h2>Workload por assignee</h2><div class="card-sub">Abertos · idade média · lead p90 — top 10</div><div id="workloadCard"></div></div>
@@ -354,7 +359,8 @@ function renderPriorityPivot(d){
   const PRIO_RANK={Lowest:1,Low:2,Medium:3,High:4,Highest:5};
   const PRIO_COLOR={Lowest:'#16a34a',Low:'#65a30d',Medium:'#eab308',High:'#f97316',Highest:'#dc2626'};
   const open=d.filter(i=>i.isOpen);                          // só ABERTOS (sem concluídos)
-  const counts={};
+  const BASE=['Low','Medium','High','Highest'];              // sempre exibidos, mesmo com 0 abertos
+  const counts={}; BASE.forEach(p=>counts[p]=0);
   open.forEach(i=>{const p=i.priority||'—';counts[p]=(counts[p]||0)+1;});
   const order=Object.keys(counts).sort((a,b)=>(PRIO_RANK[a]||0)-(PRIO_RANK[b]||0));
   const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -363,8 +369,8 @@ function renderPriorityPivot(d){
   order.forEach(p=>{const v=counts[p];const col=PRIO_COLOR[p]||'#94a3b8';
     const dot=`<span class="prio-dot" style="background:${col}"></span>`;
     body+=`<tr><td class="prio-cell" title="${esc(p)}">${dot}${esc(p==='—'?'Sem prioridade':p)}</td>`+
-      `<td class="bar-cell"><span class="pbar" style="width:${(v/max*100).toFixed(1)}%;background:${col}"></span></td>`+
-      `<td class="num">${v}</td></tr>`;});
+      `<td class="bar-cell">${v?`<span class="pbar" style="width:${(v/max*100).toFixed(1)}%;background:${col}"></span>`:''}</td>`+
+      `<td class="num${v?'':' zero'}">${v}</td></tr>`;});
   const head=`<thead><tr><th class="prio-cell">Prioridade</th><th></th><th class="num">Abertos</th></tr></thead>`;
   const foot=`<tfoot><tr class="total-row"><td class="prio-cell">Total</td><td></td><td class="num grand">${open.length}</td></tr></tfoot>`;
   document.getElementById('priorityPivot').innerHTML=head+`<tbody>${body||'<tr><td colspan="3" style="color:var(--muted)">Sem tickets abertos no escopo.</td></tr>'}</tbody>`+foot;
