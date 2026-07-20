@@ -17,8 +17,37 @@
 .controls { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
 .control { display: flex; flex-direction: column; gap: 4px; }
 .control label { font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--kruzer-neutral-700); letter-spacing: 0.04em; }
-.chk-inline { display: flex; align-items: center; gap: 6px; min-height: 37px; font-size: 13px; font-weight: 500; color: var(--kruzer-navy); text-transform: none; letter-spacing: 0; cursor: pointer; white-space: nowrap; }
-.chk-inline input { width: 15px; height: 15px; cursor: pointer; accent-color: var(--kruzer-primary); }
+/* Filtro multi-seleção de recursos (popover) */
+.res-control { position: relative; }
+.res-btn { min-width: 190px; text-align: left; display: inline-flex; justify-content: space-between; align-items: center; gap: 8px; }
+.res-btn:after { content: "▾"; color: var(--kruzer-neutral-500); }
+.res-panel { position: absolute; top: 100%; left: 0; margin-top: 4px; z-index: 30; background: #fff; border: 1px solid var(--kruzer-neutral-300); border-radius: 10px; box-shadow: 0 10px 30px rgba(11,16,32,.14); width: 300px; padding: 10px; }
+.res-panel[hidden] { display: none; }
+.res-actions { display: flex; gap: 6px; margin-bottom: 8px; }
+.res-actions button { flex: 1; font-size: 11px; padding: 5px 6px; border-radius: 6px; }
+.res-checklist { max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
+.res-opt { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--kruzer-navy); }
+.res-opt:hover { background: var(--kruzer-neutral-100); }
+.res-opt input { width: 15px; height: 15px; cursor: pointer; accent-color: var(--kruzer-primary); flex: none; }
+.res-opt .res-nm { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.res-opt .res-cnt { font-size: 11px; color: var(--kruzer-neutral-500); font-variant-numeric: tabular-nums; }
+.res-badge { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; padding: 2px 6px; border-radius: 999px; flex: none; }
+.res-badge.idle { background: #FEF3C7; color: #92400E; }
+.res-badge.undated { background: #E0E7FF; color: #3730A3; }
+.res-badge.unassigned { background: var(--kruzer-neutral-100); color: var(--kruzer-neutral-700); }
+.res-sep { height: 1px; background: var(--kruzer-neutral-300); margin: 6px 2px; }
+
+/* KPI ociosos + banda de gaps de planejamento */
+.kpi.k-idle { border-top-color: #D97706; }
+.res-gaps { margin-bottom: 12px; border: 1px solid #FDE68A; background: linear-gradient(180deg,#FFFBEB 0%,#fff 80%); border-radius: 8px; padding: 10px 14px; }
+.res-gaps .rg-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: #92400E; margin-bottom: 6px; }
+.res-gaps .gap { font-size: 12px; color: var(--kruzer-navy); line-height: 1.6; }
+.res-gaps .g-tag { display: inline-block; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; padding: 2px 7px; border-radius: 999px; margin-right: 6px; color: #fff; }
+.res-gaps .gap.idle .g-tag { background: #D97706; }
+.res-gaps .gap.undated .g-tag { background: #4F46E5; }
+.res-gaps .gap.over .g-tag { background: var(--kruzer-error); }
+.g-overlap { font-size: 10px; font-weight: 700; fill: var(--kruzer-error); }
+.g-empty-lane { font-size: 11px; fill: var(--kruzer-neutral-500); font-style: italic; }
 select, button { font-family: inherit; font-size: 13px; padding: 8px 12px; border: 1px solid var(--kruzer-neutral-300); border-radius: 8px; background: #fff; color: var(--kruzer-navy); cursor: pointer; }
 button.primary { background: var(--kruzer-primary); color: #fff; border-color: var(--kruzer-primary); font-weight: 600; }
 button.primary:hover { background: var(--kruzer-primary-700); }
@@ -112,11 +141,16 @@ a:hover { text-decoration: underline; }
       <div class="control"><label for="projFilter">Projeto</label>
         <select id="projFilter"><option value="all">Todos os projetos</option><option value="FST">FST · FastShop</option><option value="VENA">VENA · Venâncio</option><option value="DCT">DCT · Decathlon</option><option value="PMD">PMD · Pague Menos</option></select>
       </div>
-      <div class="control"><label for="resFilter">Recurso</label>
-        <select id="resFilter"><option value="all">Todos os recursos</option></select>
-      </div>
-      <div class="control"><label>Não atribuídos</label>
-        <label class="chk-inline"><input type="checkbox" id="showUnassigned"> Mostrar sem responsável</label>
+      <div class="control res-control"><label>Recursos</label>
+        <button type="button" class="res-btn" id="resBtn">Todos os recursos</button>
+        <div class="res-panel" id="resPanel" hidden>
+          <div class="res-actions">
+            <button type="button" data-act="busy">Só com demanda</button>
+            <button type="button" data-act="all">Todos</button>
+            <button type="button" data-act="none">Limpar</button>
+          </div>
+          <div class="res-checklist" id="resChecklist"></div>
+        </div>
       </div>
       <div class="control"><label>&nbsp;</label><button class="primary" id="refreshBtn">Atualizar dados</button></div>
     </div>
@@ -141,6 +175,7 @@ a:hover { text-decoration: underline; }
         <span class="legend-item"><span class="legend-swatch nodue"></span> Sem due</span>
         <span class="legend-item"><span class="legend-swatch today"></span> Hoje</span>
       </div>
+      <div class="res-gaps" id="resGaps" style="display:none"></div>
       <div class="gantt-wrap"><svg id="ganttSvg" class="gantt-svg" xmlns="http://www.w3.org/2000/svg"></svg></div>
       <div class="note" id="omittedNote"></div>
     </section>
@@ -215,32 +250,90 @@ function windowFor(ep, today){
   return { s, e, estStart, estEnd };
 }
 
+// Seleção de recursos (multi-select). Contém os nomes marcados; pode incluir
+// "Sem responsável". Recalculado nos defaults a cada carga/troca de projeto.
+let RES_SEL = new Set();
+
 function selected(){
   const pf = document.getElementById('projFilter').value;
-  const rf = document.getElementById('resFilter').value;
-  return RAW.filter(ep => (pf === 'all' || ep.project === pf) && (rf === 'all' || ep.assignee === rf));
+  return RAW.filter(ep => (pf === 'all' || ep.project === pf) && RES_SEL.has(ep.assignee));
 }
 
-// Popula o filtro de recurso com os assignees do escopo de projeto atual,
-// preservando a seleção anterior se ainda existir.
-function populateResourceFilter(){
+// "Roster" do time = todos que aparecem como responsável em algum épico do escopo
+// (inclui concluídos). Categoriza cada pessoa:
+//   busy    = tem ≥1 épico ativo e com datas → aparece na listagem (default marcado)
+//   undated = tem épico ativo mas sem Start/Due → gap de datas
+//   idle    = só tem épicos concluídos / nenhum ativo → ocioso (sem demanda)
+function computeRoster(){
   const pf = document.getElementById('projFilter').value;
-  const sel = document.getElementById('resFilter');
-  const prev = sel.value;
-  const res = [...new Set(RAW.filter(ep => pf === 'all' || ep.project === pf).map(e => e.assignee))]
-    .sort((a, b) => a.localeCompare(b, 'pt'));
-  sel.innerHTML = '<option value="all">Todos os recursos</option>' +
-    res.map(r => `<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('');
-  sel.value = res.includes(prev) ? prev : 'all';
+  const today = new Date();
+  const map = {};
+  RAW.forEach(ep => {
+    if (pf !== 'all' && ep.project !== pf) return;
+    if (ep.assignee === 'Sem responsável') return;
+    const p = map[ep.assignee] || (map[ep.assignee] = { name: ep.assignee, active: 0, plotted: 0, projects: new Set() });
+    p.projects.add(ep.project);
+    if (!ep.resolved) { p.active++; if (windowFor(ep, today)) p.plotted++; }
+  });
+  const list = Object.values(map).map(p => ({
+    ...p, cat: p.plotted > 0 ? 'busy' : (p.active > 0 ? 'undated' : 'idle')
+  })).sort((a, b) => a.name.localeCompare(b.name, 'pt'));
+  return { list, map };
 }
 
-function renderKPIs(plotted, sel){
-  const resources = new Set(plotted.map(e => e.assignee));
+function hasUnassignedInScope(){
+  const pf = document.getElementById('projFilter').value;
+  return RAW.some(ep => (pf === 'all' || ep.project === pf) && ep.assignee === 'Sem responsável');
+}
+
+// Reconstrói o filtro: default = só quem tem demanda (busy) marcado; ociosos,
+// "sem datas" e "Sem responsável" listados porém desmarcados e sinalizados.
+function buildResourceFilter(){
+  const { list } = computeRoster();
+  RES_SEL = new Set(list.filter(p => p.cat === 'busy').map(p => p.name));
+  renderResChecklist(list);
+  updateResBtn(list);
+}
+
+function renderResChecklist(list){
+  const order = { busy: 0, undated: 1, idle: 2 };
+  const sorted = [...list].sort((a, b) => (order[a.cat] - order[b.cat]) || a.name.localeCompare(b.name, 'pt'));
+  const badge = c => c === 'idle' ? '<span class="res-badge idle">ocioso</span>'
+    : c === 'undated' ? '<span class="res-badge undated">sem datas</span>' : '';
+  let html = sorted.map(p =>
+    `<label class="res-opt"><input type="checkbox" value="${escapeHtml(p.name)}" ${RES_SEL.has(p.name) ? 'checked' : ''}>` +
+    `<span class="res-nm">${escapeHtml(p.name)}</span>${badge(p.cat)}<span class="res-cnt">${p.plotted || p.active || 0}</span></label>`
+  ).join('');
+  if (hasUnassignedInScope()) {
+    html += `<div class="res-sep"></div><label class="res-opt"><input type="checkbox" value="Sem responsável" ${RES_SEL.has('Sem responsável') ? 'checked' : ''}>` +
+      `<span class="res-nm">Sem responsável</span><span class="res-badge unassigned">não atribuído</span></label>`;
+  }
+  document.getElementById('resChecklist').innerHTML = html;
+}
+
+function updateResBtn(list){
+  const total = list.length + (hasUnassignedInScope() ? 1 : 0);
+  const n = RES_SEL.size;
+  const btn = document.getElementById('resBtn');
+  btn.textContent = n === total ? 'Todos os recursos' : (n === 0 ? 'Nenhum recurso' : `${n} de ${total} recursos`);
+}
+
+// Conta épicos que começam antes do fim do anterior (sobreposição na mesma pessoa).
+function overlapCount(arr){
+  const s = [...arr].sort((a, b) => a.s - b.s);
+  let cnt = 0, maxEnd = -Infinity;
+  for (const e of s) { if (e.s.getTime() < maxEnd) cnt++; maxEnd = Math.max(maxEnd, e.e.getTime()); }
+  return cnt;
+}
+
+function renderKPIs(plotted, sel, idleCount){
+  const resources = new Set(plotted.map(e => e.assignee).filter(a => a !== 'Sem responsável'));
   const noDue = sel.filter(e => !e.resolved && !e.due).length;
   const c = document.getElementById('kpis');
   let html =
     `<div class="kpi"><div class="label">Épicos rodando</div><div class="value">${plotted.length}</div></div>` +
-    `<div class="kpi"><div class="label">Recursos</div><div class="value">${resources.size}</div></div>` +
+    `<div class="kpi"><div class="label">Recursos c/ demanda</div><div class="value">${resources.size}</div></div>` +
+    `<div class="kpi k-idle"><div class="label">Ociosos</div><div class="value">${idleCount}</div></div>` +
     `<div class="kpi k-nodue"><div class="label">Sem due</div><div class="value">${noDue}</div></div>`;
   PROJECTS.forEach(p => {
     const n = plotted.filter(e => e.project === p).length;
@@ -249,42 +342,60 @@ function renderKPIs(plotted, sel){
   c.innerHTML = html;
 }
 
+// Banda de gaps de planejamento: ociosos, ativos sem datas, e overlap de demandas.
+function renderResGaps(plotted, idle, undated){
+  const el = document.getElementById('resGaps');
+  const byRes = {};
+  plotted.forEach(ep => { if (ep.assignee !== 'Sem responsável') (byRes[ep.assignee] = byRes[ep.assignee] || []).push(ep); });
+  const overloaded = Object.entries(byRes).map(([n, arr]) => [n, overlapCount(arr)]).filter(([, c]) => c > 0)
+    .sort((a, b) => b[1] - a[1]);
+  const parts = [];
+  if (overloaded.length) parts.push(`<div class="gap over"><span class="g-tag">Overlap</span>${overloaded.length} recurso(s) com demandas sobrepostas: ${overloaded.map(([n, c]) => `${escapeHtml(n)} (${c})`).join(', ')}</div>`);
+  if (idle.length) parts.push(`<div class="gap idle"><span class="g-tag">Ociosos</span>${idle.length} sem demanda ativa: ${idle.map(p => escapeHtml(p.name)).join(', ')}</div>`);
+  if (undated.length) parts.push(`<div class="gap undated"><span class="g-tag">Sem datas</span>${undated.length} com demanda ativa mas sem Start/Due no JIRA: ${undated.map(p => escapeHtml(p.name)).join(', ')}</div>`);
+  if (!parts.length) { el.innerHTML = ''; el.style.display = 'none'; return; }
+  el.style.display = ''; el.innerHTML = `<div class="rg-title">Gaps de planejamento</div>${parts.join('')}`;
+}
+
 function renderGantt(){
   const today = new Date();
-  const rf = document.getElementById('resFilter').value;
-  const showUnassigned = document.getElementById('showUnassigned').checked;
-  // Não-atribuídos ("Sem responsável"): ocultos por padrão. Só escondemos quando o
-  // filtro de recurso está em "Todos" — se o usuário escolher "Sem responsável"
-  // explicitamente no dropdown, mostramos mesmo com o toggle desmarcado.
-  const hideUnassigned = !showUnassigned && rf === 'all';
   const sel = selected();
   // Plotáveis: em andamento (não resolvido) e com datas.
-  const plottedAll = [];
+  const plotted = [];
   let omittedNoDate = 0, omittedDone = 0;
   sel.forEach(ep => {
     if (ep.resolved) { omittedDone++; return; }
     const w = windowFor(ep, today);
     if (!w) { omittedNoDate++; return; }
-    plottedAll.push({ ...ep, ...w });
+    plotted.push({ ...ep, ...w });
   });
-  const hiddenUnassigned = hideUnassigned ? plottedAll.filter(e => e.assignee === 'Sem responsável').length : 0;
-  const plotted = hideUnassigned ? plottedAll.filter(e => e.assignee !== 'Sem responsável') : plottedAll;
-  const effSel = hideUnassigned ? sel.filter(e => e.assignee !== 'Sem responsável') : sel;
 
-  renderKPIs(plotted, effSel);
+  // Roster do escopo (independe da seleção) → sinaliza ociosos / sem datas.
+  const { list: roster } = computeRoster();
+  const rosterMap = {}; roster.forEach(p => rosterMap[p.name] = p);
+  const idle = roster.filter(p => p.cat === 'idle');
+  const undated = roster.filter(p => p.cat === 'undated');
+
+  renderKPIs(plotted, sel, idle.length);
+  renderResGaps(plotted, idle, undated);
 
   const svg = document.getElementById('ganttSvg');
-  if (!plotted.length) { svg.innerHTML = ''; svg.setAttribute('height', 0); document.getElementById('omittedNote').textContent = hiddenUnassigned ? `* ${hiddenUnassigned} épico(s) sem responsável oculto(s). Marque “Mostrar sem responsável” para vê-los.` : ''; return; }
+  if (!plotted.length) { svg.innerHTML = ''; svg.setAttribute('height', 0); document.getElementById('omittedNote').textContent = ''; return; }
 
   // Agrupa por recurso, ordena recursos pelo start mais cedo.
   const byRes = {};
   plotted.forEach(ep => (byRes[ep.assignee] = byRes[ep.assignee] || []).push(ep));
   Object.values(byRes).forEach(arr => arr.sort((a,b) => a.s - b.s));
-  const resources = Object.keys(byRes).sort((a,b) => {
+  // Lanes vazias: recursos MARCADOS no filtro sem demanda ativa (ociosos / sem
+  // datas) → torna a lacuna de planejamento explícita na timeline.
+  const emptyChecked = [...RES_SEL].filter(r => r !== 'Sem responsável' && !byRes[r] && rosterMap[r]);
+  const resources = [...new Set([...Object.keys(byRes), ...emptyChecked])].sort((a,b) => {
     // "Sem responsável" sempre por último, independente das datas.
     if (a === 'Sem responsável') return 1;
     if (b === 'Sem responsável') return -1;
-    return Math.min(...byRes[a].map(e=>e.s)) - Math.min(...byRes[b].map(e=>e.s));
+    const ax = byRes[a] ? Math.min(...byRes[a].map(e=>e.s)) : Infinity;
+    const bx = byRes[b] ? Math.min(...byRes[b].map(e=>e.s)) : Infinity;
+    return ax - bx;
   });
 
   // Escala de tempo. Piso em 1º de abril pra cortar o espaço "morto" à esquerda
@@ -305,7 +416,7 @@ function renderGantt(){
   const xd = d => LEFT + (d - minD)/MS_DAY * PX_DAY;
 
   let totalH = TOP;
-  resources.forEach(r => { totalH += GH + byRes[r].length * ROW; });
+  resources.forEach(r => { totalH += GH + (byRes[r] ? byRes[r].length : 1) * ROW; });
   totalH += PAD_B;
 
   let body = '';
@@ -331,12 +442,26 @@ function renderGantt(){
   // Grupos por recurso.
   let y = TOP;
   resources.forEach(r => {
-    const arr = byRes[r];
-    const projs = [...new Set(arr.map(e => e.project))].join(' · ');
+    const arr = byRes[r] || [];
+    const isEmpty = arr.length === 0;
+    const p = rosterMap[r];
     body += `<rect class="g-group-band" x="0" y="${y}" width="${W}" height="${GH}"/>`;
     body += `<text class="g-group-name" x="12" y="${y + GH/2 + 4}">${escapeHtml(r)}</text>`;
-    body += `<text class="g-group-meta" x="12" y="${y + GH/2 + 4}" dx="${(escapeHtml(r).length*7 + 16)}">${arr.length} épico${arr.length>1?'s':''} · ${projs}</text>`;
+    let meta;
+    if (isEmpty) meta = (p && p.cat === 'idle') ? 'ocioso · sem demanda ativa' : 'sem datas de Start/Due no JIRA';
+    else meta = `${arr.length} épico${arr.length>1?'s':''} · ${[...new Set(arr.map(e => e.project))].join(' · ')}`;
+    body += `<text class="g-group-meta" x="12" y="${y + GH/2 + 4}" dx="${(escapeHtml(r).length*7 + 16)}">${escapeHtml(meta)}</text>`;
+    // Badge de overlap à direita da faixa do recurso (demandas sobrepostas).
+    const ov = isEmpty ? 0 : overlapCount(arr);
+    if (ov > 0) body += `<text class="g-overlap" x="${(W-12).toFixed(1)}" y="${y + GH/2 + 4}" text-anchor="end">⚠ ${ov} sobreposto${ov>1?'s':''}</text>`;
     y += GH;
+
+    if (isEmpty) {
+      body += `<text class="g-empty-lane" x="74" y="${y + ROW/2 + 4}">— sem demanda ativa no período —</text>`;
+      body += `<line class="g-rowsep" x1="0" y1="${y+ROW}" x2="${W}" y2="${y+ROW}"/>`;
+      y += ROW;
+      return;
+    }
 
     arr.forEach(ep => {
       const sx = xd(ep.s), ex = xd(ep.e);
@@ -383,7 +508,6 @@ function renderGantt(){
   wireTooltips();
 
   const notes = [];
-  if (hiddenUnassigned) notes.push(`${hiddenUnassigned} sem responsável oculto(s) — marque “Mostrar sem responsável” para ver`);
   if (omittedNoDate) notes.push(`${omittedNoDate} épico(s) sem datas de Start/Due omitido(s)`);
   if (omittedDone) notes.push(`${omittedDone} épico(s) já concluído(s) omitido(s)`);
   document.getElementById('omittedNote').textContent = notes.length ? '* ' + notes.join(' · ') + '.' : '';
@@ -424,7 +548,7 @@ async function loadAndRender(){
     const jql = `project in (FST, VENA, DCT, PMD) AND issuetype = Epic ORDER BY created DESC`;
     const issues = await KruzerAPI.fetchAll({ jql, fields: FIELDS });
     RAW = issues.map(normalize);
-    populateResourceFilter();
+    buildResourceFilter();
     document.getElementById('loadingBox').style.display = 'none';
     document.getElementById('content').style.display = '';
     renderGantt();
@@ -440,9 +564,32 @@ async function loadAndRender(){
 }
 
 document.getElementById('refreshBtn').addEventListener('click', loadAndRender);
-document.getElementById('projFilter').addEventListener('change', () => { populateResourceFilter(); renderGantt(); });
-document.getElementById('resFilter').addEventListener('change', renderGantt);
-document.getElementById('showUnassigned').addEventListener('change', renderGantt);
+document.getElementById('projFilter').addEventListener('change', () => { buildResourceFilter(); renderGantt(); });
+
+// Popover do filtro de recursos.
+const resBtn = document.getElementById('resBtn');
+const resPanel = document.getElementById('resPanel');
+resBtn.addEventListener('click', e => { e.stopPropagation(); resPanel.hidden = !resPanel.hidden; });
+resPanel.addEventListener('click', e => e.stopPropagation());
+document.addEventListener('click', () => { resPanel.hidden = true; });
+// Marcar/desmarcar um recurso.
+document.getElementById('resChecklist').addEventListener('change', e => {
+  const cb = e.target;
+  if (!cb.matches('input[type=checkbox]')) return;
+  if (cb.checked) RES_SEL.add(cb.value); else RES_SEL.delete(cb.value);
+  updateResBtn(computeRoster().list);
+  renderGantt();
+});
+// Ações rápidas: só com demanda / todos / limpar.
+document.querySelector('.res-actions').addEventListener('click', e => {
+  const act = e.target.dataset.act;
+  if (!act) return;
+  const { list } = computeRoster();
+  if (act === 'none') RES_SEL = new Set();
+  else if (act === 'busy') RES_SEL = new Set(list.filter(p => p.cat === 'busy').map(p => p.name));
+  else if (act === 'all') { RES_SEL = new Set(list.map(p => p.name)); if (hasUnassignedInScope()) RES_SEL.add('Sem responsável'); }
+  renderResChecklist(list); updateResBtn(list); renderGantt();
+});
 let _rz; window.addEventListener('resize', () => { clearTimeout(_rz); _rz = setTimeout(() => { if (RAW.length) renderGantt(); }, 150); });
 loadAndRender();
 </script>
