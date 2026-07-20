@@ -17,6 +17,8 @@
 .controls { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
 .control { display: flex; flex-direction: column; gap: 4px; }
 .control label { font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--kruzer-neutral-700); letter-spacing: 0.04em; }
+.chk-inline { display: flex; align-items: center; gap: 6px; min-height: 37px; font-size: 13px; font-weight: 500; color: var(--kruzer-navy); text-transform: none; letter-spacing: 0; cursor: pointer; white-space: nowrap; }
+.chk-inline input { width: 15px; height: 15px; cursor: pointer; accent-color: var(--kruzer-primary); }
 select, button { font-family: inherit; font-size: 13px; padding: 8px 12px; border: 1px solid var(--kruzer-neutral-300); border-radius: 8px; background: #fff; color: var(--kruzer-navy); cursor: pointer; }
 button.primary { background: var(--kruzer-primary); color: #fff; border-color: var(--kruzer-primary); font-weight: 600; }
 button.primary:hover { background: var(--kruzer-primary-700); }
@@ -112,6 +114,9 @@ a:hover { text-decoration: underline; }
       </div>
       <div class="control"><label for="resFilter">Recurso</label>
         <select id="resFilter"><option value="all">Todos os recursos</option></select>
+      </div>
+      <div class="control"><label>Não atribuídos</label>
+        <label class="chk-inline"><input type="checkbox" id="showUnassigned"> Mostrar sem responsável</label>
       </div>
       <div class="control"><label>&nbsp;</label><button class="primary" id="refreshBtn">Atualizar dados</button></div>
     </div>
@@ -229,9 +234,9 @@ function populateResourceFilter(){
   sel.value = res.includes(prev) ? prev : 'all';
 }
 
-function renderKPIs(plotted){
+function renderKPIs(plotted, sel){
   const resources = new Set(plotted.map(e => e.assignee));
-  const noDue = selected().filter(e => !e.resolved && !e.due).length;
+  const noDue = sel.filter(e => !e.resolved && !e.due).length;
   const c = document.getElementById('kpis');
   let html =
     `<div class="kpi"><div class="label">Épicos rodando</div><div class="value">${plotted.length}</div></div>` +
@@ -246,27 +251,41 @@ function renderKPIs(plotted){
 
 function renderGantt(){
   const today = new Date();
+  const rf = document.getElementById('resFilter').value;
+  const showUnassigned = document.getElementById('showUnassigned').checked;
+  // Não-atribuídos ("Sem responsável"): ocultos por padrão. Só escondemos quando o
+  // filtro de recurso está em "Todos" — se o usuário escolher "Sem responsável"
+  // explicitamente no dropdown, mostramos mesmo com o toggle desmarcado.
+  const hideUnassigned = !showUnassigned && rf === 'all';
   const sel = selected();
   // Plotáveis: em andamento (não resolvido) e com datas.
-  const plotted = [];
+  const plottedAll = [];
   let omittedNoDate = 0, omittedDone = 0;
   sel.forEach(ep => {
     if (ep.resolved) { omittedDone++; return; }
     const w = windowFor(ep, today);
     if (!w) { omittedNoDate++; return; }
-    plotted.push({ ...ep, ...w });
+    plottedAll.push({ ...ep, ...w });
   });
+  const hiddenUnassigned = hideUnassigned ? plottedAll.filter(e => e.assignee === 'Sem responsável').length : 0;
+  const plotted = hideUnassigned ? plottedAll.filter(e => e.assignee !== 'Sem responsável') : plottedAll;
+  const effSel = hideUnassigned ? sel.filter(e => e.assignee !== 'Sem responsável') : sel;
 
-  renderKPIs(plotted);
+  renderKPIs(plotted, effSel);
 
   const svg = document.getElementById('ganttSvg');
-  if (!plotted.length) { svg.innerHTML = ''; svg.setAttribute('height', 0); document.getElementById('omittedNote').textContent = ''; return; }
+  if (!plotted.length) { svg.innerHTML = ''; svg.setAttribute('height', 0); document.getElementById('omittedNote').textContent = hiddenUnassigned ? `* ${hiddenUnassigned} épico(s) sem responsável oculto(s). Marque “Mostrar sem responsável” para vê-los.` : ''; return; }
 
   // Agrupa por recurso, ordena recursos pelo start mais cedo.
   const byRes = {};
   plotted.forEach(ep => (byRes[ep.assignee] = byRes[ep.assignee] || []).push(ep));
   Object.values(byRes).forEach(arr => arr.sort((a,b) => a.s - b.s));
-  const resources = Object.keys(byRes).sort((a,b) => Math.min(...byRes[a].map(e=>e.s)) - Math.min(...byRes[b].map(e=>e.s)));
+  const resources = Object.keys(byRes).sort((a,b) => {
+    // "Sem responsável" sempre por último, independente das datas.
+    if (a === 'Sem responsável') return 1;
+    if (b === 'Sem responsável') return -1;
+    return Math.min(...byRes[a].map(e=>e.s)) - Math.min(...byRes[b].map(e=>e.s));
+  });
 
   // Escala de tempo. Piso em 1º de abril pra cortar o espaço "morto" à esquerda
   // (épicos que começaram antes ficam clampados na borda, com indicador ‹).
@@ -364,6 +383,7 @@ function renderGantt(){
   wireTooltips();
 
   const notes = [];
+  if (hiddenUnassigned) notes.push(`${hiddenUnassigned} sem responsável oculto(s) — marque “Mostrar sem responsável” para ver`);
   if (omittedNoDate) notes.push(`${omittedNoDate} épico(s) sem datas de Start/Due omitido(s)`);
   if (omittedDone) notes.push(`${omittedDone} épico(s) já concluído(s) omitido(s)`);
   document.getElementById('omittedNote').textContent = notes.length ? '* ' + notes.join(' · ') + '.' : '';
@@ -422,6 +442,7 @@ async function loadAndRender(){
 document.getElementById('refreshBtn').addEventListener('click', loadAndRender);
 document.getElementById('projFilter').addEventListener('change', () => { populateResourceFilter(); renderGantt(); });
 document.getElementById('resFilter').addEventListener('change', renderGantt);
+document.getElementById('showUnassigned').addEventListener('change', renderGantt);
 let _rz; window.addEventListener('resize', () => { clearTimeout(_rz); _rz = setTimeout(() => { if (RAW.length) renderGantt(); }, 150); });
 loadAndRender();
 </script>
