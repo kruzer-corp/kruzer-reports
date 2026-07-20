@@ -41,30 +41,28 @@ specifics dele (ver §5) antes de mexer.
 
 ---
 
-## 2. Estado de deploy (IMPORTANTE — prod NÃO está num commit limpo)
+## 2. Estado de deploy (prod ALINHADA com a branch — cutover feito em 2026-07-20)
 
 | Ambiente | URL | Version | Conteúdo |
 |---|---|---|---|
-| **PROD** | kruzer-dashboards.matheus-mereb.workers.dev | `83376e4a` | baseline `1479ea5` (PGM→PMD) **+** `report.js`@e4babc6 (PDF) **+** `report.css`@4748560 (KPIs) **+** `ops/index.html`@99ca012 (cockpit: seção To-dos + semáforo alinhado aos to-dos dos reports + HyperCare fora de atraso). SEM capacity overlap, SEM consolidação/pivot do KRZR (prod ainda tem 2 views KRZR: `/krzr/` + `/krzr/hml`). |
-| **HML** | kruzer-dashboards-hml.matheus-mereb.workers.dev | `f322a981` | branch HEAD inteira (`4748560`) — tudo. |
+| **PROD** | kruzer-dashboards.matheus-mereb.workers.dev | `8187d150` | **branch HEAD inteira** (deploy cheio `npm run deploy`). Inclui TUDO: consolidação/pivot do KRZR (view única `/krzr/`; `/krzr/hml`→404), capacity overlap, cockpit (To-dos + semáforo + HyperCare fora de atraso), timeline (filtro multi-recurso por chips + roster do JIRA + gaps + KPIs em linha + sem disclaimers). |
+| **HML** | kruzer-dashboards-hml.matheus-mereb.workers.dev | `176899fc` | branch HEAD inteira — igual à prod. |
 
-**Prod foi montada por DEPLOY SELETIVO** (o usuário pediu só os fixes de report
-em prod, mantendo o resto em HML). Técnica usada (repetir se precisar subir só
-alguns arquivos):
+**2026-07-20: prod deixou de ser seletiva.** O usuário aprovou publicar tudo, então
+`npm run deploy` (cheio) subiu a branch inteira. Prod = HML = HEAD. Não há mais
+divergência: daqui pra frente `npm run deploy` sobe tudo normalmente.
+
+<details><summary>Técnica de DEPLOY SELETIVO (arquivada — só se um dia precisar subir só alguns arquivos)</summary>
 
 ```bash
-git checkout 1479ea5 -- public/                                   # tree = baseline da prod
-git checkout HEAD    -- public/shared/report.js public/shared/report.css   # sobrepõe só o que vai
-git diff 1479ea5 --stat -- public/                                # CONFIRA: só os arquivos desejados
+git checkout <baseline> -- public/                                # tree = baseline da prod
+git checkout HEAD -- public/<arquivos que vão>                    # sobrepõe só o que vai
+git diff <baseline> --stat -- public/                             # CONFIRA
 npm run deploy
 git checkout HEAD -- public/                                      # restaura a tree pra HEAD
-git rm -f public/krzr/hml.html                                    # baseline restaura hml.html (HEAD deletou) → limpar
 git status --short                                                # tem que ficar vazio
 ```
-
-`1479ea5` = último commit que foi pra prod "cheio" (PGM→PMD). Verifique que o
-arquivo que quer subir só difere da prod pelo que você quer:
-`git log 1479ea5..HEAD --oneline -- <arquivo>`.
+</details>
 
 ---
 
