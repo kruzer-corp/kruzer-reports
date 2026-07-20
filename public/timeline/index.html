@@ -110,6 +110,11 @@ button:disabled { opacity: 0.6; cursor: wait; }
 a .g-key { cursor: pointer; }
 a:hover .g-key { text-decoration: underline; }
 .g-name { font-size: 11px; fill: var(--kruzer-navy); }
+.g-colhead { font-size: 9px; font-weight: 700; letter-spacing: 0.5px; fill: var(--kruzer-neutral-500); }
+.g-nodate-lbl { font-size: 9px; font-weight: 700; letter-spacing: 0.3px; fill: #B45309; text-transform: uppercase; }
+.g-blk-key { font-size: 8.5px; font-weight: 600; fill: #fff; pointer-events: none; }
+.g-nodate-more { font-size: 10px; font-weight: 700; fill: var(--kruzer-neutral-700); }
+.nodate-blk:hover { opacity: 0.75; }
 .g-axis { font-size: 10px; fill: var(--kruzer-neutral-700); }
 .g-axis.bold { font-size: 11px; fill: var(--kruzer-navy); font-weight: 600; }
 .g-grid { stroke: var(--kruzer-neutral-300); stroke-width: 0.5; }
@@ -176,7 +181,7 @@ a:hover { text-decoration: underline; }
 
     <section class="section">
       <h2>Linha do tempo — quem está tocando o quê</h2>
-      <div class="sub">Cada barra é um épico em andamento, posicionado pelas datas de Start e Due do JIRA, agrupado pelo recurso (assignee). Cor = projeto. Bordas vermelhas = bloqueado. Hachura = data estimada (um dos extremos ausente no JIRA). A janela começa em abril — barras que iniciaram antes aparecem cortadas à esquerda (‹).</div>
+      <div class="sub">Agrupado por recurso (assignee). À direita, o <b>agendado</b>: cada barra é uma demanda com datas de Start/Due (cor = projeto; borda vermelha = bloqueado; hachura = data estimada; sobreposições no mesmo recurso viram alerta ⚠). Na faixa central <b>“sem data”</b>, o trabalho ativo <b>sem Start/Due no JIRA</b> (o gap) — blocos por projeto, com a inicial do tipo. Ative <b>“Expandir visão”</b> para incluir tarefas/stories além dos épicos; use o filtro de recursos (inclui “Sem responsável” e ociosos) para achar gaps, sobreposição e ociosidade.</div>
       <div class="legend">
         <span class="legend-item"><span class="legend-swatch fst"></span> FST</span>
         <span class="legend-item"><span class="legend-swatch vena"></span> VENA</span>
@@ -443,150 +448,199 @@ function renderResGaps(plotted, idle, undated){
 function renderGantt(){
   const today = new Date();
   const sel = selected();
-  // Plotáveis: em andamento (não resolvido) e com datas.
-  const plotted = [];
-  let omittedNoDate = 0, omittedDone = 0;
+  // Separa por recurso: AGENDADO (tem janela de datas) vs NÃO AGENDADO ativo
+  // (sem start/due — antes era descartado; agora vai pra faixa "sem data").
+  const dated = [];
+  const datedByRes = {}, undatedByRes = {};
+  let omittedDone = 0;
   sel.forEach(ep => {
     if (ep.resolved) { omittedDone++; return; }
     const w = windowFor(ep, today);
-    if (!w) { omittedNoDate++; return; }
-    plotted.push({ ...ep, ...w });
+    if (w) { const it = { ...ep, ...w }; dated.push(it); (datedByRes[ep.assignee] = datedByRes[ep.assignee] || []).push(it); }
+    else (undatedByRes[ep.assignee] = undatedByRes[ep.assignee] || []).push(ep);
   });
+  Object.values(datedByRes).forEach(arr => arr.sort((a,b) => a.s - b.s));
 
-  // Roster do escopo (independe da seleção) → sinaliza ociosos / sem datas.
   const { list: roster } = computeRoster();
   const idle = roster.filter(p => p.cat === 'idle');
-  const undated = roster.filter(p => p.cat === 'undated');
+  const undatedPeople = roster.filter(p => p.cat === 'undated');
 
-  renderKPIs(plotted, sel, idle.length);
-  renderResGaps(plotted, idle, undated);
+  renderKPIs(dated, sel, idle.length);
+  renderResGaps(dated, idle, undatedPeople);
   renderFilterBar();
 
   const svg = document.getElementById('ganttSvg');
-  if (!plotted.length) { svg.innerHTML = ''; svg.setAttribute('height', 0); document.getElementById('omittedNote').textContent = ''; return; }
-
-  // Agrupa por recurso, ordena recursos pelo start mais cedo.
-  const byRes = {};
-  plotted.forEach(ep => (byRes[ep.assignee] = byRes[ep.assignee] || []).push(ep));
-  Object.values(byRes).forEach(arr => arr.sort((a,b) => a.s - b.s));
-  // Lanes vazias: recursos MARCADOS no filtro sem demanda ativa (ociosos, sem
-  // datas ou sem épico algum) → torna a lacuna de planejamento explícita.
   const uniCat = allResourceOptions();
-  const emptyChecked = [...RES_SEL].filter(r => r !== 'Sem responsável' && !byRes[r] && uniCat.has(r));
-  const resources = [...new Set([...Object.keys(byRes), ...emptyChecked])].sort((a,b) => {
-    // "Sem responsável" sempre por último, independente das datas.
-    if (a === 'Sem responsável') return 1;
-    if (b === 'Sem responsável') return -1;
-    const ax = byRes[a] ? Math.min(...byRes[a].map(e=>e.s)) : Infinity;
-    const bx = byRes[b] ? Math.min(...byRes[b].map(e=>e.s)) : Infinity;
-    return ax - bx;
+  // Recursos a exibir: quem tem agendado OU não-agendado, + selecionados vazios (ociosos).
+  const withWork = new Set([...Object.keys(datedByRes), ...Object.keys(undatedByRes)]);
+  const emptyChecked = [...RES_SEL].filter(r => r !== 'Sem responsável' && !withWork.has(r) && uniCat.has(r));
+  const resources = [...new Set([...withWork, ...emptyChecked])];
+  if (!resources.length) { svg.innerHTML = ''; svg.setAttribute('height', 0); document.getElementById('omittedNote').textContent = ''; return; }
+  resources.sort((a,b) => {
+    if (a === 'Sem responsável') return 1; if (b === 'Sem responsável') return -1;
+    const ax = datedByRes[a] ? Math.min(...datedByRes[a].map(e=>e.s)) : Infinity;
+    const bx = datedByRes[b] ? Math.min(...datedByRes[b].map(e=>e.s)) : Infinity;
+    return (ax - bx) || a.localeCompare(b, 'pt');
   });
 
-  // Escala de tempo. Piso em 1º de abril pra cortar o espaço "morto" à esquerda
-  // (épicos que começaram antes ficam clampados na borda, com indicador ‹).
-  const naturalMin = Math.min(...plotted.map(e => e.s.getTime()));
-  const aprFloor = new Date(today.getFullYear(), 3, 1).getTime(); // abril = mês 3 (0-indexed)
-  let minD = new Date(Math.max(naturalMin - 6*MS_DAY, aprFloor));
-  let maxD = new Date(Math.max(...plotted.map(e => e.e.getTime())) + 6*MS_DAY);
+  // Escala de tempo (só dos agendados). Piso em abril; sem agendados → janela default.
+  const aprFloor = new Date(today.getFullYear(), 3, 1).getTime();
+  let minD, maxD;
+  if (dated.length) {
+    minD = new Date(Math.max(Math.min(...dated.map(e => e.s.getTime())) - 6*MS_DAY, aprFloor));
+    maxD = new Date(Math.max(...dated.map(e => e.e.getTime())) + 6*MS_DAY);
+  } else {
+    minD = new Date(Math.max(today.getTime() - 21*MS_DAY, aprFloor));
+    maxD = new Date(today.getTime() + 60*MS_DAY);
+  }
   const totalDays = Math.max(1, (maxD - minD)/MS_DAY);
 
-  const LEFT = 280, TOP = 44, ROW = 30, GH = 28, PAD_B = 16;
-  // Preenche a largura disponível do container (sem espaço morto à direita).
+  // Layout de 3 colunas: [rótulos][SEM DATA][eixo de tempo].
+  const LABEL = 220, NODATE_W = 194, TL = LABEL + NODATE_W;
+  const TOP = 48, ROW = 30, GH = 30, PAD_B = 16;
+  const BW = 40, BH = 16, BG = 5;                                   // blocos "sem data"
+  const perRow = Math.max(1, Math.floor((NODATE_W - 10) / (BW + BG)));
+  const CAP = perRow * 3;                                           // até 3 linhas de blocos
+  const DCAP = 20;                                                  // teto de barras agendadas por lane
   const wrap = document.querySelector('.gantt-wrap');
   const availW = (wrap && wrap.clientWidth ? wrap.clientWidth : 1100) - 1;
-  const PX_DAY = Math.max(2.6, (availW - LEFT) / totalDays);
-  const timeW = totalDays * PX_DAY;
-  const W = LEFT + timeW;
-  const xd = d => LEFT + (d - minD)/MS_DAY * PX_DAY;
+  const PX_DAY = Math.max(2.6, (availW - TL) / totalDays);
+  const W = TL + totalDays * PX_DAY;
+  const xd = d => TL + (d - minD)/MS_DAY * PX_DAY;
+
+  // Altura de cada lane = max(linhas agendadas, altura dos blocos sem-data, vazio).
+  const uCount = r => (undatedByRes[r] || []).length;
+  const uBlockRows = r => uCount(r) ? Math.ceil(Math.min(uCount(r), CAP) / perRow) : 0;
+  const dRowsShown = r => { const n = (datedByRes[r] || []).length; return Math.min(n, DCAP) + (n > DCAP ? 1 : 0); };
+  const laneH = r => {
+    const dH = dRowsShown(r) * ROW;
+    const uH = uBlockRows(r) ? (14 + uBlockRows(r) * (BH + BG) + 4) : 0;   // rótulo "sem data" + blocos
+    const empty = !(datedByRes[r] || []).length && !uCount(r);
+    return Math.max(dH, uH, empty ? ROW : 0);
+  };
 
   let totalH = TOP;
-  resources.forEach(r => { totalH += GH + (byRes[r] ? byRes[r].length : 1) * ROW; });
+  resources.forEach(r => totalH += GH + laneH(r));
   totalH += PAD_B;
 
   let body = '';
-
-  // Defs: hachura por projeto (estimado).
   body += '<defs>';
   Object.entries(PROJ_COLOR).forEach(([k,c]) => {
     body += `<pattern id="est-${k}" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)"><rect width="6" height="6" fill="${c}" opacity="0.28"/><rect width="3" height="6" fill="${c}"/></pattern>`;
   });
   body += '</defs>';
 
-  // Eixo de meses.
+  // Fundo + divisores da faixa "SEM DATA".
+  body += `<rect x="${LABEL}" y="${TOP}" width="${NODATE_W}" height="${(totalH - TOP - PAD_B).toFixed(1)}" fill="#FAFAFC"/>`;
+  body += `<line x1="${LABEL}" y1="${TOP - GH}" x2="${LABEL}" y2="${(totalH - PAD_B).toFixed(1)}" stroke="#E3E3ED" stroke-width="1"/>`;
+  body += `<line x1="${TL}" y1="${TOP - GH}" x2="${TL}" y2="${(totalH - PAD_B).toFixed(1)}" stroke="#E3E3ED" stroke-width="1"/>`;
+  body += `<text class="g-colhead" x="${LABEL + 8}" y="${TOP - 14}">SEM DATA · não agendado</text>`;
+  body += `<text class="g-colhead" x="12" y="${TOP - 14}">RECURSO</text>`;
+
+  // Eixo de meses (x a partir de TL).
   let m = new Date(minD.getFullYear(), minD.getMonth(), 1);
   while (m <= maxD) {
     const mx = xd(m);
-    if (mx >= LEFT) {
-      body += `<line class="g-grid-month" x1="${mx.toFixed(1)}" y1="${TOP-6}" x2="${mx.toFixed(1)}" y2="${totalH-PAD_B}"/>`;
-      body += `<text class="g-axis bold" x="${(mx+4).toFixed(1)}" y="${TOP-14}">${MONTHS[m.getMonth()]} ${String(m.getFullYear()).slice(2)}</text>`;
+    if (mx >= TL) {
+      body += `<line class="g-grid-month" x1="${mx.toFixed(1)}" y1="${TOP - 6}" x2="${mx.toFixed(1)}" y2="${(totalH - PAD_B).toFixed(1)}"/>`;
+      body += `<text class="g-axis bold" x="${(mx + 4).toFixed(1)}" y="${TOP - 14}">${MONTHS[m.getMonth()]} ${String(m.getFullYear()).slice(2)}</text>`;
     }
-    m = new Date(m.getFullYear(), m.getMonth()+1, 1);
+    m = new Date(m.getFullYear(), m.getMonth() + 1, 1);
   }
 
-  // Grupos por recurso.
+  // Bloco "sem data" (item não-agendado). Cor por projeto, hachurado, com letra do tipo.
+  const typeLetter = t => t && t !== 'Epic' ? String(t).charAt(0).toUpperCase() : '';
+  function undatedBlock(ep, bx, by){
+    const color = PROJ_COLOR[ep.project] || '#48507D';
+    const L = typeLetter(ep.issueType);
+    let s = `<rect class="gantt-bar nodate-blk" x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${BW}" height="${BH}" rx="3" fill="${color}" fill-opacity="0.9" stroke="${ep.blocked ? 'var(--kruzer-error)' : '#fff'}" stroke-width="${ep.blocked ? 1.5 : 1}" stroke-dasharray="${ep.blocked ? '' : '3 2'}"` +
+      ` data-key="${ep.key}" data-name="${escapeHtml(ep.name)}" data-proj="${ep.project}" data-status="${escapeHtml(ep.statusName)}" data-type="${escapeHtml(ep.issueType||'')}" data-assignee="${escapeHtml(ep.assignee)}"` +
+      ` data-start="—" data-end="—" data-dur="—" data-due="sem due date" data-nodue="1" data-sched="não agendado" data-url="${ep.url}"/>`;
+    s += `<text class="g-blk-key" x="${(bx + BW/2).toFixed(1)}" y="${(by + BH/2 + 3.5).toFixed(1)}" text-anchor="middle">${escapeHtml(ep.key.split('-')[1] || ep.key)}${L ? ' ·' + L : ''}</text>`;
+    return s;
+  }
+
   let y = TOP;
   resources.forEach(r => {
-    const arr = byRes[r] || [];
-    const isEmpty = arr.length === 0;
+    const dItems = datedByRes[r] || [];
+    const uItems = undatedByRes[r] || [];
+    const isEmpty = !dItems.length && !uItems.length;
+    const lh = laneH(r);
+    // Faixa-cabeçalho do recurso.
     body += `<rect class="g-group-band" x="0" y="${y}" width="${W}" height="${GH}"/>`;
     body += `<text class="g-group-name" x="12" y="${y + GH/2 + 4}">${escapeHtml(r)}</text>`;
+    const parts = [];
+    if (dItems.length) parts.push(`${dItems.length} agendado${dItems.length>1?'s':''}`);
+    if (uItems.length) parts.push(`${uItems.length} sem data`);
     let meta;
-    if (isEmpty) {
-      const cat = uniCat.get(r);
-      meta = cat === 'undated' ? 'sem datas de Start/Due no JIRA'
-        : cat === 'noepic' ? 'sem épico no escopo'
-        : 'ocioso · sem demanda ativa';
-    }
-    else meta = `${arr.length} épico${arr.length>1?'s':''} · ${[...new Set(arr.map(e => e.project))].join(' · ')}`;
+    if (isEmpty) { const cat = uniCat.get(r); meta = cat === 'noepic' ? 'sem épico no escopo' : 'ocioso · sem demanda ativa'; }
+    else meta = parts.join(' · ') + ' · ' + [...new Set([...dItems, ...uItems].map(e => e.project))].join(' · ');
     body += `<text class="g-group-meta" x="12" y="${y + GH/2 + 4}" dx="${(escapeHtml(r).length*7 + 16)}">${escapeHtml(meta)}</text>`;
-    // Badge de overlap à direita da faixa do recurso (demandas sobrepostas).
-    const ov = isEmpty ? 0 : overlapCount(arr);
-    if (ov > 0) body += `<text class="g-overlap" x="${(W-12).toFixed(1)}" y="${y + GH/2 + 4}" text-anchor="end">⚠ ${ov} sobreposto${ov>1?'s':''}</text>`;
+    const ov = overlapCount(dItems);
+    if (ov > 0) body += `<text class="g-overlap" x="${(W - 12).toFixed(1)}" y="${y + GH/2 + 4}" text-anchor="end">⚠ ${ov} sobreposto${ov>1?'s':''}</text>`;
     y += GH;
+    const laneTop = y;
 
-    if (isEmpty) {
-      body += `<text class="g-empty-lane" x="74" y="${y + ROW/2 + 4}">— sem demanda ativa no período —</text>`;
-      body += `<line class="g-rowsep" x1="0" y1="${y+ROW}" x2="${W}" y2="${y+ROW}"/>`;
-      y += ROW;
-      return;
-    }
-
-    arr.forEach(ep => {
+    // Barras agendadas (eixo de tempo) + rótulos na coluna esquerda. Teto DCAP/lane.
+    dItems.slice(0, DCAP).forEach((ep, i) => {
+      const ry = laneTop + i * ROW;
       const sx = xd(ep.s), ex = xd(ep.e);
-      const clampedLeft = sx < LEFT;
-      const bx = Math.max(sx, LEFT), bw = Math.max(6, ex - bx);
-      const by = y + (ROW - 18)/2;
-      const color = PROJ_COLOR[ep.project] || '#48507D';
+      const clampedLeft = sx < TL;
+      const bx = Math.max(sx, TL), bw = Math.max(6, ex - bx);
+      const by = ry + (ROW - 18)/2;
       const est = ep.estStart || ep.estEnd;
-      const fill = est ? `url(#est-${ep.project})` : color;
+      const fill = est ? `url(#est-${ep.project})` : (PROJ_COLOR[ep.project] || '#48507D');
       const stroke = ep.blocked ? 'var(--kruzer-error)' : 'none';
-      const sw = ep.blocked ? 2 : 0;
-      // label esquerda
-      const nm = ep.name.length > 34 ? ep.name.slice(0,33) + '…' : ep.name;
-      body += KruzerComponents.svgLink(ep.url, `<text class="g-key" x="12" y="${y + ROW/2 + 4}">${ep.key}</text>`);
-      body += `<text class="g-name" x="74" y="${y + ROW/2 + 4}">${escapeHtml(nm)}</text>`;
-      body += `<line class="g-rowsep" x1="0" y1="${y+ROW}" x2="${W}" y2="${y+ROW}"/>`;
-      // barra
+      const nm = ep.name.length > 24 ? ep.name.slice(0,23) + '…' : ep.name;
+      const tag = typeLetter(ep.issueType);
+      body += KruzerComponents.svgLink(ep.url, `<text class="g-key" x="12" y="${ry + ROW/2 + 4}">${ep.key}${tag ? ' ·'+tag : ''}</text>`);
+      body += `<text class="g-name" x="74" y="${ry + ROW/2 + 4}">${escapeHtml(nm)}</text>`;
+      body += `<line class="g-rowsep" x1="0" y1="${ry + ROW}" x2="${W}" y2="${ry + ROW}"/>`;
       const dur = Math.round((ep.e - ep.s)/MS_DAY);
       const noDue = !ep.due;
-      body += `<rect class="gantt-bar" x="${bx.toFixed(1)}" y="${by}" width="${bw.toFixed(1)}" height="18" rx="4" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"` +
-        ` data-key="${ep.key}" data-name="${escapeHtml(ep.name)}" data-proj="${ep.project}" data-status="${escapeHtml(ep.statusName)}" data-assignee="${escapeHtml(ep.assignee)}"` +
+      body += `<rect class="gantt-bar" x="${bx.toFixed(1)}" y="${by}" width="${bw.toFixed(1)}" height="18" rx="4" fill="${fill}" stroke="${stroke}" stroke-width="${ep.blocked?2:0}"` +
+        ` data-key="${ep.key}" data-name="${escapeHtml(ep.name)}" data-proj="${ep.project}" data-status="${escapeHtml(ep.statusName)}" data-type="${escapeHtml(ep.issueType||'')}" data-assignee="${escapeHtml(ep.assignee)}"` +
         ` data-start="${fmt(ep.s)}" data-end="${fmt(ep.e)}" data-dur="${dur}" data-due="${noDue?'não definido':fmt(ep.due)}" data-nodue="${noDue?'1':''}" data-devdue="${ep.devDue?fmt(ep.devDue):''}" data-est="${est?(ep.estStart?'início estimado':'fim estimado'):''}" data-url="${ep.url}"/>`;
-      // Indicador ‹ quando a barra foi cortada na borda esquerda (começou antes de abril).
       if (clampedLeft && bw > 16) body += `<polyline points="${(bx+8).toFixed(1)},${by+3} ${(bx+3).toFixed(1)},${by+9} ${(bx+8).toFixed(1)},${by+15}" fill="none" stroke="#fff" stroke-width="1.5"/>`;
       if (bw > 42) body += `<text class="g-barlabel" x="${(bx+(clampedLeft?14:6)).toFixed(1)}" y="${by+13}">${dur}d</text>`;
-      // Marcador "sem due": círculo âmbar no fim da barra (entrega sem data acordada no JIRA).
       if (noDue) body += `<circle cx="${(bx+bw).toFixed(1)}" cy="${(by+9).toFixed(1)}" r="4.5" fill="${NODUE_COLOR}" stroke="#fff" stroke-width="1.5"/>`;
-      y += ROW;
     });
+    if (dItems.length > DCAP) {
+      const ry = laneTop + DCAP * ROW;
+      body += `<text class="g-empty-lane" x="12" y="${ry + ROW/2 + 4}">+${dItems.length - DCAP} agendados além do teto (refine o filtro)</text>`;
+      body += `<line class="g-rowsep" x1="0" y1="${ry + ROW}" x2="${W}" y2="${ry + ROW}"/>`;
+    }
+
+    // Blocos "sem data" na faixa central (não-agendados ativos deste recurso).
+    if (uItems.length) {
+      body += `<text class="g-nodate-lbl" x="${LABEL + 8}" y="${laneTop + 11}">sem data · ${uItems.length}</text>`;
+      const shown = uItems.slice(0, CAP);
+      shown.forEach((ep, i) => {
+        const col = i % perRow, rowi = Math.floor(i / perRow);
+        const bx = LABEL + 8 + col * (BW + BG);
+        const by = laneTop + 16 + rowi * (BH + BG);
+        body += undatedBlock(ep, bx, by);
+      });
+      if (uItems.length > CAP) {
+        const bx = LABEL + 8 + (shown.length % perRow) * (BW + BG);
+        const by = laneTop + 16 + Math.floor(shown.length / perRow) * (BH + BG);
+        body += `<text class="g-nodate-more" x="${bx.toFixed(1)}" y="${(by + BH/2 + 3.5).toFixed(1)}">+${uItems.length - CAP}</text>`;
+      }
+    }
+
+    // Lane ociosa (nada agendado nem sem-data).
+    if (isEmpty) body += `<text class="g-empty-lane" x="${LABEL + 8}" y="${laneTop + ROW/2 + 4}">— sem demanda ativa —</text>`;
+
+    y = laneTop + lh;
+    body += `<line class="g-rowsep" x1="0" y1="${y}" x2="${W}" y2="${y}"/>`;
   });
 
-  // Linha de hoje — desenhada por último pra ficar acima das faixas/barras (z-index).
+  // Linha de hoje.
   if (today >= minD && today <= maxD) {
     const tx = xd(today);
-    body += `<line class="g-today" x1="${tx.toFixed(1)}" y1="16" x2="${tx.toFixed(1)}" y2="${(totalH-PAD_B).toFixed(1)}"/>`;
-    body += `<rect x="${(tx-15).toFixed(1)}" y="2" width="30" height="15" rx="3" fill="#F04438"/>`;
-    body += `<text x="${tx.toFixed(1)}" y="13" fill="#fff" text-anchor="middle" font-size="10" font-weight="700">hoje</text>`;
+    body += `<line class="g-today" x1="${tx.toFixed(1)}" y1="20" x2="${tx.toFixed(1)}" y2="${(totalH - PAD_B).toFixed(1)}"/>`;
+    body += `<rect x="${(tx-15).toFixed(1)}" y="6" width="30" height="15" rx="3" fill="#F04438"/>`;
+    body += `<text x="${tx.toFixed(1)}" y="17" fill="#fff" text-anchor="middle" font-size="10" font-weight="700">hoje</text>`;
   }
 
   svg.setAttribute('viewBox', `0 0 ${W.toFixed(0)} ${totalH.toFixed(0)}`);
@@ -596,10 +650,10 @@ function renderGantt(){
   wireTooltips();
 
   const notes = [];
-  const itemWord = EXPANDED ? 'item(ns)' : 'épico(s)';
-  if (omittedNoDate) notes.push(`${omittedNoDate} ${itemWord} sem datas de Start/Due omitido(s)`);
-  if (omittedDone) notes.push(`${omittedDone} ${itemWord} já concluído(s) omitido(s)`);
-  document.getElementById('omittedNote').textContent = notes.length ? '* ' + notes.join(' · ') + '.' : '';
+  const itemWord = EXPANDED ? 'itens' : 'épicos';
+  if (omittedDone) notes.push(`${omittedDone} ${itemWord} concluído(s) ocultado(s)`);
+  notes.push('faixa "sem data" = trabalho ativo sem Start/Due no JIRA');
+  document.getElementById('omittedNote').textContent = '* ' + notes.join(' · ') + '.';
 }
 
 function wireTooltips(){
@@ -607,16 +661,19 @@ function wireTooltips(){
   document.querySelectorAll('.gantt-bar').forEach(bar => {
     bar.addEventListener('mousemove', e => {
       const d = bar.dataset;
+      const unscheduled = d.sched === 'não agendado';
       tip.innerHTML = `<div class="t-title">${d.key} · ${d.name}</div>` +
-        `<div class="t-meta">${d.proj} · ${d.status}</div>` +
+        `<div class="t-meta">${d.proj} · ${d.type ? d.type + ' · ' : ''}${d.status}</div>` +
         `<div class="t-grid">` +
         `<span class="lbl">Recurso</span><span>${d.assignee}</span>` +
-        `<span class="lbl">Início</span><span>${d.start}</span>` +
-        `<span class="lbl">Fim</span><span>${d.end}</span>` +
-        `<span class="lbl">Due</span><span${d.nodue ? ' style="color:#B45309;font-weight:600"' : ''}>${d.due}</span>` +
-        (d.devdue ? `<span class="lbl">Due Dev</span><span style="color:#5B21B6;font-weight:600">🔧 ${d.devdue}</span>` : '') +
-        `<span class="lbl">Duração</span><span>${d.dur} dias</span>` +
-        (d.est ? `<span class="lbl">⚠</span><span>${d.est}</span>` : '') +
+        (unscheduled
+          ? `<span class="lbl">Agenda</span><span style="color:#B45309;font-weight:600">sem data (sem Start/Due)</span>`
+          : `<span class="lbl">Início</span><span>${d.start}</span>` +
+            `<span class="lbl">Fim</span><span>${d.end}</span>` +
+            `<span class="lbl">Due</span><span${d.nodue ? ' style="color:#B45309;font-weight:600"' : ''}>${d.due}</span>` +
+            (d.devdue ? `<span class="lbl">Due Dev</span><span style="color:#5B21B6;font-weight:600">🔧 ${d.devdue}</span>` : '') +
+            `<span class="lbl">Duração</span><span>${d.dur} dias</span>` +
+            (d.est ? `<span class="lbl">⚠</span><span>${d.est}</span>` : '')) +
         `</div>`;
       tip.classList.add('show');
       const pad = 14; let left = e.clientX + pad, top = e.clientY + pad;
