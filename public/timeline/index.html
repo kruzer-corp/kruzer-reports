@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Timeline — Épicos por recurso</title>
+<title>Alocação de recursos — Kruzer</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/shared/tokens.css">
 <style>
@@ -83,6 +83,51 @@ button:disabled { opacity: 0.6; cursor: wait; }
 .kpi .value { font-size: 26px; font-weight: 700; line-height: 1; order: 1; }
 .kpi .label { font-size: 10.5px; text-transform: uppercase; color: var(--kruzer-neutral-700); font-weight: 600; letter-spacing: 0.4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; order: 2; }
 
+/* Camada 1 — cards de atuação */
+.action-cards { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+.ac { flex: 1 1 0; min-width: 150px; background: #fff; border: 1px solid var(--kruzer-neutral-300); border-radius: 8px; border-left-width: 4px; padding: 12px 14px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 5px; text-align: left; cursor: default; font-family: inherit; }
+.ac.clickable { cursor: pointer; transition: transform .12s, box-shadow .12s; }
+.ac.clickable:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(11,16,32,.10); }
+.ac.active { outline: 2px solid var(--kruzer-primary); }
+.ac .ac-v { font-size: 26px; font-weight: 700; line-height: 1; }
+.ac .ac-l { font-size: 10.5px; text-transform: uppercase; letter-spacing: .4px; font-weight: 600; color: var(--kruzer-neutral-700); }
+.ac .ac-h { font-size: 10.5px; color: var(--kruzer-neutral-500); }
+.ac.crit { border-left-color: var(--kruzer-error); } .ac.crit .ac-v { color: var(--kruzer-error); }
+.ac.warn { border-left-color: #D97706; } .ac.warn .ac-v { color: #B45309; }
+.ac.idle { border-left-color: #6B7280; }
+.ac.info { border-left-color: var(--kruzer-primary); }
+.ac.ok   { border-left-color: var(--kruzer-success); }
+
+/* Camada 2 — heatmap */
+.heatmap-wrap { overflow-x: auto; border: 1px solid var(--kruzer-neutral-300); border-radius: 8px; }
+table.hm { border-collapse: collapse; width: 100%; font-size: 12px; }
+table.hm th, table.hm td { border-right: 1px solid var(--kruzer-neutral-200,#EDEDF2); border-bottom: 1px solid var(--kruzer-neutral-200,#EDEDF2); text-align: center; }
+table.hm thead th { position: sticky; top: 0; z-index: 2; background: #fff; font-size: 10px; font-weight: 700; color: var(--kruzer-neutral-700); padding: 8px 4px; white-space: nowrap; }
+table.hm thead th.tw { background: #FEF2F2; }
+table.hm .hm-res { position: sticky; left: 0; z-index: 1; background: #fff; text-align: left; padding: 8px 12px; min-width: 210px; max-width: 210px; box-shadow: 1px 0 0 var(--kruzer-neutral-300); }
+table.hm thead .hm-res { z-index: 3; }
+table.hm tbody .hm-res { font-weight: 600; color: var(--kruzer-navy); }
+.hm-res .hm-sub { font-weight: 400; font-size: 10.5px; color: var(--kruzer-neutral-500); }
+.hm-res .hm-load { display: inline-block; font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 999px; margin-left: 6px; }
+table.hm td.hm-cell { width: 34px; height: 30px; font-weight: 700; color: #fff; font-variant-numeric: tabular-nums; }
+td.hm-cell.l0 { background: #fff; color: transparent; }
+td.hm-cell.l1 { background: #86C99A; color: #14532D; }
+td.hm-cell.l2 { background: #F5B54B; color: #7A3E00; }
+td.hm-cell.l3 { background: #EE6A5F; }
+td.hm-cell.l4 { background: #C4362B; }
+td.hm-cell.tw { box-shadow: inset 0 0 0 2px rgba(240,68,56,.5); }
+td.hm-nd { background: #FFF7ED; color: #B45309; font-weight: 700; font-variant-numeric: tabular-nums; min-width: 54px; }
+td.hm-nd.z { color: var(--kruzer-neutral-300); font-weight: 400; }
+table.hm tbody tr:hover .hm-res { background: var(--kruzer-neutral-100); }
+table.hm tbody tr.idle .hm-res { color: var(--kruzer-neutral-500); font-weight: 500; }
+.hm-legend { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; font-size: 12px; color: var(--kruzer-navy-300); }
+.hm-li { display: inline-flex; align-items: center; gap: 6px; }
+.hm-sw { width: 16px; height: 14px; border-radius: 3px; display: inline-block; }
+.hm-sw.l1 { background: #86C99A; } .hm-sw.l2 { background: #F5B54B; } .hm-sw.l3 { background: #EE6A5F; }
+.hm-sw.nd { background: #FFF7ED; border: 1px solid #F5B54B; } .hm-sw.tw { background: #fff; box-shadow: inset 0 0 0 2px rgba(240,68,56,.5); }
+
+.drill-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+
 .section { background: #fff; border: 1px solid var(--kruzer-neutral-300); border-radius: 8px; padding: 24px; margin-bottom: 16px; box-shadow: var(--shadow); }
 .section h2 { margin: 0 0 4px; font-size: 18px; font-weight: 600; }
 .section .sub { font-size: 12px; color: var(--kruzer-neutral-700); margin-bottom: 16px; font-style: italic; }
@@ -161,7 +206,7 @@ a:hover { text-decoration: underline; }
   <a href="/" class="back">← Todos os dashboards</a>
   <div class="header">
     <div>
-      <h1>Timeline — Épicos por recurso</h1>
+      <h1>Alocação de recursos</h1>
       <div class="sub" id="subtitle">Carregando dados…</div>
     </div>
     <div class="controls">
@@ -177,24 +222,45 @@ a:hover { text-decoration: underline; }
 
   <div id="content" style="display:none">
     <div class="filter-bar" id="filterBar"></div>
-    <div class="kpis" id="kpis"></div>
 
+    <!-- Camada 1 — pontos de atuação (clicáveis) -->
+    <div class="action-cards" id="actionCards"></div>
+
+    <!-- Camada 2 — heatmap de alocação (herói) -->
     <section class="section">
-      <h2>Linha do tempo — quem está tocando o quê</h2>
-      <div class="sub">Agrupado por recurso (assignee). À direita, o <b>agendado</b>: cada barra é uma demanda com datas de Start/Due (cor = projeto; borda vermelha = bloqueado; hachura = data estimada; sobreposições no mesmo recurso viram alerta ⚠). Na faixa central <b>“sem data”</b>, o trabalho ativo <b>sem Start/Due no JIRA</b> (o gap) — blocos por projeto, com a inicial do tipo. Ative <b>“Expandir visão”</b> para incluir tarefas/stories além dos épicos; use o filtro de recursos (inclui “Sem responsável” e ociosos) para achar gaps, sobreposição e ociosidade.</div>
-      <div class="legend">
-        <span class="legend-item"><span class="legend-swatch fst"></span> FST</span>
-        <span class="legend-item"><span class="legend-swatch vena"></span> VENA</span>
-        <span class="legend-item"><span class="legend-swatch dct"></span> DCT</span>
-        <span class="legend-item"><span class="legend-swatch pgm"></span> PMD</span>
-        <span class="legend-item"><span class="legend-swatch blocked"></span> Bloqueado</span>
-        <span class="legend-item"><span class="legend-swatch est"></span> Data estimada</span>
-        <span class="legend-item"><span class="legend-swatch nodue"></span> Sem due</span>
-        <span class="legend-item"><span class="legend-swatch today"></span> Hoje</span>
+      <h2>Alocação por recurso · semana a semana</h2>
+      <div class="sub">Cada célula = nº de demandas ativas do recurso naquela semana (contagem — o JIRA não tem esforço confiável). <b>Vazio</b> = ocioso · <b>1</b> ok · <b>2</b> atenção · <b>3+</b> sobrecarga. A coluna <b>“sem data”</b> é trabalho ativo sem prazo no JIRA (gap de planejamento). Linhas ordenadas da maior carga → ociosos ao fim.</div>
+      <div class="hm-legend">
+        <span class="hm-li"><span class="hm-sw l1"></span> 1 · ok</span>
+        <span class="hm-li"><span class="hm-sw l2"></span> 2 · atenção</span>
+        <span class="hm-li"><span class="hm-sw l3"></span> 3+ · sobrecarga</span>
+        <span class="hm-li"><span class="hm-sw nd"></span> sem data</span>
+        <span class="hm-li"><span class="hm-sw tw"></span> semana atual</span>
       </div>
-      <div class="res-gaps" id="resGaps" style="display:none"></div>
-      <div class="gantt-wrap"><svg id="ganttSvg" class="gantt-svg" xmlns="http://www.w3.org/2000/svg"></svg></div>
-      <div class="note" id="omittedNote"></div>
+      <div class="heatmap-wrap" id="heatmapWrap"></div>
+      <div class="note" id="hmNote"></div>
+    </section>
+
+    <!-- Camada 3 — drill temporal (Gantt), sob demanda -->
+    <section class="section">
+      <div class="drill-head">
+        <h2 style="margin:0">Detalhe temporal — <span style="font-weight:400;color:var(--kruzer-neutral-700)">quando (só o que tem data)</span></h2>
+        <button class="ghost" id="drillToggle">▸ mostrar</button>
+      </div>
+      <div id="drillBody" style="display:none">
+        <div class="legend">
+          <span class="legend-item"><span class="legend-swatch fst"></span> FST</span>
+          <span class="legend-item"><span class="legend-swatch vena"></span> VENA</span>
+          <span class="legend-item"><span class="legend-swatch dct"></span> DCT</span>
+          <span class="legend-item"><span class="legend-swatch pgm"></span> PMD</span>
+          <span class="legend-item"><span class="legend-swatch blocked"></span> Bloqueado</span>
+          <span class="legend-item"><span class="legend-swatch est"></span> Data estimada</span>
+          <span class="legend-item"><span class="legend-swatch nodue"></span> Sem due</span>
+          <span class="legend-item"><span class="legend-swatch today"></span> Hoje</span>
+        </div>
+        <div class="gantt-wrap"><svg id="ganttSvg" class="gantt-svg" xmlns="http://www.w3.org/2000/svg"></svg></div>
+        <div class="note" id="omittedNote"></div>
+      </div>
     </section>
   </div>
 </div>
@@ -353,20 +419,98 @@ function overlapCount(arr){
   return cnt;
 }
 
-function renderKPIs(plotted, sel, idleCount){
-  const resources = new Set(plotted.map(e => e.assignee).filter(a => a !== 'Sem responsável'));
-  const noDue = sel.filter(e => !e.resolved && !e.due).length;
-  const c = document.getElementById('kpis');
-  let html =
-    `<div class="kpi"><div class="label">${EXPANDED ? 'Itens rodando' : 'Épicos rodando'}</div><div class="value">${plotted.length}</div></div>` +
-    `<div class="kpi"><div class="label">Com demanda</div><div class="value">${resources.size}</div></div>` +
-    `<div class="kpi k-idle"><div class="label">Ociosos</div><div class="value">${idleCount}</div></div>` +
-    `<div class="kpi k-nodue"><div class="label">Sem due</div><div class="value">${noDue}</div></div>`;
-  PROJECTS.forEach(p => {
-    const n = plotted.filter(e => e.project === p).length;
-    html += `<div class="kpi" style="border-top-color:${PROJ_COLOR[p]}"><div class="label">${p}</div><div class="value">${n}</div></div>`;
+// Segunda-feira da semana de d (âncora das colunas do heatmap).
+function weekStartOf(d){ const x = new Date(d); x.setHours(0,0,0,0); const dow = (x.getDay()+6)%7; x.setDate(x.getDate()-dow); return x; }
+const WEEK = 7*MS_DAY;
+const OVERLOAD = 3;   // ≥ N demandas concorrentes na semana = sobrecarga
+
+// Modelo único do cockpit: itens ativos da seleção agrupados por recurso, janela
+// de semanas, e coortes de atuação. Contagem de demandas (o JIRA não tem esforço).
+function buildModel(){
+  const today = new Date();
+  const scope = allIssues().filter(e => !e.resolved && TYPE_SEL.has(e.issueType) &&
+    (document.getElementById('projFilter').value === 'all' || e.project === document.getElementById('projFilter').value));
+  const rows = {};
+  scope.forEach(e => {
+    const r = rows[e.assignee] || (rows[e.assignee] = { name: e.assignee, dated: [], undated: [], blocked: 0, projects: new Set() });
+    r.projects.add(e.project);
+    if (e.blocked) r.blocked++;
+    const w = windowFor(e, today);
+    if (w) r.dated.push({ ...e, ...w }); else r.undated.push(e);
   });
-  c.innerHTML = html;
+  const uni = allResourceOptions();
+  // Linhas exibidas = recursos SELECIONADOS (inclui ociosos → visíveis como linha vazia).
+  const rowNames = [...RES_SEL].filter(n => uni.has(n));
+  // Janela ROLANTE de ~16 semanas a partir de ~1 semana antes de hoje (visão
+  // executiva de curto prazo). Demandas fora da janela não coloram — o foco é a
+  // alocação atual/próxima; o passado/futuro distante vai no drill temporal.
+  const HORIZON = 16;
+  const start = weekStartOf(new Date(today.getTime() - WEEK));
+  const weeks = []; for (let i = 0; i < HORIZON; i++) weeks.push(new Date(start.getTime() + i*WEEK));
+  const windowEnd = start.getTime() + HORIZON*WEEK;
+  // Conta demandas que caem além da janela (pra sinalizar, não esconder em silêncio).
+  const selDated = rowNames.flatMap(n => (rows[n] ? rows[n].dated : []));
+  const beyond = selDated.filter(e => e.s.getTime() >= windowEnd).length;
+  const truncatedWeeks = beyond;
+
+  // Carga do recurso na semana = nº de agendados cuja janela cruza [ws, ws+7).
+  const loadOf = (name, ws) => { const r = rows[name]; if (!r) return 0; const a = ws.getTime(), b = a + WEEK;
+    return r.dated.filter(e => e.s.getTime() < b && e.e.getTime() >= a).length; };
+
+  // Coortes de atuação.
+  const overloaded = rowNames.filter(n => weeks.some(ws => loadOf(n, ws) >= OVERLOAD));
+  const idlePeople = [...uni.entries()].filter(([, c]) => c === 'idle' || c === 'noepic').map(([n]) => n);
+  const unassigned = (rows['Sem responsável'] ? rows['Sem responsável'].dated.length + rows['Sem responsável'].undated.length : 0);
+  const semPrazo = rowNames.reduce((s, n) => s + (rows[n] ? rows[n].undated.length : 0), 0);
+  const blocked = rowNames.reduce((s, n) => s + (rows[n] ? rows[n].blocked : 0), 0);
+
+  return { today, rows, rowNames, weeks, truncatedWeeks, uni, loadOf, cohorts: { overloaded, idlePeople, unassigned, semPrazo, blocked } };
+}
+
+function renderActionCards(model){
+  const { cohorts } = model;
+  const card = (cls, v, label, hint, act) =>
+    `<button class="ac ${cls} ${act ? 'clickable' : ''}" ${act ? `data-act="${act}"` : 'disabled'}>` +
+    `<span class="ac-v">${v}</span><span class="ac-l">${label}</span><span class="ac-h">${hint}</span></button>`;
+  document.getElementById('actionCards').innerHTML =
+    card(cohorts.overloaded.length ? 'crit' : 'ok', cohorts.overloaded.length, 'Sobrecarregados', '≥3 demandas concorrentes', cohorts.overloaded.length ? 'sel-overloaded' : '') +
+    card('idle', cohorts.idlePeople.length, 'Ociosos', 'sem demanda ativa · ver', cohorts.idlePeople.length ? 'nodemand' : '') +
+    card(cohorts.unassigned ? 'warn' : 'ok', cohorts.unassigned, 'Não atribuído', 'demandas sem responsável · ver', cohorts.unassigned ? 'add-unassigned' : '') +
+    card(cohorts.semPrazo ? 'warn' : 'ok', cohorts.semPrazo, 'Sem prazo', 'ativas sem Start/Due (gap)', '') +
+    card(cohorts.blocked ? 'crit' : 'ok', cohorts.blocked, 'Bloqueadas', 'impedimento ativo', '');
+}
+
+function renderHeatmap(model){
+  const { rows, rowNames, weeks, loadOf, today } = model;
+  const wrap = document.getElementById('heatmapWrap');
+  if (!rowNames.length) { wrap.innerHTML = '<div style="padding:24px;text-align:center;color:var(--kruzer-neutral-500)">Nenhum recurso selecionado. Use o filtro ou os cards acima.</div>'; document.getElementById('hmNote').textContent = ''; return; }
+  const thisWeek = weekStartOf(today).getTime();
+  const totalOf = n => (rows[n] ? rows[n].dated.length + rows[n].undated.length : 0);
+  // Ordena: maior carga → menor; ociosos (0) ao fim; "Sem responsável" por último.
+  const ordered = [...rowNames].sort((a, b) => {
+    if (a === 'Sem responsável') return 1; if (b === 'Sem responsável') return -1;
+    return totalOf(b) - totalOf(a) || a.localeCompare(b, 'pt');
+  });
+  const fmtWk = ws => `${String(ws.getDate()).padStart(2,'0')}/${String(ws.getMonth()+1).padStart(2,'0')}`;
+  let head = `<tr><th class="hm-res">Recurso</th><th>sem<br>data</th>` +
+    weeks.map(ws => `<th class="${ws.getTime()===thisWeek?'tw':''}">${fmtWk(ws)}</th>`).join('') + `</tr>`;
+  let bodyRows = ordered.map(n => {
+    const r = rows[n]; const total = totalOf(n); const nd = r ? r.undated.length : 0;
+    const loadPillColor = total === 0 ? '#9CA3AF' : (weeks.some(ws => loadOf(n, ws) >= OVERLOAD) ? '#EE6A5F' : '#86C99A');
+    const subProj = r && r.projects.size ? [...r.projects].join(' · ') : '—';
+    const resCell = `<td class="hm-res"><div>${escapeHtml(n)}<span class="hm-load" style="background:${loadPillColor};color:#fff">${total}</span></div><div class="hm-sub">${escapeHtml(subProj)}</div></td>`;
+    const ndCell = `<td class="hm-nd ${nd?'':'z'}">${nd || '·'}</td>`;
+    const cells = weeks.map(ws => {
+      const L = loadOf(n, ws);
+      const cls = L === 0 ? 'l0' : L === 1 ? 'l1' : L === 2 ? 'l2' : L === 3 ? 'l3' : 'l4';
+      const tw = ws.getTime() === thisWeek ? ' tw' : '';
+      const titleItems = r ? r.dated.filter(e => e.s.getTime() < ws.getTime()+WEEK && e.e.getTime() >= ws.getTime()).map(e => e.key).join(', ') : '';
+      return `<td class="hm-cell ${cls}${tw}"${titleItems ? ` title="${escapeHtml(titleItems)}"` : ''}>${L || ''}</td>`;
+    }).join('');
+    return `<tr class="${total===0?'idle':''}">${resCell}${ndCell}${cells}</tr>`;
+  }).join('');
+  wrap.innerHTML = `<table class="hm"><thead>${head}</thead><tbody>${bodyRows}</tbody></table>`;
+  document.getElementById('hmNote').textContent = '* carga = nº de demandas ativas concorrentes na semana · janela de 16 semanas' + (model.truncatedWeeks ? ` · ${model.truncatedWeeks} demanda(s) começam além da janela (ver drill)` : '') + '.';
 }
 
 // Filtro de recursos: só os SELECIONADOS aparecem como chips nomeados (com ×).
@@ -427,29 +571,23 @@ function renderFilterBar(){
     `<div class="fb-chips">${chips}</div>`;
 }
 
-// Reaplica o filtro na tela (a barra de chips é re-renderizada dentro de renderGantt).
-function syncResUI(){ renderGantt(); }
-
-// Banda de gaps de planejamento: ociosos, ativos sem datas, e overlap de demandas.
-function renderResGaps(plotted, idle, undated){
-  const el = document.getElementById('resGaps');
-  const byRes = {};
-  plotted.forEach(ep => { if (ep.assignee !== 'Sem responsável') (byRes[ep.assignee] = byRes[ep.assignee] || []).push(ep); });
-  const overloaded = Object.entries(byRes).map(([n, arr]) => [n, overlapCount(arr)]).filter(([, c]) => c > 0)
-    .sort((a, b) => b[1] - a[1]);
-  const parts = [];
-  if (overloaded.length) parts.push(`<div class="gap over"><span class="g-tag">Overlap</span>${overloaded.map(([n, c]) => `<span class="gap-chip">${escapeHtml(n)} · ${c}⧉</span>`).join('')}</div>`);
-  if (idle.length) parts.push(`<div class="gap idle"><span class="g-tag">Ociosos</span>${idle.map(p => `<span class="gap-chip">${escapeHtml(p.name)}</span>`).join('')}</div>`);
-  if (undated.length) parts.push(`<div class="gap undated"><span class="g-tag">Sem datas</span>${undated.map(p => `<span class="gap-chip">${escapeHtml(p.name)}</span>`).join('')}</div>`);
-  if (!parts.length) { el.innerHTML = ''; el.style.display = 'none'; return; }
-  el.style.display = ''; el.innerHTML = `<div class="rg-title">Gaps de planejamento</div>${parts.join('')}`;
+// Orquestra o cockpit: filtro + cards de ação + heatmap + (drill temporal se aberto).
+let DRILL_OPEN = false;
+function renderAll(){
+  renderFilterBar();
+  const model = buildModel();
+  renderActionCards(model);
+  renderHeatmap(model);
+  if (DRILL_OPEN) renderGantt();
 }
+// Reaplica tudo (chamado por qualquer mudança de filtro/seleção).
+function syncResUI(){ renderAll(); }
 
+// ── Drill temporal (Gantt por data) — só o subconjunto COM datas. ──────────────
 function renderGantt(){
   const today = new Date();
   const sel = selected();
-  // Separa por recurso: AGENDADO (tem janela de datas) vs NÃO AGENDADO ativo
-  // (sem start/due — antes era descartado; agora vai pra faixa "sem data").
+  // Separa por recurso: AGENDADO (tem janela de datas) vs NÃO AGENDADO ativo.
   const dated = [];
   const datedByRes = {}, undatedByRes = {};
   let omittedDone = 0;
@@ -460,14 +598,6 @@ function renderGantt(){
     else (undatedByRes[ep.assignee] = undatedByRes[ep.assignee] || []).push(ep);
   });
   Object.values(datedByRes).forEach(arr => arr.sort((a,b) => a.s - b.s));
-
-  const { list: roster } = computeRoster();
-  const idle = roster.filter(p => p.cat === 'idle');
-  const undatedPeople = roster.filter(p => p.cat === 'undated');
-
-  renderKPIs(dated, sel, idle.length);
-  renderResGaps(dated, idle, undatedPeople);
-  renderFilterBar();
 
   const svg = document.getElementById('ganttSvg');
   const uniCat = allResourceOptions();
@@ -698,8 +828,8 @@ async function loadAndRender(){
     buildResourceFilter();
     document.getElementById('loadingBox').style.display = 'none';
     document.getElementById('content').style.display = '';
-    renderGantt();
-    requestAnimationFrame(renderGantt); // re-mede a largura após o layout assentar
+    renderAll();
+    requestAnimationFrame(renderAll); // re-mede a largura após o layout assentar
     document.getElementById('subtitle').textContent =
       `${RAW.length} épicos lidos (FST · VENA · DCT · PMD) • atualizado ${new Date().toLocaleString('pt-BR')}`;
   } catch (e) {
@@ -715,7 +845,7 @@ document.getElementById('projFilter').addEventListener('change', async () => {
   await loadRoster();
   if (EXPANDED) { try { await loadChildren(); } catch (e) { console.warn('children reload failed:', e.message); } }
   buildResourceFilter();
-  renderGantt();
+  renderAll();
 });
 
 // Ações rápidas do filtro de recursos.
@@ -743,7 +873,7 @@ async function onExpandToggle(on){
     finally { TYPES_BUSY = false; }
   }
   TYPE_SEL = EXPANDED ? new Set(discoveredTypes()) : epicTypeSet();
-  renderGantt();
+  renderAll();
 }
 // Barra de chips = filtro. Ação (preset) · chip de tipo (toggle) · × (remove recurso).
 document.getElementById('filterBar').addEventListener('click', e => {
@@ -753,7 +883,7 @@ document.getElementById('filterBar').addEventListener('click', e => {
   if (typeChip) {
     const t = typeChip.dataset.type;
     if (TYPE_SEL.has(t)) TYPE_SEL.delete(t); else TYPE_SEL.add(t);
-    renderGantt();
+    renderAll();
     return;
   }
   const x = e.target.closest('.fb-x');
@@ -764,7 +894,24 @@ document.getElementById('filterBar').addEventListener('change', e => {
   if (e.target.id === 'fbExpand') { onExpandToggle(e.target.checked); return; }
   if (e.target.id === 'fbAdd' && e.target.value) { RES_SEL.add(e.target.value); syncResUI(); }
 });
-let _rz; window.addEventListener('resize', () => { clearTimeout(_rz); _rz = setTimeout(() => { if (RAW.length) renderGantt(); }, 150); });
+// Cards de atuação → filtram/direcionam.
+document.getElementById('actionCards').addEventListener('click', e => {
+  const btn = e.target.closest('.ac'); if (!btn || !btn.dataset.act) return;
+  const act = btn.dataset.act;
+  if (act === 'nodemand') applyResAction('nodemand');
+  else if (act === 'add-unassigned') { RES_SEL.add('Sem responsável'); syncResUI(); }
+  else if (act === 'sel-overloaded') {
+    const m = buildModel(); RES_SEL = new Set(m.cohorts.overloaded); syncResUI();
+  }
+});
+// Drill temporal (Gantt) — carrega sob demanda.
+document.getElementById('drillToggle').addEventListener('click', () => {
+  DRILL_OPEN = !DRILL_OPEN;
+  document.getElementById('drillBody').style.display = DRILL_OPEN ? '' : 'none';
+  document.getElementById('drillToggle').textContent = DRILL_OPEN ? '▾ ocultar' : '▸ mostrar';
+  if (DRILL_OPEN) renderGantt();
+});
+let _rz; window.addEventListener('resize', () => { clearTimeout(_rz); _rz = setTimeout(() => { if (RAW.length) renderAll(); }, 150); });
 loadAndRender();
 </script>
 </body>
