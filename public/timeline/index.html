@@ -37,6 +37,23 @@
 .res-badge.unassigned { background: var(--kruzer-neutral-100); color: var(--kruzer-neutral-700); }
 .res-sep { height: 1px; background: var(--kruzer-neutral-300); margin: 6px 2px; }
 
+/* Barra de recursos filtrados (largura total, chips removíveis) */
+.filter-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; padding: 10px 14px; background: #fff; border: 1px solid var(--kruzer-neutral-300); border-radius: 8px; box-shadow: var(--shadow); }
+.filter-bar .fb-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: var(--kruzer-neutral-700); }
+.filter-bar .fb-muted { font-size: 13px; color: var(--kruzer-neutral-500); }
+.fb-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 500; color: var(--kruzer-navy); background: var(--kruzer-primary-100); border: 1px solid #DDD6FE; border-radius: 999px; padding: 3px 6px 3px 11px; }
+.fb-chip.unassigned { background: var(--kruzer-neutral-100); border-color: var(--kruzer-neutral-300); color: var(--kruzer-neutral-700); }
+.fb-x { border: none; background: rgba(11,16,32,.10); color: var(--kruzer-navy); width: 17px; height: 17px; border-radius: 50%; font-size: 13px; line-height: 1; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+.fb-x:hover { background: var(--kruzer-error); color: #fff; }
+.fb-action { margin-left: auto; font-size: 12px; padding: 5px 12px; border-radius: 6px; }
+
+/* Chips dentro da banda de gaps de planejamento */
+.res-gaps .gap-chip { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 999px; margin: 2px 4px 2px 0; background: #fff; border: 1px solid currentColor; }
+.res-gaps .gap.over .gap-chip { color: #B42318; }
+.res-gaps .gap.idle .gap-chip { color: #92400E; }
+.res-gaps .gap.undated .gap-chip { color: #3730A3; }
+.res-gaps .gap { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; margin-bottom: 4px; }
+
 /* KPI ociosos + banda de gaps de planejamento */
 .kpi.k-idle { border-top-color: #D97706; }
 .res-gaps { margin-bottom: 12px; border: 1px solid #FDE68A; background: linear-gradient(180deg,#FFFBEB 0%,#fff 80%); border-radius: 8px; padding: 10px 14px; }
@@ -53,13 +70,14 @@ button.primary { background: var(--kruzer-primary); color: #fff; border-color: v
 button.primary:hover { background: var(--kruzer-primary-700); }
 button:disabled { opacity: 0.6; cursor: wait; }
 
-.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 18px; }
-.kpi { background: #fff; border: 1px solid var(--kruzer-neutral-300); border-radius: 8px; padding: 14px 18px; box-shadow: var(--shadow); border-top-width: 3px; border-top-color: var(--kruzer-navy-300); }
+/* KPIs: linha única e objetiva; valor no topo, rótulo em 1 linha → blocos sempre alinhados. */
+.kpis { display: flex; gap: 10px; margin-bottom: 18px; overflow-x: auto; }
+.kpi { flex: 1 1 0; min-width: 134px; background: #fff; border: 1px solid var(--kruzer-neutral-300); border-radius: 8px; padding: 12px 14px; box-shadow: var(--shadow); border-top-width: 3px; border-top-color: var(--kruzer-navy-300); display: flex; flex-direction: column; gap: 6px; }
 .kpi.k-fst { border-top-color: var(--fst); }
 .kpi.k-vena { border-top-color: var(--vena); }
 .kpi.k-nodue { border-top-color: #B45309; }
-.kpi .label { font-size: 11px; text-transform: uppercase; color: var(--kruzer-neutral-700); font-weight: 600; letter-spacing: 0.5px; margin-bottom: 4px; }
-.kpi .value { font-size: 28px; font-weight: 700; line-height: 1; }
+.kpi .value { font-size: 26px; font-weight: 700; line-height: 1; order: 1; }
+.kpi .label { font-size: 10.5px; text-transform: uppercase; color: var(--kruzer-neutral-700); font-weight: 600; letter-spacing: 0.4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; order: 2; }
 
 .section { background: #fff; border: 1px solid var(--kruzer-neutral-300); border-radius: 8px; padding: 24px; margin-bottom: 16px; box-shadow: var(--shadow); }
 .section h2 { margin: 0 0 4px; font-size: 18px; font-weight: 600; }
@@ -160,6 +178,7 @@ a:hover { text-decoration: underline; }
   <div id="loadingBox" class="loading"><span class="spinner"></span>Cruzando épicos de FST, VENA, DCT e PMD…</div>
 
   <div id="content" style="display:none">
+    <div class="filter-bar" id="filterBar"></div>
     <div class="kpis" id="kpis"></div>
 
     <section class="section">
@@ -332,7 +351,7 @@ function renderKPIs(plotted, sel, idleCount){
   const c = document.getElementById('kpis');
   let html =
     `<div class="kpi"><div class="label">Épicos rodando</div><div class="value">${plotted.length}</div></div>` +
-    `<div class="kpi"><div class="label">Recursos c/ demanda</div><div class="value">${resources.size}</div></div>` +
+    `<div class="kpi"><div class="label">Com demanda</div><div class="value">${resources.size}</div></div>` +
     `<div class="kpi k-idle"><div class="label">Ociosos</div><div class="value">${idleCount}</div></div>` +
     `<div class="kpi k-nodue"><div class="label">Sem due</div><div class="value">${noDue}</div></div>`;
   PROJECTS.forEach(p => {
@@ -340,6 +359,33 @@ function renderKPIs(plotted, sel, idleCount){
     html += `<div class="kpi" style="border-top-color:${PROJ_COLOR[p]}"><div class="label">${p}</div><div class="value">${n}</div></div>`;
   });
   c.innerHTML = html;
+}
+
+// Barra de largura total com os recursos filtrados (chips removíveis).
+function renderFilterBar(){
+  const el = document.getElementById('filterBar');
+  const total = computeRoster().list.length + (hasUnassignedInScope() ? 1 : 0);
+  const names = [...RES_SEL].sort((a, b) => {
+    if (a === 'Sem responsável') return 1; if (b === 'Sem responsável') return -1;
+    return a.localeCompare(b, 'pt');
+  });
+  if (!names.length) {
+    el.innerHTML = `<span class="fb-label">Recursos</span><span class="fb-muted">nenhum selecionado — a timeline está vazia</span>` +
+      `<button class="fb-action" data-act="busy">Restaurar (só com demanda)</button>`;
+    return;
+  }
+  const chips = names.map(n => `<span class="fb-chip${n === 'Sem responsável' ? ' unassigned' : ''}">${escapeHtml(n)}<button class="fb-x" data-name="${escapeHtml(n)}" title="Remover do filtro" aria-label="Remover ${escapeHtml(n)}">×</button></span>`).join('');
+  const allSelected = RES_SEL.size === total;
+  el.innerHTML = `<span class="fb-label">${allSelected ? `Todos os recursos (${total})` : `Filtrando ${RES_SEL.size}/${total}`}</span>${chips}` +
+    (allSelected ? '' : `<button class="fb-action" data-act="all">Mostrar todos</button>`);
+}
+
+// Re-renderiza toda a UI que depende de RES_SEL (checklist, botão, barra, gantt).
+function syncResUI(){
+  const { list } = computeRoster();
+  renderResChecklist(list);
+  updateResBtn(list);
+  renderGantt(); // já chama renderFilterBar internamente
 }
 
 // Banda de gaps de planejamento: ociosos, ativos sem datas, e overlap de demandas.
@@ -350,9 +396,9 @@ function renderResGaps(plotted, idle, undated){
   const overloaded = Object.entries(byRes).map(([n, arr]) => [n, overlapCount(arr)]).filter(([, c]) => c > 0)
     .sort((a, b) => b[1] - a[1]);
   const parts = [];
-  if (overloaded.length) parts.push(`<div class="gap over"><span class="g-tag">Overlap</span>${overloaded.length} recurso(s) com demandas sobrepostas: ${overloaded.map(([n, c]) => `${escapeHtml(n)} (${c})`).join(', ')}</div>`);
-  if (idle.length) parts.push(`<div class="gap idle"><span class="g-tag">Ociosos</span>${idle.length} sem demanda ativa: ${idle.map(p => escapeHtml(p.name)).join(', ')}</div>`);
-  if (undated.length) parts.push(`<div class="gap undated"><span class="g-tag">Sem datas</span>${undated.length} com demanda ativa mas sem Start/Due no JIRA: ${undated.map(p => escapeHtml(p.name)).join(', ')}</div>`);
+  if (overloaded.length) parts.push(`<div class="gap over"><span class="g-tag">Overlap</span>${overloaded.map(([n, c]) => `<span class="gap-chip">${escapeHtml(n)} · ${c}⧉</span>`).join('')}</div>`);
+  if (idle.length) parts.push(`<div class="gap idle"><span class="g-tag">Ociosos</span>${idle.map(p => `<span class="gap-chip">${escapeHtml(p.name)}</span>`).join('')}</div>`);
+  if (undated.length) parts.push(`<div class="gap undated"><span class="g-tag">Sem datas</span>${undated.map(p => `<span class="gap-chip">${escapeHtml(p.name)}</span>`).join('')}</div>`);
   if (!parts.length) { el.innerHTML = ''; el.style.display = 'none'; return; }
   el.style.display = ''; el.innerHTML = `<div class="rg-title">Gaps de planejamento</div>${parts.join('')}`;
 }
@@ -378,6 +424,7 @@ function renderGantt(){
 
   renderKPIs(plotted, sel, idle.length);
   renderResGaps(plotted, idle, undated);
+  renderFilterBar();
 
   const svg = document.getElementById('ganttSvg');
   if (!plotted.length) { svg.innerHTML = ''; svg.setAttribute('height', 0); document.getElementById('omittedNote').textContent = ''; return; }
@@ -580,15 +627,23 @@ document.getElementById('resChecklist').addEventListener('change', e => {
   updateResBtn(computeRoster().list);
   renderGantt();
 });
-// Ações rápidas: só com demanda / todos / limpar.
-document.querySelector('.res-actions').addEventListener('click', e => {
-  const act = e.target.dataset.act;
-  if (!act) return;
+// Ações rápidas (popover) e ações da barra de filtro compartilham a mesma lógica.
+function applyResAction(act){
   const { list } = computeRoster();
   if (act === 'none') RES_SEL = new Set();
   else if (act === 'busy') RES_SEL = new Set(list.filter(p => p.cat === 'busy').map(p => p.name));
   else if (act === 'all') { RES_SEL = new Set(list.map(p => p.name)); if (hasUnassignedInScope()) RES_SEL.add('Sem responsável'); }
-  renderResChecklist(list); updateResBtn(list); renderGantt();
+  syncResUI();
+}
+document.querySelector('.res-actions').addEventListener('click', e => {
+  if (e.target.dataset.act) applyResAction(e.target.dataset.act);
+});
+// Barra de recursos filtrados: X remove um recurso; ação restaura/mostra todos.
+document.getElementById('filterBar').addEventListener('click', e => {
+  const x = e.target.closest('.fb-x');
+  if (x) { RES_SEL.delete(x.dataset.name); syncResUI(); return; }
+  const act = e.target.dataset.act;
+  if (act) applyResAction(act);
 });
 let _rz; window.addEventListener('resize', () => { clearTimeout(_rz); _rz = setTimeout(() => { if (RAW.length) renderGantt(); }, 150); });
 loadAndRender();
