@@ -17,35 +17,27 @@
 .controls { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
 .control { display: flex; flex-direction: column; gap: 4px; }
 .control label { font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--kruzer-neutral-700); letter-spacing: 0.04em; }
-/* Filtro multi-seleção de recursos (popover) */
-.res-control { position: relative; }
-.res-btn { min-width: 190px; text-align: left; display: inline-flex; justify-content: space-between; align-items: center; gap: 8px; }
-.res-btn:after { content: "▾"; color: var(--kruzer-neutral-500); }
-.res-panel { position: absolute; top: 100%; left: 0; margin-top: 4px; z-index: 30; background: #fff; border: 1px solid var(--kruzer-neutral-300); border-radius: 10px; box-shadow: 0 10px 30px rgba(11,16,32,.14); width: 300px; padding: 10px; }
-.res-panel[hidden] { display: none; }
-.res-actions { display: flex; gap: 6px; margin-bottom: 8px; }
-.res-actions button { flex: 1; font-size: 11px; padding: 5px 6px; border-radius: 6px; }
-.res-checklist { max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
-.res-opt { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--kruzer-navy); }
-.res-opt:hover { background: var(--kruzer-neutral-100); }
-.res-opt input { width: 15px; height: 15px; cursor: pointer; accent-color: var(--kruzer-primary); flex: none; }
-.res-opt .res-nm { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.res-opt .res-cnt { font-size: 11px; color: var(--kruzer-neutral-500); font-variant-numeric: tabular-nums; }
-.res-badge { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; padding: 2px 6px; border-radius: 999px; flex: none; }
-.res-badge.idle { background: #FEF3C7; color: #92400E; }
-.res-badge.undated { background: #E0E7FF; color: #3730A3; }
-.res-badge.unassigned { background: var(--kruzer-neutral-100); color: var(--kruzer-neutral-700); }
-.res-sep { height: 1px; background: var(--kruzer-neutral-300); margin: 6px 2px; }
-
-/* Barra de recursos filtrados (largura total, chips removíveis) */
-.filter-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; padding: 10px 14px; background: #fff; border: 1px solid var(--kruzer-neutral-300); border-radius: 8px; box-shadow: var(--shadow); }
-.filter-bar .fb-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: var(--kruzer-neutral-700); }
-.filter-bar .fb-muted { font-size: 13px; color: var(--kruzer-neutral-500); }
-.fb-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 500; color: var(--kruzer-navy); background: var(--kruzer-primary-100); border: 1px solid #DDD6FE; border-radius: 999px; padding: 3px 6px 3px 11px; }
-.fb-chip.unassigned { background: var(--kruzer-neutral-100); border-color: var(--kruzer-neutral-300); color: var(--kruzer-neutral-700); }
-.fb-x { border: none; background: rgba(11,16,32,.10); color: var(--kruzer-navy); width: 17px; height: 17px; border-radius: 50%; font-size: 13px; line-height: 1; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
-.fb-x:hover { background: var(--kruzer-error); color: #fff; }
-.fb-action { margin-left: auto; font-size: 12px; padding: 5px 12px; border-radius: 6px; }
+/* Filtro de recursos = barra de chips (largura total). Chip aceso = incluído no
+   filtro (com × pra remover); apagado = clicável pra incluir. Único controle de
+   recurso (substitui o antigo dropdown). */
+.filter-bar { margin-bottom: 16px; padding: 12px 14px; background: #fff; border: 1px solid var(--kruzer-neutral-300); border-radius: 8px; box-shadow: var(--shadow); }
+.fb-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+.fb-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: var(--kruzer-neutral-700); }
+.fb-actions { display: flex; gap: 6px; }
+.fb-actions button { font-size: 11px; padding: 5px 10px; border-radius: 6px; }
+.fb-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.fb-chip { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 500; border-radius: 999px; padding: 4px 12px; border: 1px solid transparent; line-height: 1.35; user-select: none; }
+.fb-chip .fb-nm { white-space: nowrap; }
+.fb-chip.on { background: var(--kruzer-primary); border-color: var(--kruzer-primary); color: #fff; padding-right: 5px; }
+.fb-chip.off { background: #fff; border-color: var(--kruzer-neutral-300); color: var(--kruzer-neutral-700); cursor: pointer; }
+.fb-chip.off:hover { border-color: var(--kruzer-primary); color: var(--kruzer-primary); background: var(--kruzer-primary-100); }
+.fb-badge { font-size: 8.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; padding: 1px 6px; border-radius: 999px; }
+.fb-chip.on .fb-badge { background: rgba(255,255,255,.25); color: #fff; }
+.fb-chip.off .fb-badge.idle { background: #FEF3C7; color: #92400E; }
+.fb-chip.off .fb-badge.undated { background: #E0E7FF; color: #3730A3; }
+.fb-chip.off .fb-badge.unassigned { background: var(--kruzer-neutral-100); color: var(--kruzer-neutral-700); }
+.fb-x { border: none; background: rgba(255,255,255,.22); color: #fff; width: 18px; height: 18px; border-radius: 50%; font-size: 14px; line-height: 1; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; padding: 0; flex: none; }
+.fb-x:hover { background: #fff; color: var(--kruzer-primary); }
 
 /* Chips dentro da banda de gaps de planejamento */
 .res-gaps .gap-chip { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 999px; margin: 2px 4px 2px 0; background: #fff; border: 1px solid currentColor; }
@@ -158,17 +150,6 @@ a:hover { text-decoration: underline; }
     <div class="controls">
       <div class="control"><label for="projFilter">Projeto</label>
         <select id="projFilter"><option value="all">Todos os projetos</option><option value="FST">FST · FastShop</option><option value="VENA">VENA · Venâncio</option><option value="DCT">DCT · Decathlon</option><option value="PMD">PMD · Pague Menos</option></select>
-      </div>
-      <div class="control res-control"><label>Recursos</label>
-        <button type="button" class="res-btn" id="resBtn">Todos os recursos</button>
-        <div class="res-panel" id="resPanel" hidden>
-          <div class="res-actions">
-            <button type="button" data-act="busy">Só com demanda</button>
-            <button type="button" data-act="all">Todos</button>
-            <button type="button" data-act="none">Limpar</button>
-          </div>
-          <div class="res-checklist" id="resChecklist"></div>
-        </div>
       </div>
       <div class="control"><label>&nbsp;</label><button class="primary" id="refreshBtn">Atualizar dados</button></div>
     </div>
@@ -305,36 +286,10 @@ function hasUnassignedInScope(){
   return RAW.some(ep => (pf === 'all' || ep.project === pf) && ep.assignee === 'Sem responsável');
 }
 
-// Reconstrói o filtro: default = só quem tem demanda (busy) marcado; ociosos,
-// "sem datas" e "Sem responsável" listados porém desmarcados e sinalizados.
+// Default do filtro (chamado na carga e ao trocar de projeto): marca só quem tem
+// demanda ativa e datada (busy). A UI é a própria barra de chips (renderFilterBar).
 function buildResourceFilter(){
-  const { list } = computeRoster();
-  RES_SEL = new Set(list.filter(p => p.cat === 'busy').map(p => p.name));
-  renderResChecklist(list);
-  updateResBtn(list);
-}
-
-function renderResChecklist(list){
-  const order = { busy: 0, undated: 1, idle: 2 };
-  const sorted = [...list].sort((a, b) => (order[a.cat] - order[b.cat]) || a.name.localeCompare(b.name, 'pt'));
-  const badge = c => c === 'idle' ? '<span class="res-badge idle">ocioso</span>'
-    : c === 'undated' ? '<span class="res-badge undated">sem datas</span>' : '';
-  let html = sorted.map(p =>
-    `<label class="res-opt"><input type="checkbox" value="${escapeHtml(p.name)}" ${RES_SEL.has(p.name) ? 'checked' : ''}>` +
-    `<span class="res-nm">${escapeHtml(p.name)}</span>${badge(p.cat)}<span class="res-cnt">${p.plotted || p.active || 0}</span></label>`
-  ).join('');
-  if (hasUnassignedInScope()) {
-    html += `<div class="res-sep"></div><label class="res-opt"><input type="checkbox" value="Sem responsável" ${RES_SEL.has('Sem responsável') ? 'checked' : ''}>` +
-      `<span class="res-nm">Sem responsável</span><span class="res-badge unassigned">não atribuído</span></label>`;
-  }
-  document.getElementById('resChecklist').innerHTML = html;
-}
-
-function updateResBtn(list){
-  const total = list.length + (hasUnassignedInScope() ? 1 : 0);
-  const n = RES_SEL.size;
-  const btn = document.getElementById('resBtn');
-  btn.textContent = n === total ? 'Todos os recursos' : (n === 0 ? 'Nenhum recurso' : `${n} de ${total} recursos`);
+  RES_SEL = new Set(computeRoster().list.filter(p => p.cat === 'busy').map(p => p.name));
 }
 
 // Conta épicos que começam antes do fim do anterior (sobreposição na mesma pessoa).
@@ -361,32 +316,41 @@ function renderKPIs(plotted, sel, idleCount){
   c.innerHTML = html;
 }
 
-// Barra de largura total com os recursos filtrados (chips removíveis).
+// Barra de chips = o filtro de recursos. Ordem estável (alfabética, "Sem
+// responsável" por último) — chips não pulam ao alternar. Aceso = incluído (com
+// ×); apagado = fora do filtro, clicável pra incluir. Ociosos/sem-datas/não
+// atribuído ganham badge.
 function renderFilterBar(){
   const el = document.getElementById('filterBar');
-  const total = computeRoster().list.length + (hasUnassignedInScope() ? 1 : 0);
-  const names = [...RES_SEL].sort((a, b) => {
-    if (a === 'Sem responsável') return 1; if (b === 'Sem responsável') return -1;
-    return a.localeCompare(b, 'pt');
-  });
-  if (!names.length) {
-    el.innerHTML = `<span class="fb-label">Recursos</span><span class="fb-muted">nenhum selecionado — a timeline está vazia</span>` +
-      `<button class="fb-action" data-act="busy">Restaurar (só com demanda)</button>`;
-    return;
-  }
-  const chips = names.map(n => `<span class="fb-chip${n === 'Sem responsável' ? ' unassigned' : ''}">${escapeHtml(n)}<button class="fb-x" data-name="${escapeHtml(n)}" title="Remover do filtro" aria-label="Remover ${escapeHtml(n)}">×</button></span>`).join('');
-  const allSelected = RES_SEL.size === total;
-  el.innerHTML = `<span class="fb-label">${allSelected ? `Todos os recursos (${total})` : `Filtrando ${RES_SEL.size}/${total}`}</span>${chips}` +
-    (allSelected ? '' : `<button class="fb-action" data-act="all">Mostrar todos</button>`);
+  const { list } = computeRoster();
+  const roster = [...list];
+  if (hasUnassignedInScope()) roster.push({ name: 'Sem responsável', cat: 'unassigned' });
+  const total = roster.length;
+  const badge = c => c === 'idle' ? '<span class="fb-badge idle">ocioso</span>'
+    : c === 'undated' ? '<span class="fb-badge undated">sem datas</span>'
+    : c === 'unassigned' ? '<span class="fb-badge unassigned">não atribuído</span>' : '';
+  const chips = roster.map(p => {
+    const on = RES_SEL.has(p.name);
+    const b = badge(p.cat);
+    return `<span class="fb-chip ${on ? 'on' : 'off'}" data-name="${escapeHtml(p.name)}">` +
+      `<span class="fb-nm">${escapeHtml(p.name)}</span>${b}` +
+      (on ? `<button class="fb-x" title="Remover do filtro" aria-label="Remover ${escapeHtml(p.name)}">×</button>` : '') +
+      `</span>`;
+  }).join('');
+  el.innerHTML =
+    `<div class="fb-top">` +
+      `<span class="fb-label">Recursos · ${RES_SEL.size} de ${total}</span>` +
+      `<div class="fb-actions">` +
+        `<button type="button" data-act="busy">Só com demanda</button>` +
+        `<button type="button" data-act="all">Todos</button>` +
+        `<button type="button" data-act="none">Limpar</button>` +
+      `</div>` +
+    `</div>` +
+    `<div class="fb-chips">${chips}</div>`;
 }
 
-// Re-renderiza toda a UI que depende de RES_SEL (checklist, botão, barra, gantt).
-function syncResUI(){
-  const { list } = computeRoster();
-  renderResChecklist(list);
-  updateResBtn(list);
-  renderGantt(); // já chama renderFilterBar internamente
-}
+// Reaplica o filtro na tela (a barra de chips é re-renderizada dentro de renderGantt).
+function syncResUI(){ renderGantt(); }
 
 // Banda de gaps de planejamento: ociosos, ativos sem datas, e overlap de demandas.
 function renderResGaps(plotted, idle, undated){
@@ -613,21 +577,7 @@ async function loadAndRender(){
 document.getElementById('refreshBtn').addEventListener('click', loadAndRender);
 document.getElementById('projFilter').addEventListener('change', () => { buildResourceFilter(); renderGantt(); });
 
-// Popover do filtro de recursos.
-const resBtn = document.getElementById('resBtn');
-const resPanel = document.getElementById('resPanel');
-resBtn.addEventListener('click', e => { e.stopPropagation(); resPanel.hidden = !resPanel.hidden; });
-resPanel.addEventListener('click', e => e.stopPropagation());
-document.addEventListener('click', () => { resPanel.hidden = true; });
-// Marcar/desmarcar um recurso.
-document.getElementById('resChecklist').addEventListener('change', e => {
-  const cb = e.target;
-  if (!cb.matches('input[type=checkbox]')) return;
-  if (cb.checked) RES_SEL.add(cb.value); else RES_SEL.delete(cb.value);
-  updateResBtn(computeRoster().list);
-  renderGantt();
-});
-// Ações rápidas (popover) e ações da barra de filtro compartilham a mesma lógica.
+// Ações rápidas do filtro: só com demanda / todos / limpar.
 function applyResAction(act){
   const { list } = computeRoster();
   if (act === 'none') RES_SEL = new Set();
@@ -635,15 +585,18 @@ function applyResAction(act){
   else if (act === 'all') { RES_SEL = new Set(list.map(p => p.name)); if (hasUnassignedInScope()) RES_SEL.add('Sem responsável'); }
   syncResUI();
 }
-document.querySelector('.res-actions').addEventListener('click', e => {
-  if (e.target.dataset.act) applyResAction(e.target.dataset.act);
-});
-// Barra de recursos filtrados: X remove um recurso; ação restaura/mostra todos.
+// Barra de chips = filtro. × (chip aceso) remove; clique em chip apagado inclui;
+// botões de ação aplicam presets.
 document.getElementById('filterBar').addEventListener('click', e => {
-  const x = e.target.closest('.fb-x');
-  if (x) { RES_SEL.delete(x.dataset.name); syncResUI(); return; }
   const act = e.target.dataset.act;
-  if (act) applyResAction(act);
+  if (act) { applyResAction(act); return; }
+  const chip = e.target.closest('.fb-chip');
+  if (!chip) return;
+  const name = chip.dataset.name;
+  if (e.target.closest('.fb-x')) RES_SEL.delete(name);        // remove do filtro
+  else if (chip.classList.contains('off')) RES_SEL.add(name); // inclui no filtro
+  else return;                                                // clique no corpo de chip aceso: ignora
+  syncResUI();
 });
 let _rz; window.addEventListener('resize', () => { clearTimeout(_rz); _rz = setTimeout(() => { if (RAW.length) renderGantt(); }, 150); });
 loadAndRender();
