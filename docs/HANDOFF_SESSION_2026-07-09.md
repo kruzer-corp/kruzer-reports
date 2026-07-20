@@ -45,7 +45,7 @@ specifics dele (ver §5) antes de mexer.
 
 | Ambiente | URL | Version | Conteúdo |
 |---|---|---|---|
-| **PROD** | kruzer-dashboards.matheus-mereb.workers.dev | `887a6371` | baseline `1479ea5` (PGM→PMD) **+ só** `report.js`@e4babc6 (PDF) **+** `report.css`@4748560 (KPIs). SEM capacity overlap, SEM consolidação/pivot do KRZR (prod ainda tem 2 views KRZR: `/krzr/` + `/krzr/hml`). |
+| **PROD** | kruzer-dashboards.matheus-mereb.workers.dev | `83376e4a` | baseline `1479ea5` (PGM→PMD) **+** `report.js`@e4babc6 (PDF) **+** `report.css`@4748560 (KPIs) **+** `ops/index.html`@99ca012 (cockpit: seção To-dos + semáforo alinhado aos to-dos dos reports + HyperCare fora de atraso). SEM capacity overlap, SEM consolidação/pivot do KRZR (prod ainda tem 2 views KRZR: `/krzr/` + `/krzr/hml`). |
 | **HML** | kruzer-dashboards-hml.matheus-mereb.workers.dev | `f322a981` | branch HEAD inteira (`4748560`) — tudo. |
 
 **Prod foi montada por DEPLOY SELETIVO** (o usuário pediu só os fixes de report
