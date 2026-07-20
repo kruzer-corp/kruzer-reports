@@ -114,6 +114,13 @@ async function handleApp(request, env, ctx) {
       return handleWorklogs(request, env);
     }
 
+    // 2a-ter. Roster = usuários atribuíveis do JIRA nos projetos (?projects=FST,VENA).
+    // Read-only; permite listar no filtro quem ainda não pegou épico algum.
+    if (url.pathname === '/api/jira/roster') {
+      if (request.method !== 'GET') return jsonError(405, 'Use GET');
+      return handleRoster(request, env, url);
+    }
+
     // 2b. Escrita no JIRA — comentário no épico
     if (url.pathname === '/api/jira/comment') {
       if (request.method !== 'POST') return jsonError(405, 'Use POST');
@@ -571,6 +578,20 @@ async function fetchIssueWorklogs(env, issueId, afterMs, beforeMs) {
     if (startAt >= (data.total || 0)) break;
   }
   return out;
+}
+
+// Rota pública (GET) do roster: ?projects=FST,VENA,DCT,PMD (default = os 4).
+async function handleRoster(request, env, url) {
+  const raw = (url.searchParams.get('projects') || 'FST,VENA,DCT,PMD').split(',').map(s => s.trim()).filter(Boolean);
+  const allow = new Set(['FST', 'VENA', 'DCT', 'PMD', 'KRZR']);
+  const projects = raw.filter(p => allow.has(p));
+  if (!projects.length) return jsonError(400, 'Missing valid "projects"');
+  try {
+    const users = await fetchRoster(env, projects);
+    return new Response(JSON.stringify({ users }), { headers: { 'Content-Type': 'application/json' } });
+  } catch (e) {
+    return jsonError(502, `roster fetch failed: ${e.message}`);
+  }
 }
 
 // Roster do time = usuários atribuíveis (accountType 'atlassian') nos projetos.

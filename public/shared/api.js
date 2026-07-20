@@ -58,5 +58,14 @@ window.KruzerAPI = (function () {
     return postJson('/api/jira/issue-update', { key, fields: { priority: { name } } });
   }
 
-  return { jqlPage, fetchAll, addComment, updateDueDate, updatePriority };
+  // Roster = usuários atribuíveis do JIRA nos projetos (inclui quem não pegou épico).
+  async function fetchRoster(projects) {
+    const qs = projects && projects.length ? `?projects=${encodeURIComponent(projects.join(','))}` : '';
+    const res = await fetch(`/api/jira/roster${qs}`);
+    if (!res.ok) throw new Error(`roster ${res.status}`);
+    const data = await res.json();
+    return Array.isArray(data && data.users) ? data.users : [];
+  }
+
+  return { jqlPage, fetchAll, addComment, updateDueDate, updatePriority, fetchRoster };
 })();
