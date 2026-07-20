@@ -41,6 +41,13 @@
 .fb-add { font-size: 12px; padding: 6px 10px; border-radius: 6px; max-width: 220px; }
 .fb-add:disabled { opacity: .5; cursor: default; }
 .fb-empty { font-size: 13px; color: var(--kruzer-neutral-500); }
+.fb-sep { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--kruzer-neutral-200, #EDEDF2); }
+.fb-expand { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--kruzer-navy); cursor: pointer; user-select: none; }
+.fb-expand input { width: 15px; height: 15px; cursor: pointer; accent-color: var(--kruzer-primary); }
+.fb-chip.fb-type { cursor: pointer; }
+.fb-chip .fb-cnt { font-size: 11px; font-variant-numeric: tabular-nums; opacity: .75; }
+.fb-chip.on .fb-cnt { color: #fff; }
+.fb-chip.off .fb-cnt { color: var(--kruzer-neutral-500); }
 .fb-badge.noepic { background: var(--kruzer-neutral-100); color: var(--kruzer-neutral-700); }
 .fb-chip.on .fb-badge.noepic { background: rgba(255,255,255,.25); color: #fff; }
 
@@ -193,7 +200,7 @@ a:hover { text-decoration: underline; }
 <script src="/shared/components.js"></script>
 <script>
 const JIRA_BASE = 'https://kruzer.atlassian.net';
-const FIELDS = ['summary','status','assignee','duedate','created','resolutiondate','labels','customfield_10015','project'].concat((window.KruzerCapacity && KruzerCapacity.DEV_DUE_FIELD) ? [KruzerCapacity.DEV_DUE_FIELD] : []);
+const FIELDS = ['summary','status','assignee','duedate','created','resolutiondate','labels','customfield_10015','project','issuetype'].concat((window.KruzerCapacity && KruzerCapacity.DEV_DUE_FIELD) ? [KruzerCapacity.DEV_DUE_FIELD] : []);
 const MS_DAY = 86400000;
 const PROJ_COLOR = { FST: '#F79009', VENA: '#3151CE', DCT: '#14B8A6', PMD: '#DB2777' };
 const PROJECTS = ['FST', 'VENA', 'DCT', 'PMD'];
@@ -204,7 +211,31 @@ function fmt(d){ return d ? `${String(d.getDate()).padStart(2,'0')}/${String(d.g
 function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 const MONTHS = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 
-let RAW = [];
+let RAW = [];              // épicos (fetch inicial)
+let CHILDREN = [];         // itens não-épicos (lazy, ao "Expandir visão")
+let EXPANDED = false;      // visão expandida (inclui outros issue types)?
+let TYPE_SEL = new Set();  // issue types selecionados (dimensão de filtro)
+let TYPES_BUSY = false;    // guard do fetch de filhos
+
+// Épicos ∪ (filhos, se expandido). É a base de plotagem.
+function allIssues(){ return EXPANDED ? RAW.concat(CHILDREN) : RAW; }
+// Tipos descobertos: os do(s) épico(s) primeiro, depois os dos filhos (alfabético).
+// Colapsado → só os tipos de épico (os filhos nem entram na visão).
+function discoveredTypes(){
+  const epicTypes = [...new Set(RAW.map(e => e.issueType))].sort((a,b) => a.localeCompare(b,'pt'));
+  if (!EXPANDED) return epicTypes;
+  const childTypes = [...new Set(CHILDREN.map(c => c.issueType))].filter(t => !epicTypes.includes(t)).sort((a,b) => a.localeCompare(b,'pt'));
+  return epicTypes.concat(childTypes);
+}
+function epicTypeSet(){ return new Set(RAW.map(e => e.issueType)); }
+// Busca os não-épicos do escopo atual (uma vez por escopo/refresh).
+async function loadChildren(){
+  const pf = document.getElementById('projFilter').value;
+  const scope = pf === 'all' ? PROJECTS.join(', ') : pf;
+  const jql = `project in (${scope}) AND issuetype != Epic AND statusCategory != Done ORDER BY created DESC`;
+  const issues = await KruzerAPI.fetchAll({ jql, fields: FIELDS, maxPages: 40 });
+  CHILDREN = issues.map(normalize);
+}
 
 // Normaliza épico e deriva janela (start/end) pra plotagem.
 function normalize(issue){
@@ -226,6 +257,7 @@ function normalize(issue){
     statusName, blocked, resolved,
     start, due, created,
     labels: f.labels || [],
+    issueType: f.issuetype?.name || 'Epic',
   };
 }
 
@@ -258,7 +290,7 @@ async function loadRoster(){
 
 function selected(){
   const pf = document.getElementById('projFilter').value;
-  return RAW.filter(ep => (pf === 'all' || ep.project === pf) && RES_SEL.has(ep.assignee));
+  return allIssues().filter(ep => (pf === 'all' || ep.project === pf) && RES_SEL.has(ep.assignee) && TYPE_SEL.has(ep.issueType));
 }
 
 // "Roster" do time = todos que aparecem como responsável em algum épico do escopo
@@ -305,6 +337,7 @@ const RES_CAT_LABEL = { undated: 'sem datas', idle: 'ocioso', noepic: 'sem épic
 // demanda ativa e datada (busy). A UI é a própria barra de chips (renderFilterBar).
 function buildResourceFilter(){
   RES_SEL = new Set(computeRoster().list.filter(p => p.cat === 'busy').map(p => p.name));
+  TYPE_SEL = EXPANDED ? new Set(discoveredTypes()) : epicTypeSet();
 }
 
 // Conta épicos que começam antes do fim do anterior (sobreposição na mesma pessoa).
@@ -320,7 +353,7 @@ function renderKPIs(plotted, sel, idleCount){
   const noDue = sel.filter(e => !e.resolved && !e.due).length;
   const c = document.getElementById('kpis');
   let html =
-    `<div class="kpi"><div class="label">Épicos rodando</div><div class="value">${plotted.length}</div></div>` +
+    `<div class="kpi"><div class="label">${EXPANDED ? 'Itens rodando' : 'Épicos rodando'}</div><div class="value">${plotted.length}</div></div>` +
     `<div class="kpi"><div class="label">Com demanda</div><div class="value">${resources.size}</div></div>` +
     `<div class="kpi k-idle"><div class="label">Ociosos</div><div class="value">${idleCount}</div></div>` +
     `<div class="kpi k-nodue"><div class="label">Sem due</div><div class="value">${noDue}</div></div>`;
@@ -360,12 +393,28 @@ function renderFilterBar(){
   }).join('');
   const addSelect = `<select class="fb-add" id="fbAdd"${addable.length ? '' : ' disabled'}>` +
     `<option value="">+ Adicionar recurso…</option>${opts}</select>`;
+  // Dimensão de tipo de item (default = épicos; "Expandir visão" traz os demais).
+  const pf = document.getElementById('projFilter').value;
+  const inScope = i => pf === 'all' || i.project === pf;
+  const typeChips = discoveredTypes().map(t => {
+    const on = TYPE_SEL.has(t);
+    const n = allIssues().filter(i => inScope(i) && i.issueType === t).length;
+    return `<span class="fb-chip fb-type ${on ? 'on' : 'off'}" data-type="${escapeHtml(t)}"><span class="fb-nm">${escapeHtml(t)}</span><span class="fb-cnt">${n}</span></span>`;
+  }).join('');
   el.innerHTML =
+    // Seção 1 — Tipos de item
     `<div class="fb-top">` +
+      `<span class="fb-label">Tipos de item</span>` +
+      `<label class="fb-expand"><input type="checkbox" id="fbExpand" ${EXPANDED ? 'checked' : ''} ${TYPES_BUSY ? 'disabled' : ''}> Expandir visão (além de épicos)${TYPES_BUSY ? ' — carregando…' : ''}</label>` +
+    `</div>` +
+    `<div class="fb-chips">${typeChips}</div>` +
+    // Seção 2 — Recursos
+    `<div class="fb-top fb-sep">` +
       `<span class="fb-label">Recursos · ${RES_SEL.size} de ${total}</span>` +
       `<div class="fb-actions">` +
         addSelect +
         `<button type="button" data-act="busy">Só com demanda</button>` +
+        `<button type="button" data-act="nodemand">Sem demanda</button>` +
         `<button type="button" data-act="all">Todos c/ épico</button>` +
         `<button type="button" data-act="none">Limpar</button>` +
       `</div>` +
@@ -547,8 +596,9 @@ function renderGantt(){
   wireTooltips();
 
   const notes = [];
-  if (omittedNoDate) notes.push(`${omittedNoDate} épico(s) sem datas de Start/Due omitido(s)`);
-  if (omittedDone) notes.push(`${omittedDone} épico(s) já concluído(s) omitido(s)`);
+  const itemWord = EXPANDED ? 'item(ns)' : 'épico(s)';
+  if (omittedNoDate) notes.push(`${omittedNoDate} ${itemWord} sem datas de Start/Due omitido(s)`);
+  if (omittedDone) notes.push(`${omittedDone} ${itemWord} já concluído(s) omitido(s)`);
   document.getElementById('omittedNote').textContent = notes.length ? '* ' + notes.join(' · ') + '.' : '';
 }
 
@@ -604,28 +654,58 @@ async function loadAndRender(){
 }
 
 document.getElementById('refreshBtn').addEventListener('click', loadAndRender);
-document.getElementById('projFilter').addEventListener('change', async () => { await loadRoster(); buildResourceFilter(); renderGantt(); });
+document.getElementById('projFilter').addEventListener('change', async () => {
+  await loadRoster();
+  if (EXPANDED) { try { await loadChildren(); } catch (e) { console.warn('children reload failed:', e.message); } }
+  buildResourceFilter();
+  renderGantt();
+});
 
-// Ações rápidas do filtro: só com demanda / todos c/ épico / limpar.
+// Ações rápidas do filtro de recursos.
 function applyResAction(act){
   const { list } = computeRoster();
   if (act === 'none') RES_SEL = new Set();
   else if (act === 'busy') RES_SEL = new Set(list.filter(p => p.cat === 'busy').map(p => p.name));
   else if (act === 'all') { RES_SEL = new Set(list.map(p => p.name)); if (hasUnassignedInScope()) RES_SEL.add('Sem responsável'); }
+  else if (act === 'nodemand') {
+    // Quick filter: todos os recursos SEM demanda ativa (ociosos + sem épico algum).
+    const uni = allResourceOptions();
+    RES_SEL = new Set([...uni.entries()].filter(([, c]) => c === 'idle' || c === 'noepic').map(([n]) => n));
+  }
   syncResUI();
 }
-// Barra de chips = filtro. Botões de ação aplicam presets; × remove um chip.
+
+// Expandir visão = busca (uma vez) os não-épicos do escopo e liga os tipos deles.
+async function onExpandToggle(on){
+  if (TYPES_BUSY) return;
+  EXPANDED = on;
+  if (on && !CHILDREN.length){
+    TYPES_BUSY = true; renderFilterBar();
+    try { await loadChildren(); }
+    catch (e){ EXPANDED = false; console.warn('children load failed:', e.message); }
+    finally { TYPES_BUSY = false; }
+  }
+  TYPE_SEL = EXPANDED ? new Set(discoveredTypes()) : epicTypeSet();
+  renderGantt();
+}
+// Barra de chips = filtro. Ação (preset) · chip de tipo (toggle) · × (remove recurso).
 document.getElementById('filterBar').addEventListener('click', e => {
   const act = e.target.dataset.act;
   if (act) { applyResAction(act); return; }
+  const typeChip = e.target.closest('.fb-type');
+  if (typeChip) {
+    const t = typeChip.dataset.type;
+    if (TYPE_SEL.has(t)) TYPE_SEL.delete(t); else TYPE_SEL.add(t);
+    renderGantt();
+    return;
+  }
   const x = e.target.closest('.fb-x');
   if (x) { RES_SEL.delete(x.closest('.fb-chip').dataset.name); syncResUI(); }
 });
-// Seletor "adicionar recurso": inclui qualquer usuário do JIRA ainda fora do filtro.
+// Change: toggle "Expandir visão" (async) · seletor "adicionar recurso".
 document.getElementById('filterBar').addEventListener('change', e => {
-  if (e.target.id !== 'fbAdd' || !e.target.value) return;
-  RES_SEL.add(e.target.value);
-  syncResUI();
+  if (e.target.id === 'fbExpand') { onExpandToggle(e.target.checked); return; }
+  if (e.target.id === 'fbAdd' && e.target.value) { RES_SEL.add(e.target.value); syncResUI(); }
 });
 let _rz; window.addEventListener('resize', () => { clearTimeout(_rz); _rz = setTimeout(() => { if (RAW.length) renderGantt(); }, 150); });
 loadAndRender();
