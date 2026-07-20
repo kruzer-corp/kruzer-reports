@@ -20,6 +20,7 @@
 
   Regras de risco dos projetos-cliente (fixadas — HANDOFF_OPS_CONTROL.md, 2026-06-25):
     · Atraso: épico não-Done com duedate < hoje. Crítico se >7d, alto 1-7d.
+      HyperCare (label hyper-care) = entrega feita → NÃO é atraso (tratado como done).
     · Bloqueio: status contém "bloque" e updated < hoje-5d. Crítico >10d.
     · WIP: assignee com >=3 épicos In Progress. Crítico 4+.
     · Sem estimativa: épico em andamento sem Story Points (VENA) / horas (FST).
@@ -141,6 +142,34 @@ button:disabled { opacity: 0.6; cursor: wait; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .error { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; padding: 12px 16px; border-radius: 8px; margin-bottom: 12px; font-size: 13px; }
 a { color: var(--kruzer-primary); }
+
+/* To-dos & pontos a validar — seção editável persistida em D1 (igual aos status reports) */
+.section.followups { border-left: 4px solid var(--kruzer-primary); }
+.fu-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.fu-head h2 { margin: 0; }
+button.ghost { background: #fff; color: var(--kruzer-primary); border-color: var(--kruzer-primary-100); font-weight: 600; }
+button.ghost:hover { background: var(--kruzer-primary-100); }
+.fu-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.fu-item { display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; border: 1px solid var(--kruzer-neutral-300); border-radius: 8px; background: #fff; }
+.fu-item.done { opacity: .6; }
+.fu-item.done .fu-text { text-decoration: line-through; }
+.fu-done { margin-top: 3px; width: 16px; height: 16px; cursor: pointer; flex: none; accent-color: var(--kruzer-primary); }
+.fu-cat { flex: none; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 999px; border: none; color: #fff; cursor: pointer; -webkit-appearance: none; appearance: none; text-align: center; }
+.fu-text { flex: 1; min-height: 22px; outline: none; line-height: 1.5; padding: 2px 4px; border-radius: 4px; word-break: break-word; }
+.fu-text:focus { background: var(--kruzer-primary-100); box-shadow: inset 0 0 0 1px var(--kruzer-primary); }
+.fu-text:empty:before { content: "Escreva o to-do ou ponto a validar…"; color: var(--kruzer-neutral-500); }
+.fu-del { flex: none; background: none; border: none; color: var(--kruzer-neutral-500); font-size: 18px; cursor: pointer; line-height: 1; padding: 0 4px; }
+.fu-del:hover { color: var(--kruzer-error); }
+.fu-empty { font-size: 13px; color: var(--kruzer-neutral-700); padding: 8px 4px; }
+
+/* Pontos a validar por cliente dentro do card-semáforo (alinha com os to-dos do status report) */
+.health-card .h-todos { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--kruzer-neutral-300); }
+.health-card .h-todos .lbl { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--kruzer-primary); margin-bottom: 3px; }
+.health-card .h-todos ul { list-style: none; margin: 0; padding: 0; }
+.health-card .h-todos li { font-size: 11.5px; color: var(--kruzer-navy-300); line-height: 1.45; padding-left: 14px; position: relative; margin-bottom: 2px; }
+.health-card .h-todos li::before { content: "☐"; position: absolute; left: 0; color: var(--kruzer-primary); font-size: 11px; }
+.health-card .h-todos .more { font-size: 10.5px; color: var(--kruzer-neutral-700); padding-left: 14px; }
+.health-card .h-foot .pill.todo { background: var(--kruzer-primary-100); color: var(--kruzer-primary-700); font-weight: 600; }
 </style>
 </head>
 <body>
@@ -157,6 +186,16 @@ a { color: var(--kruzer-primary); }
       <button class="primary" id="refreshBtn">Atualizar dados</button>
     </div>
   </div>
+
+  <!-- To-dos & pontos a validar — visão cross-operação (editável, persistida em D1) -->
+  <section class="section followups" id="followups">
+    <div class="fu-head">
+      <h2>To-dos &amp; pontos a validar</h2>
+      <button class="ghost" id="fuAdd">+ Adicionar</button>
+    </div>
+    <div class="sub">Pontos de atenção cross-operação — decisões pendentes, validações com clientes, acordos a confirmar. Editável e salvo (D1, compartilhado). Os to-dos específicos de cada cliente aparecem no card-semáforo correspondente e no status report do cliente.</div>
+    <div class="fu-list" id="fuList"></div>
+  </section>
 
   <div id="errorBox"></div>
   <div id="loadingBox" class="loading"><span class="spinner"></span>Cruzando dados de FST, VENA, DCT, PMD e o Service Desk KRZR…</div>
@@ -211,6 +250,7 @@ a { color: var(--kruzer-primary); }
 </div>
 
 <script src="/shared/api.js"></script>
+<script src="/shared/state.js"></script>
 <script src="/shared/components.js"></script>
 <script>
 // ─── Configuração ────────────────────────────────────────────────────────────
@@ -221,7 +261,11 @@ const JIRA_BASE = 'https://kruzer.atlassian.net';
 const EPIC_PROJECTS = ['FST', 'VENA', 'DCT', 'PMD'];
 const PROJ_LABEL = { FST: 'FastShop', VENA: 'Venâncio', DCT: 'Decathlon', PMD: 'Pague Menos', KRZR: 'Service Desk' };
 const PROJ_COLOR = { FST: '#F79009', VENA: '#3151CE', DCT: '#14B8A6', PMD: '#DB2777', KRZR: '#6B47C7' };
-const EPIC_FIELDS = ['summary','status','assignee','duedate','created','updated','resolutiondate','customfield_10015','customfield_10016','timeoriginalestimate','project'];
+// Scope D1 do status report de cada cliente (onde vivem os to-dos/acompanhamentos
+// editados no report). Deve bater com o followupStore/scope do KruzerReport.mount.
+// DCT ainda não tem status report próprio → sem to-dos por enquanto.
+const REPORT_SCOPE = { FST: 'fst-report', VENA: 'vena-roadmap', PMD: 'pgm-report' };
+const EPIC_FIELDS = ['summary','status','assignee','duedate','created','updated','resolutiondate','customfield_10015','customfield_10016','timeoriginalestimate','project','labels'];
 const KRZR_FIELDS = ['summary','status','statusCategory','priority','created','resolutiondate','updated'];
 
 // Thresholds (handoff sessão 2026-06-25 — fixados)
@@ -245,6 +289,12 @@ function fmtBR(d){ if(!d) return '—'; return `${String(d.getDate()).padStart(2
 
 // Status helpers
 function isDone(name){ return /done|cancel|expired|duplicat|hyper.?care/i.test(name||''); }
+// HyperCare = entrega FEITA (passível de suporte), não é roadmap em andamento e
+// NÃO conta como atraso. Nos épicos FST o HyperCare vem por label (status nativo
+// segue "In Review"), então detectamos por label OU por status nativo.
+function isHyperCare(statusName, labels){
+  return /hyper.?care/i.test(statusName || '') || (Array.isArray(labels) && labels.some(l => /hyper.?care/i.test(l)));
+}
 function isBlocked(name){ return /bloque|blocked|impediment/i.test(name||''); }
 function isInProgress(name, cat){
   if (cat && /in progress|indeterminate/i.test(cat)) return true;
@@ -259,15 +309,19 @@ function normalizeEpic(issue){
   const statusCat = f.status?.statusCategory?.name || '';
   const sp = f.customfield_10016;
   const sec = f.timeoriginalestimate; // segundos — usado pelo FST como horas estimadas
+  const labels = Array.isArray(f.labels) ? f.labels : [];
+  const hyperCare = isHyperCare(statusName, labels);
   let name = (f.summary||'').replace(/^([A-Z]*\d[\w]*|P\d|Onda\s*\d|Done)\s*\|\s*/i, '').trim() || (f.summary||'');
   return {
     key: issue.key, url: `${JIRA_BASE}/browse/${issue.key}`,
     project: proj, summary: f.summary||'', name,
     assignee: f.assignee?.displayName || 'Sem responsável',
-    statusName, statusCat,
+    statusName, statusCat, hyperCare,
     blocked: isBlocked(statusName),
-    inProgress: isInProgress(statusName, statusCat),
-    done: !!f.resolutiondate || isDone(statusName),
+    inProgress: isInProgress(statusName, statusCat) && !hyperCare,
+    // HyperCare (por label) conta como entrega feita → tratado como done: sai de
+    // atraso, WIP, bloqueio, sem-estimativa/due e marcos. Suporte fica no KRZR.
+    done: !!f.resolutiondate || isDone(statusName) || hyperCare,
     due: parseDate(f.duedate),
     start: parseDate(f.customfield_10015),
     created: parseDate(f.created),
@@ -315,6 +369,81 @@ function indexScheduleByKey(schedule) {
     });
   });
   return idx;
+}
+
+// ─── To-dos & pontos a validar (editável, persistido em D1) ──────────────────
+// Espelha a seção "Acompanhamentos & to-do" dos status reports (shared/report.js),
+// mas num scope próprio do cockpit (ops-report) — lista cross-operação.
+const OPS_SCOPE = 'ops-report';
+const FU_CATS = [
+  { id:'op',  label:'Operação',   color:'#3151CE' },
+  { id:'ger', label:'Gerencial',  color:'#7C3AED' },
+  { id:'fin', label:'Financeiro', color:'#12B76A' },
+  { id:'out', label:'Outro',      color:'#989DAD' },
+];
+const fuCat = id => FU_CATS.find(c => c.id === id) || FU_CATS[3];
+function loadFollowups(){ const r = KruzerState.read(OPS_SCOPE, 'followups'); return Array.isArray(r && r.value) ? r.value : []; }
+function saveFollowups(){
+  const cur = KruzerState.read(OPS_SCOPE, 'followups');
+  KruzerState.write(OPS_SCOPE, 'followups', FOLLOWUPS, { expectedVersion: cur.version })
+    .catch(e => console.warn('followups save failed:', e.message));
+}
+let FOLLOWUPS = loadFollowups();
+KruzerState.sync(OPS_SCOPE, 'followups').then(() => { FOLLOWUPS = loadFollowups(); renderFollowups(); });
+KruzerState.subscribe(OPS_SCOPE, 'followups', () => { FOLLOWUPS = loadFollowups(); renderFollowups(); });
+
+function renderFollowups(){
+  const el = document.getElementById('fuList');
+  if (!FOLLOWUPS.length){
+    el.innerHTML = `<div class="fu-empty">Nenhum to-do ainda. Clique em <b>+ Adicionar</b> para registrar validações pendentes, decisões e acordos cross-operação.</div>`;
+    return;
+  }
+  el.innerHTML = FOLLOWUPS.map(it => {
+    const cat = fuCat(it.cat);
+    const opts = FU_CATS.map(c => `<option value="${c.id}" ${c.id === it.cat ? 'selected' : ''}>${c.label}</option>`).join('');
+    return `<div class="fu-item ${it.done ? 'done' : ''}" data-id="${it.id}">
+      <input type="checkbox" class="fu-done" ${it.done ? 'checked' : ''}>
+      <select class="fu-cat" style="background:${cat.color}">${opts}</select>
+      <div class="fu-text" contenteditable="true">${escapeHtml(it.text || '')}</div>
+      <button class="fu-del" title="Remover">×</button>
+    </div>`;
+  }).join('');
+  wireFollowups();
+}
+function wireFollowups(){
+  document.querySelectorAll('#fuList .fu-item').forEach(row => {
+    const id = row.dataset.id;
+    const item = FOLLOWUPS.find(x => x.id === id);
+    if (!item) return;
+    row.querySelector('.fu-done').addEventListener('change', e => { item.done = e.target.checked; row.classList.toggle('done', item.done); saveFollowups(); });
+    const sel = row.querySelector('.fu-cat');
+    sel.addEventListener('change', e => { item.cat = e.target.value; sel.style.background = fuCat(item.cat).color; saveFollowups(); });
+    const txt = row.querySelector('.fu-text');
+    txt.addEventListener('blur', () => { item.text = txt.innerText.trim(); saveFollowups(); });
+    txt.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); txt.blur(); } });
+    row.querySelector('.fu-del').addEventListener('click', () => { FOLLOWUPS = FOLLOWUPS.filter(x => x.id !== id); saveFollowups(); renderFollowups(); });
+  });
+}
+function addFollowup(){
+  const id = 'fu' + Math.random().toString(36).slice(2, 9);
+  FOLLOWUPS.push({ id, cat: 'op', text: '', done: false });
+  saveFollowups(); renderFollowups();
+  const txt = document.querySelector(`#fuList .fu-item[data-id="${id}"] .fu-text`);
+  if (txt) txt.focus();
+}
+
+// To-dos POR CLIENTE — lidos do scope do status report de cada cliente (D1).
+// Alinha os pontos de alerta do semáforo com o que cada report está rastreando.
+async function loadClientTodos(){
+  const out = {};
+  await Promise.all(Object.entries(REPORT_SCOPE).map(async ([proj, scope]) => {
+    try { await KruzerState.sync(scope, 'followups'); } catch {}
+    const r = KruzerState.read(scope, 'followups');
+    const arr = Array.isArray(r && r.value) ? r.value : [];
+    out[proj] = arr.filter(it => it && !it.done && (it.text || '').trim())
+                   .map(it => ({ text: it.text.trim(), cat: it.cat || 'out' }));
+  }));
+  return out;
 }
 
 // ─── Risk assessment ─────────────────────────────────────────────────────────
@@ -473,7 +602,7 @@ function riskPhrase(r){
 }
 
 // ─── Saúde por projeto ───────────────────────────────────────────────────────
-function projectHealth(project, risks, epics, tickets){
+function projectHealth(project, risks, epics, tickets, clientTodos){
   const proj = project;
   const projRisks = risks.filter(r => r.project === proj);
   const crit = projRisks.filter(r => r.severity === 'crit').length;
@@ -509,9 +638,14 @@ function projectHealth(project, risks, epics, tickets){
   // risco mais relevante (projRisks já está ordenado por severidade).
   const decision = (status === 's-crit' && projRisks[0]) ? (DECISION[projRisks[0].type] || null) : null;
 
+  // Pontos a validar (to-dos abertos do status report do cliente). NÃO alteram a
+  // cor do semáforo — o farol continua guiado por risco operacional real — mas
+  // aparecem como alerta no card, alinhados ao que o report está rastreando.
+  const todos = (clientTodos && clientTodos[proj]) ? clientTodos[proj] : [];
+
   return {
     project: proj, label: PROJ_LABEL[proj], color: PROJ_COLOR[proj],
-    status, reason, openCount, dueNextN, crit, high, info, drivers, decision,
+    status, reason, openCount, dueNextN, crit, high, info, drivers, decision, todos,
   };
 }
 
@@ -529,9 +663,15 @@ function renderHealthGrid(healths){
       <div class="h-reason">${h.reason}</div>
       ${h.drivers && h.drivers.length ? `<ul class="h-drivers">${h.drivers.map(d => `<li>${d}</li>`).join('')}</ul>` : ''}
       ${h.decision ? `<div class="h-decision"><span>Decisão</span>${escapeHtml(h.decision)}</div>` : ''}
+      ${h.todos && h.todos.length ? `<div class="h-todos">
+        <div class="lbl">Pontos a validar · status report</div>
+        <ul>${h.todos.slice(0,3).map(t => `<li>${escapeHtml(t.text)}</li>`).join('')}</ul>
+        ${h.todos.length > 3 ? `<div class="more">+${h.todos.length - 3} no status report</div>` : ''}
+      </div>` : ''}
       <div class="h-foot">
         <span class="pill">${h.openCount} ${labelOpen(h.project)}</span>
         <span class="pill">${h.dueNextN} ${labelDue(h.project)}</span>
+        ${h.todos && h.todos.length ? `<span class="pill todo">${h.todos.length} a validar</span>` : ''}
       </div>
     </a>
   `).join('');
@@ -714,9 +854,10 @@ async function loadAndRender(){
     const epics = epicsRaw.map(normalizeEpic);
     const tickets = ticketsRaw.map(normalizeTicket);
     const schedIdx = { ...indexScheduleByKey(venaSched), ...indexScheduleByKey(fstSched), ...indexScheduleByKey(pgmSched) };
+    const clientTodos = await loadClientTodos();
 
     const risks = assessRisks(epics, tickets, schedIdx);
-    const healths = EPIC_PROJECTS.map(p => projectHealth(p, risks, epics, tickets));
+    const healths = EPIC_PROJECTS.map(p => projectHealth(p, risks, epics, tickets, clientTodos));
 
     renderHealthGrid(healths);
     renderKrzrDesk(tickets);
@@ -739,6 +880,8 @@ async function loadAndRender(){
 }
 
 document.getElementById('refreshBtn').addEventListener('click', loadAndRender);
+document.getElementById('fuAdd').addEventListener('click', addFollowup);
+renderFollowups();
 let _rz; window.addEventListener('resize', () => { clearTimeout(_rz); _rz = setTimeout(() => loadAndRender(), 300); });
 loadAndRender();
 </script>
