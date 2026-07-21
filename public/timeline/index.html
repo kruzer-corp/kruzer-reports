@@ -17,6 +17,10 @@
 .controls { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
 .control { display: flex; flex-direction: column; gap: 4px; }
 .control label { font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--kruzer-neutral-700); letter-spacing: 0.04em; }
+.ctrl-check { display: inline-flex; align-items: center; gap: 6px; min-height: 37px; font-size: 13px; font-weight: 500; color: var(--kruzer-navy); text-transform: none; letter-spacing: 0; cursor: pointer; white-space: nowrap; }
+.ctrl-check input { width: 15px; height: 15px; cursor: pointer; accent-color: var(--kruzer-primary); }
+.fb-chip.fb-proj { color: #fff; font-weight: 600; }
+.fb-chip.fb-proj .fb-x { background: rgba(255,255,255,.28); }
 /* Filtro de recursos = barra de chips (largura total). Chip aceso = incluído no
    filtro (com × pra remover); apagado = clicável pra incluir. Único controle de
    recurso (substitui o antigo dropdown). */
@@ -210,8 +214,8 @@ a:hover { text-decoration: underline; }
       <div class="sub" id="subtitle">Carregando dados…</div>
     </div>
     <div class="controls">
-      <div class="control"><label for="projFilter">Projeto</label>
-        <select id="projFilter"><option value="all">Todos os projetos</option><option value="FST">FST · FastShop</option><option value="VENA">VENA · Venâncio</option><option value="DCT">DCT · Decathlon</option><option value="PMD">PMD · Pague Menos</option></select>
+      <div class="control"><label>Densidade</label>
+        <label class="ctrl-check"><input type="checkbox" id="noCapToggle"> Ver todos os itens (sem teto)</label>
       </div>
       <div class="control"><label>&nbsp;</label><button class="primary" id="refreshBtn">Atualizar dados</button></div>
     </div>
@@ -273,8 +277,19 @@ a:hover { text-decoration: underline; }
 const JIRA_BASE = 'https://kruzer.atlassian.net';
 const FIELDS = ['summary','status','assignee','duedate','created','resolutiondate','labels','customfield_10015','project','issuetype'].concat((window.KruzerCapacity && KruzerCapacity.DEV_DUE_FIELD) ? [KruzerCapacity.DEV_DUE_FIELD] : []);
 const MS_DAY = 86400000;
-const PROJ_COLOR = { FST: '#F79009', VENA: '#3151CE', DCT: '#14B8A6', PMD: '#DB2777' };
-const PROJECTS = ['FST', 'VENA', 'DCT', 'PMD'];
+// Projetos DINÂMICOS (totalizados do JIRA). Cores: as 4 conhecidas fixas + paleta.
+const KNOWN_COLOR = { FST: '#F79009', VENA: '#3151CE', DCT: '#14B8A6', PMD: '#DB2777' };
+const PALETTE = ['#0EA5E9','#8B5CF6','#EC4899','#65A30D','#6366F1','#0891B2','#9333EA','#E11D48','#4F46E5','#CA8A04','#0D9488','#DC2626'];
+const PROJ_COLOR = {};        // key → cor (preenchido por setupProjects)
+const PROJ_NAME = {};         // key → nome
+let JIRA_PROJECTS = [];       // universo [{key,name,type}]
+let PROJ_SEL = new Set();     // projetos selecionados (dimensão de filtro)
+let NO_CAP = false;           // "ver todos os itens" (remove tetos agregados)
+function setupProjects(list){
+  JIRA_PROJECTS = list; let pi = 0;
+  list.forEach(p => { PROJ_NAME[p.key] = p.name || p.key; if (!PROJ_COLOR[p.key]) PROJ_COLOR[p.key] = KNOWN_COLOR[p.key] || PALETTE[pi++ % PALETTE.length]; });
+}
+function inScope(e){ return PROJ_SEL.has(e.project); }
 const NODUE_COLOR = '#B45309'; // marcador "sem due" — âmbar escuro, distinto das cores de projeto
 
 function parseDate(s){ if(!s) return null; const d = new Date(s.length === 10 ? s + 'T00:00:00' : s); return isNaN(d) ? null : d; }
@@ -301,9 +316,9 @@ function discoveredTypes(){
 function epicTypeSet(){ return new Set(RAW.map(e => e.issueType)); }
 // Busca os não-épicos do escopo atual (uma vez por escopo/refresh).
 async function loadChildren(){
-  const pf = document.getElementById('projFilter').value;
-  const scope = pf === 'all' ? PROJECTS.join(', ') : pf;
-  const jql = `project in (${scope}) AND issuetype != Epic AND statusCategory != Done ORDER BY created DESC`;
+  const scope = [...PROJ_SEL];
+  if (!scope.length) { CHILDREN = []; return; }
+  const jql = `project in (${scope.join(', ')}) AND issuetype != Epic AND statusCategory != Done ORDER BY created DESC`;
   const issues = await KruzerAPI.fetchAll({ jql, fields: FIELDS, maxPages: 40 });
   CHILDREN = issues.map(normalize);
 }
@@ -351,8 +366,8 @@ let RES_SEL = new Set();
 // "adicionar recurso"; degrada graciosamente pra [] se a API falhar.
 let JIRA_USERS = [];
 async function loadRoster(){
-  const pf = document.getElementById('projFilter').value;
-  const projects = pf === 'all' ? ['FST','VENA','DCT','PMD'] : [pf];
+  const projects = [...PROJ_SEL];
+  if (!projects.length) { JIRA_USERS = []; return; }
   try {
     const users = await KruzerAPI.fetchRoster(projects);
     JIRA_USERS = users.filter(u => u.active !== false).map(u => u.displayName).filter(Boolean);
@@ -360,8 +375,7 @@ async function loadRoster(){
 }
 
 function selected(){
-  const pf = document.getElementById('projFilter').value;
-  return allIssues().filter(ep => (pf === 'all' || ep.project === pf) && RES_SEL.has(ep.assignee) && TYPE_SEL.has(ep.issueType));
+  return allIssues().filter(ep => inScope(ep) && RES_SEL.has(ep.assignee) && TYPE_SEL.has(ep.issueType));
 }
 
 // "Roster" do time = todos que aparecem como responsável em algum épico do escopo
@@ -370,11 +384,10 @@ function selected(){
 //   undated = tem épico ativo mas sem Start/Due → gap de datas
 //   idle    = só tem épicos concluídos / nenhum ativo → ocioso (sem demanda)
 function computeRoster(){
-  const pf = document.getElementById('projFilter').value;
   const today = new Date();
   const map = {};
   RAW.forEach(ep => {
-    if (pf !== 'all' && ep.project !== pf) return;
+    if (!inScope(ep)) return;
     if (ep.assignee === 'Sem responsável') return;
     const p = map[ep.assignee] || (map[ep.assignee] = { name: ep.assignee, active: 0, plotted: 0, projects: new Set() });
     p.projects.add(ep.project);
@@ -387,8 +400,7 @@ function computeRoster(){
 }
 
 function hasUnassignedInScope(){
-  const pf = document.getElementById('projFilter').value;
-  return RAW.some(ep => (pf === 'all' || ep.project === pf) && ep.assignee === 'Sem responsável');
+  return RAW.some(ep => inScope(ep) && ep.assignee === 'Sem responsável');
 }
 
 // Universo de recursos do filtro = quem tem épico no escopo (com categoria) UNIÃO
@@ -428,8 +440,7 @@ const OVERLOAD = 3;   // ≥ N demandas concorrentes na semana = sobrecarga
 // de semanas, e coortes de atuação. Contagem de demandas (o JIRA não tem esforço).
 function buildModel(){
   const today = new Date();
-  const scope = allIssues().filter(e => !e.resolved && TYPE_SEL.has(e.issueType) &&
-    (document.getElementById('projFilter').value === 'all' || e.project === document.getElementById('projFilter').value));
+  const scope = allIssues().filter(e => !e.resolved && TYPE_SEL.has(e.issueType) && inScope(e));
   const rows = {};
   scope.forEach(e => {
     const r = rows[e.assignee] || (rows[e.assignee] = { name: e.assignee, dated: [], undated: [], blocked: 0, projects: new Set() });
@@ -444,12 +455,16 @@ function buildModel(){
   // Janela ROLANTE de ~16 semanas a partir de ~1 semana antes de hoje (visão
   // executiva de curto prazo). Demandas fora da janela não coloram — o foco é a
   // alocação atual/próxima; o passado/futuro distante vai no drill temporal.
-  const HORIZON = 16;
   const start = weekStartOf(new Date(today.getTime() - WEEK));
+  const selDated = rowNames.flatMap(n => (rows[n] ? rows[n].dated : []));
+  // Janela: 16 semanas por padrão; NO_CAP estende pra cobrir tudo (teto de 80).
+  let HORIZON = 16;
+  if (NO_CAP && selDated.length) {
+    const lastWeek = weekStartOf(new Date(Math.max(...selDated.map(e => e.e.getTime()))));
+    HORIZON = Math.min(80, Math.max(16, Math.round((lastWeek.getTime() - start.getTime())/WEEK) + 1));
+  }
   const weeks = []; for (let i = 0; i < HORIZON; i++) weeks.push(new Date(start.getTime() + i*WEEK));
   const windowEnd = start.getTime() + HORIZON*WEEK;
-  // Conta demandas que caem além da janela (pra sinalizar, não esconder em silêncio).
-  const selDated = rowNames.flatMap(n => (rows[n] ? rows[n].dated : []));
   const beyond = selDated.filter(e => e.s.getTime() >= windowEnd).length;
   const truncatedWeeks = beyond;
 
@@ -542,17 +557,29 @@ function renderFilterBar(){
   }).join('');
   const addSelect = `<select class="fb-add" id="fbAdd"${addable.length ? '' : ' disabled'}>` +
     `<option value="">+ Adicionar recurso…</option>${opts}</select>`;
+  // Dimensão de PROJETO (totalizada do JIRA): chips dos selecionados + seletor pra somar.
+  const projSelKeys = [...PROJ_SEL].sort();
+  const projChips = projSelKeys.length
+    ? projSelKeys.map(k => `<span class="fb-chip on fb-proj" data-proj="${escapeHtml(k)}" style="background:${PROJ_COLOR[k]||'var(--kruzer-primary)'};border-color:${PROJ_COLOR[k]||'var(--kruzer-primary)'}"><span class="fb-nm">${escapeHtml(k)}</span><button class="fb-x" title="Remover projeto" aria-label="Remover ${escapeHtml(k)}">×</button></span>`).join('')
+    : `<span class="fb-empty">Nenhum projeto selecionado.</span>`;
+  const projAddable = JIRA_PROJECTS.filter(p => !PROJ_SEL.has(p.key));
+  const projOpts = projAddable.map(p => `<option value="${escapeHtml(p.key)}">${escapeHtml(p.key)} — ${escapeHtml(p.name)}</option>`).join('');
+  const projAdd = `<select class="fb-add" id="fbProjAdd"${projAddable.length ? '' : ' disabled'}><option value="">+ Projeto…</option>${projOpts}</select>`;
   // Dimensão de tipo de item (default = épicos; "Expandir visão" traz os demais).
-  const pf = document.getElementById('projFilter').value;
-  const inScope = i => pf === 'all' || i.project === pf;
   const typeChips = discoveredTypes().map(t => {
     const on = TYPE_SEL.has(t);
     const n = allIssues().filter(i => inScope(i) && i.issueType === t).length;
     return `<span class="fb-chip fb-type ${on ? 'on' : 'off'}" data-type="${escapeHtml(t)}"><span class="fb-nm">${escapeHtml(t)}</span><span class="fb-cnt">${n}</span></span>`;
   }).join('');
   el.innerHTML =
-    // Seção 1 — Tipos de item
+    // Seção 0 — Projetos
     `<div class="fb-top">` +
+      `<span class="fb-label">Projetos · ${PROJ_SEL.size} de ${JIRA_PROJECTS.length}</span>` +
+      `<div class="fb-actions">${projAdd}<button type="button" data-act="proj-active">Só com demanda ativa</button><button type="button" data-act="proj-all">Todos</button></div>` +
+    `</div>` +
+    `<div class="fb-chips">${projChips}</div>` +
+    // Seção 1 — Tipos de item
+    `<div class="fb-top fb-sep">` +
       `<span class="fb-label">Tipos de item</span>` +
       `<label class="fb-expand"><input type="checkbox" id="fbExpand" ${EXPANDED ? 'checked' : ''} ${TYPES_BUSY ? 'disabled' : ''}> Expandir visão (além de épicos)${TYPES_BUSY ? ' — carregando…' : ''}</label>` +
     `</div>` +
@@ -630,8 +657,8 @@ function renderGantt(){
   const TOP = 48, ROW = 30, GH = 30, PAD_B = 16;
   const BW = 40, BH = 16, BG = 5;                                   // blocos "sem data"
   const perRow = Math.max(1, Math.floor((NODATE_W - 10) / (BW + BG)));
-  const CAP = perRow * 3;                                           // até 3 linhas de blocos
-  const DCAP = 20;                                                  // teto de barras agendadas por lane
+  const CAP = NO_CAP ? Infinity : perRow * 3;                       // blocos sem-data por lane
+  const DCAP = NO_CAP ? Infinity : 20;                              // barras agendadas por lane
   const wrap = document.querySelector('.gantt-wrap');
   const availW = (wrap && wrap.clientWidth ? wrap.clientWidth : 1100) - 1;
   const PX_DAY = Math.max(2.6, (availW - TL) / totalDays);
@@ -821,17 +848,28 @@ async function loadAndRender(){
   document.getElementById('content').style.display = 'none';
   const btn = document.getElementById('refreshBtn'); btn.disabled = true; btn.textContent = 'Atualizando…';
   try {
-    const jql = `project in (FST, VENA, DCT, PMD) AND issuetype = Epic ORDER BY created DESC`;
-    const issues = await KruzerAPI.fetchAll({ jql, fields: FIELDS });
+    // Épicos do JIRA INTEIRO (sem projeto hardcoded) + lista de projetos/espaços.
+    const [issues, projList] = await Promise.all([
+      KruzerAPI.fetchAll({ jql: `issuetype = Epic ORDER BY created DESC`, fields: FIELDS, maxPages: 40 }),
+      KruzerAPI.fetchProjects().catch(() => []),
+    ]);
     RAW = issues.map(normalize);
-    await loadRoster();          // usuários atribuíveis do JIRA (pode não pegar épico)
+    // Universo de projetos = os do endpoint ∪ os que aparecem nos épicos.
+    const seenInData = [...new Set(RAW.map(e => e.project))];
+    const byKey = new Map((projList || []).map(p => [p.key, p]));
+    seenInData.forEach(k => { if (!byKey.has(k)) byKey.set(k, { key: k, name: k }); });
+    setupProjects([...byKey.values()].filter(p => byKey.has(p.key)).sort((a,b) => a.key.localeCompare(b.key)));
+    // Default = projetos com gente alocada em demanda EM ANDAMENTO (épico ativo + responsável).
+    const active = new Set(RAW.filter(e => !e.resolved && e.assignee !== 'Sem responsável').map(e => e.project));
+    PROJ_SEL = new Set(active.size ? [...active] : seenInData);
+    await loadRoster();          // usuários atribuíveis do JIRA nos projetos selecionados
     buildResourceFilter();
     document.getElementById('loadingBox').style.display = 'none';
     document.getElementById('content').style.display = '';
     renderAll();
     requestAnimationFrame(renderAll); // re-mede a largura após o layout assentar
     document.getElementById('subtitle').textContent =
-      `${RAW.length} épicos lidos (FST · VENA · DCT · PMD) • atualizado ${new Date().toLocaleString('pt-BR')}`;
+      `${RAW.length} épicos · ${JIRA_PROJECTS.length} projetos no JIRA · ${PROJ_SEL.size} com demanda ativa • atualizado ${new Date().toLocaleString('pt-BR')}`;
   } catch (e) {
     document.getElementById('loadingBox').style.display = 'none';
     document.getElementById('errorBox').innerHTML = `<div class="error"><b>Falha ao carregar dados:</b> ${escapeHtml(e.message)}</div>`;
@@ -841,12 +879,22 @@ async function loadAndRender(){
 }
 
 document.getElementById('refreshBtn').addEventListener('click', loadAndRender);
-document.getElementById('projFilter').addEventListener('change', async () => {
+
+// Mudou o conjunto de projetos → reescopa roster/filhos e recomputa defaults de recurso.
+async function onProjectChange(){
   await loadRoster();
   if (EXPANDED) { try { await loadChildren(); } catch (e) { console.warn('children reload failed:', e.message); } }
   buildResourceFilter();
   renderAll();
-});
+}
+function applyProjAction(act){
+  if (act === 'proj-all') PROJ_SEL = new Set(JIRA_PROJECTS.map(p => p.key));
+  else if (act === 'proj-active') {
+    const active = new Set(RAW.filter(e => !e.resolved && e.assignee !== 'Sem responsável').map(e => e.project));
+    PROJ_SEL = new Set(active);
+  }
+  onProjectChange();
+}
 
 // Ações rápidas do filtro de recursos.
 function applyResAction(act){
@@ -878,7 +926,7 @@ async function onExpandToggle(on){
 // Barra de chips = filtro. Ação (preset) · chip de tipo (toggle) · × (remove recurso).
 document.getElementById('filterBar').addEventListener('click', e => {
   const act = e.target.dataset.act;
-  if (act) { applyResAction(act); return; }
+  if (act) { act.startsWith('proj-') ? applyProjAction(act) : applyResAction(act); return; }
   const typeChip = e.target.closest('.fb-type');
   if (typeChip) {
     const t = typeChip.dataset.type;
@@ -887,13 +935,20 @@ document.getElementById('filterBar').addEventListener('click', e => {
     return;
   }
   const x = e.target.closest('.fb-x');
-  if (x) { RES_SEL.delete(x.closest('.fb-chip').dataset.name); syncResUI(); }
+  if (x) {
+    const chip = x.closest('.fb-chip');
+    if (chip.classList.contains('fb-proj')) { PROJ_SEL.delete(chip.dataset.proj); onProjectChange(); }
+    else { RES_SEL.delete(chip.dataset.name); syncResUI(); }
+  }
 });
-// Change: toggle "Expandir visão" (async) · seletor "adicionar recurso".
+// Change: projeto (async) · toggle "Expandir visão" (async) · seletor "adicionar recurso".
 document.getElementById('filterBar').addEventListener('change', e => {
+  if (e.target.id === 'fbProjAdd' && e.target.value) { PROJ_SEL.add(e.target.value); onProjectChange(); return; }
   if (e.target.id === 'fbExpand') { onExpandToggle(e.target.checked); return; }
   if (e.target.id === 'fbAdd' && e.target.value) { RES_SEL.add(e.target.value); syncResUI(); }
 });
+// Toggle "ver todos os itens" (sem teto agregado).
+document.getElementById('noCapToggle').addEventListener('change', e => { NO_CAP = e.target.checked; renderAll(); });
 // Cards de atuação → filtram/direcionam.
 document.getElementById('actionCards').addEventListener('click', e => {
   const btn = e.target.closest('.ac'); if (!btn || !btn.dataset.act) return;

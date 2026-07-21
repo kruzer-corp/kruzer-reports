@@ -121,6 +121,12 @@ async function handleApp(request, env, ctx) {
       return handleRoster(request, env, url);
     }
 
+    // 2a-quater. Projetos/espaços do JIRA (universo do filtro de projeto). Read-only.
+    if (url.pathname === '/api/jira/projects') {
+      if (request.method !== 'GET') return jsonError(405, 'Use GET');
+      return handleProjects(env);
+    }
+
     // 2b. Escrita no JIRA — comentário no épico
     if (url.pathname === '/api/jira/comment') {
       if (request.method !== 'POST') return jsonError(405, 'Use POST');
@@ -578,6 +584,27 @@ async function fetchIssueWorklogs(env, issueId, afterMs, beforeMs) {
     if (startAt >= (data.total || 0)) break;
   }
   return out;
+}
+
+// Lista os projetos/espaços do JIRA (universo do filtro). Read-only, paginado.
+async function handleProjects(env) {
+  const auth = btoa(`${env.JIRA_EMAIL}:${env.JIRA_API_TOKEN}`);
+  const out = [];
+  let startAt = 0;
+  try {
+    for (let page = 0; page < 10; page++) {
+      const u = `https://api.atlassian.com/ex/jira/${env.JIRA_CLOUD_ID}/rest/api/3/project/search?maxResults=50&startAt=${startAt}&status=live&orderBy=key`;
+      const r = await fetch(u, { headers: { Authorization: `Basic ${auth}`, Accept: 'application/json' } });
+      if (!r.ok) break;
+      const data = await r.json();
+      (data.values || []).forEach(p => out.push({ key: p.key, name: p.name, type: p.projectTypeKey || null }));
+      if (data.isLast || !(data.values || []).length) break;
+      startAt += 50;
+    }
+    return new Response(JSON.stringify({ projects: out }), { headers: { 'Content-Type': 'application/json' } });
+  } catch (e) {
+    return jsonError(502, `projects fetch failed: ${e.message}`);
+  }
 }
 
 // Rota pública (GET) do roster: ?projects=FST,VENA,DCT,PMD (default = os 4).

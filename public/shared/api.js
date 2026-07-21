@@ -67,5 +67,13 @@ window.KruzerAPI = (function () {
     return Array.isArray(data && data.users) ? data.users : [];
   }
 
-  return { jqlPage, fetchAll, addComment, updateDueDate, updatePriority, fetchRoster };
+  // Projetos/espaços do JIRA (universo do filtro de projeto).
+  async function fetchProjects() {
+    const res = await fetch('/api/jira/projects');
+    if (!res.ok) throw new Error(`projects ${res.status}`);
+    const data = await res.json();
+    return Array.isArray(data && data.projects) ? data.projects : [];
+  }
+
+  return { jqlPage, fetchAll, addComment, updateDueDate, updatePriority, fetchRoster, fetchProjects };
 })();
