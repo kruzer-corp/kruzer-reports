@@ -45,8 +45,8 @@ specifics dele (ver §5) antes de mexer.
 
 | Ambiente | URL | Version | Conteúdo |
 |---|---|---|---|
-| **PROD** | kruzer-dashboards.matheus-mereb.workers.dev | `8187d150` | **branch HEAD inteira** (deploy cheio `npm run deploy`). Inclui TUDO: consolidação/pivot do KRZR (view única `/krzr/`; `/krzr/hml`→404), capacity overlap, cockpit (To-dos + semáforo + HyperCare fora de atraso), timeline (filtro multi-recurso por chips + roster do JIRA + gaps + KPIs em linha + sem disclaimers). |
-| **HML** | kruzer-dashboards-hml.matheus-mereb.workers.dev | `176899fc` | branch HEAD inteira — igual à prod. |
+| **PROD** | kruzer-dashboards.matheus-mereb.workers.dev | `0c4d59aa` | **branch HEAD inteira** (deploy cheio). Tudo do cutover + Alocação de recursos (heatmap recurso×semana, cards de atuação, drill Gantt, filtro dinâmico de projetos do JIRA via `/api/jira/projects`, toggle "ver todos sem teto", legenda dinâmica), export PDF do KRZR, e o NOVO report `/kpis/` (Planejado×Executado leaf-only + KPIs Dev/PMO). |
+| **HML** | kruzer-dashboards-hml.matheus-mereb.workers.dev | `ac235797`+ | branch HEAD — igual à prod. |
 
 **2026-07-20: prod deixou de ser seletiva.** O usuário aprovou publicar tudo, então
 `npm run deploy` (cheio) subiu a branch inteira. Prod = HML = HEAD. Não há mais
