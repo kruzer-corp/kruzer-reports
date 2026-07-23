@@ -148,7 +148,7 @@ button:disabled { opacity: .6; cursor: wait; }
 const JIRA_BASE = 'https://kruzer.atlassian.net';
 const MS_DAY = 86400000;
 // Original Estimate + Worklog nativo (timespent) — em segundos no JIRA.
-const FIELDS = ['summary','status','statusCategory','assignee','created','resolutiondate','duedate','issuetype','priority','labels','timeoriginalestimate','timespent'];
+const FIELDS = ['summary','status','statusCategory','assignee','created','resolutiondate','duedate','issuetype','priority','labels','timeoriginalestimate','timespent','parent','customfield_10014'];
 const KNOWN_COLOR = { FST:'#F79009', VENA:'#3151CE', DCT:'#14B8A6', PMD:'#DB2777' };
 const PALETTE = ['#0EA5E9','#8B5CF6','#EC4899','#65A30D','#6366F1','#0891B2','#9333EA','#E11D48','#4F46E5','#CA8A04','#0D9488','#DC2626'];
 const PROJ_COLOR = {}, PROJ_NAME = {};
@@ -174,6 +174,7 @@ function normalize(issue){
     priority: f.priority?.name || '—',
     labels: f.labels || [],
     created: parseDate(f.created), resolved: parseDate(f.resolutiondate), due: parseDate(f.duedate),
+    parentKey: f.parent?.key || f.customfield_10014 || null,
     plannedH: h1(f.timeoriginalestimate), spentH: h1(f.timespent),
     blocked: /bloque|blocked|impediment/i.test(f.status?.name||''),
     done: !!f.resolutiondate || /done/i.test(statusCat),
@@ -200,8 +201,12 @@ function renderFilterBar(){
 
 // ── Planejado × Executado ─────────────────────────────────────────────────────
 function renderPlannedExecuted(scope){
+  // Sem dupla contagem: conta só FOLHAS (itens que NÃO são pai de outro no escopo).
+  // Épico com filhos não soma seu próprio estimate — os filhos carregam.
+  const parents = new Set(scope.map(e => e.parentKey).filter(Boolean));
+  const leaves = scope.filter(e => !parents.has(e.key));
   const byProj = {};
-  scope.forEach(e => { const p = byProj[e.project] || (byProj[e.project] = { plan:0, exec:0, n:0, est:0 }); p.plan += e.plannedH; p.exec += e.spentH; p.n++; if (e.plannedH>0) p.est++; });
+  leaves.forEach(e => { const p = byProj[e.project] || (byProj[e.project] = { plan:0, exec:0, n:0, est:0 }); p.plan += e.plannedH; p.exec += e.spentH; p.n++; if (e.plannedH>0) p.est++; });
   const rows = Object.entries(byProj).map(([k,v]) => ({ k, ...v })).sort((a,b) => b.plan - a.plan);
   const totPlan = rows.reduce((s,r)=>s+r.plan,0), totExec = rows.reduce((s,r)=>s+r.exec,0);
   const pct = totPlan ? totExec/totPlan*100 : 0;
@@ -223,9 +228,9 @@ function renderPlannedExecuted(scope){
         `<td><div class="pe-bar-wrap"><div class="pe-bar-plan" style="width:${planW}%"></div><div class="pe-bar-exec ${over?'over':''}" style="width:${execW}%"></div></div></td>` +
         `<td>${r.est}/${r.n}</td></tr>`;
     }).join('') + `</tbody>`;
-  const covered = scope.filter(e => e.plannedH>0).length, logged = scope.filter(e => e.spentH>0).length;
+  const covered = leaves.filter(e => e.plannedH>0).length, logged = leaves.filter(e => e.spentH>0).length;
   document.getElementById('peNote').textContent =
-    `* soma no nível do item (pode haver dupla contagem épico↔filho). ${covered}/${scope.length} itens têm Original Estimate · ${logged}/${scope.length} têm worklog. Baixa cobertura = JIRA imaturo no apontamento.`;
+    `* conta só folhas (${leaves.length} de ${scope.length} itens) — pais/épicos não somam para evitar dupla contagem. ${covered}/${leaves.length} folhas têm Original Estimate · ${logged}/${leaves.length} têm worklog. Baixa cobertura = JIRA imaturo no apontamento.`;
 }
 
 // ── Cards de KPI ───────────────────────────────────────────────────────────────
@@ -257,10 +262,9 @@ function renderPmoKpis(scope){
   const onTime = epicsDue.length ? epicsDue.filter(e => e.resolved <= new Date(e.due.getTime()+MS_DAY)).length / epicsDue.length * 100 : null;
   const desvios = epicsDue.filter(e => e.created).map(e => { const planned = (e.due - e.created)/MS_DAY; return planned>0 ? (e.resolved - e.due)/MS_DAY / planned * 100 : null; }).filter(x => x!=null);
   const desvio = avg(desvios);
+  // KPIs sem base no JIRA (Status Report em dia, Risco mapeado) ficam OCULTOS por ora.
   document.getElementById('pmoKpis').innerHTML =
     card('% Projetos/Marcos no Prazo', onTime!=null?`${onTime.toFixed(0)}<small>%</small>`:null, `Épicos concluídos dentro do due / com due (${epicsDue.length}). Proxy de marcos.`, onTime!=null?'approx':'na') +
-    card('% Status Report em Dia', null, 'Disciplina de governança — não rastreado no JIRA (vive nos status reports/D1). Integrável depois.', 'na') +
-    card('% Risco Mapeado + Plano', null, 'Maturidade de controle — não há matriz de risco no JIRA. Requer campo/estrutura.', 'na') +
     card('Índice de Desvio de Prazo', desvio!=null?`${(desvio>=0?'+':'')+desvio.toFixed(0)}<small>%</small>`:null, 'Atraso médio (resolução − due) sobre a duração planejada dos épicos com due.', desvio!=null?'approx':'na');
 }
 function renderConvKpis(scope){
