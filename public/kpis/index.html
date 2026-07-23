@@ -53,6 +53,8 @@ button:disabled { opacity: .6; cursor: wait; }
 .pe-big .l { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--kruzer-neutral-700); font-weight: 600; margin-top: 4px; }
 .pe-big .v.exec { color: var(--kruzer-primary); }
 .pe-big .v.over { color: var(--kruzer-error); }
+.pe-big .v.warn { color: #B45309; }
+.pe-big .v.ok { color: var(--kruzer-success); }
 .pe-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .pe-table th, .pe-table td { padding: 8px 10px; border-bottom: 1px solid var(--kruzer-neutral-200,#EDEDF2); text-align: right; }
 .pe-table th { font-size: 10px; text-transform: uppercase; letter-spacing: .4px; color: var(--kruzer-neutral-700); font-weight: 700; }
@@ -210,11 +212,18 @@ function renderPlannedExecuted(scope){
   const rows = Object.entries(byProj).map(([k,v]) => ({ k, ...v })).sort((a,b) => b.plan - a.plan);
   const totPlan = rows.reduce((s,r)=>s+r.plan,0), totExec = rows.reduce((s,r)=>s+r.exec,0);
   const pct = totPlan ? totExec/totPlan*100 : 0;
+  // Cobertura de worklog: do trabalho planejado OU executado (folhas com estimativa
+  // ou já entregues), quantas têm apontamento de worklog no JIRA?
+  const relevant = leaves.filter(e => e.plannedH > 0 || e.done);
+  const withLog = relevant.filter(e => e.spentH > 0).length;
+  const cover = relevant.length ? withLog / relevant.length * 100 : null;
+  const coverCls = cover == null ? '' : (cover < 30 ? 'over' : cover < 70 ? 'warn' : 'ok');
   document.getElementById('peTotal').innerHTML =
     `<div class="pe-big"><div class="v">${fmtH(totPlan)}</div><div class="l">Planejado (Original Estimate)</div></div>` +
     `<div class="pe-big"><div class="v exec">${fmtH(totExec)}</div><div class="l">Executado (Worklogs)</div></div>` +
     `<div class="pe-big"><div class="v ${pct>100?'over':''}">${totPlan?pct.toFixed(0)+'%':'—'}</div><div class="l">Consumo do estimado</div></div>` +
-    `<div class="pe-big"><div class="v ${totExec-totPlan>0?'over':''}">${totPlan?(totExec-totPlan>=0?'+':'')+fmtH(totExec-totPlan):'—'}</div><div class="l">Desvio (exec − plan)</div></div>`;
+    `<div class="pe-big"><div class="v ${totExec-totPlan>0?'over':''}">${totPlan?(totExec-totPlan>=0?'+':'')+fmtH(totExec-totPlan):'—'}</div><div class="l">Desvio (exec − plan)</div></div>` +
+    `<div class="pe-big"><div class="v ${coverCls}">${cover!=null?cover.toFixed(0)+'%':'—'}</div><div class="l">Cobertura de worklog${cover!=null?` <small style="font-weight:400;color:var(--kruzer-neutral-500)">(${withLog}/${relevant.length})</small>`:''}</div></div>`;
   const maxScale = Math.max(1, ...rows.map(r => Math.max(r.plan, r.exec)));
   document.getElementById('peTable').innerHTML =
     `<thead><tr><th class="proj">Projeto</th><th>Planejado</th><th>Executado</th><th>Consumo</th><th style="width:26%">Plan ▓ / Exec █</th><th># c/ estimativa</th></tr></thead><tbody>` +
