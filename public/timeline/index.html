@@ -252,11 +252,8 @@ a:hover { text-decoration: underline; }
         <button class="ghost" id="drillToggle">▸ mostrar</button>
       </div>
       <div id="drillBody" style="display:none">
-        <div class="legend">
-          <span class="legend-item"><span class="legend-swatch fst"></span> FST</span>
-          <span class="legend-item"><span class="legend-swatch vena"></span> VENA</span>
-          <span class="legend-item"><span class="legend-swatch dct"></span> DCT</span>
-          <span class="legend-item"><span class="legend-swatch pgm"></span> PMD</span>
+        <div class="legend" id="drillLegend">
+          <span id="drillProjLegend"></span>
           <span class="legend-item"><span class="legend-swatch blocked"></span> Bloqueado</span>
           <span class="legend-item"><span class="legend-swatch est"></span> Data estimada</span>
           <span class="legend-item"><span class="legend-swatch nodue"></span> Sem due</span>
@@ -318,7 +315,7 @@ function epicTypeSet(){ return new Set(RAW.map(e => e.issueType)); }
 async function loadChildren(){
   const scope = [...PROJ_SEL];
   if (!scope.length) { CHILDREN = []; return; }
-  const jql = `project in (${scope.join(', ')}) AND issuetype != Epic AND statusCategory != Done ORDER BY created DESC`;
+  const jql = `project in (${scope.map(k => `"${k}"`).join(', ')}) AND issuetype != Epic AND statusCategory != Done ORDER BY created DESC`;
   const issues = await KruzerAPI.fetchAll({ jql, fields: FIELDS, maxPages: 40 });
   CHILDREN = issues.map(normalize);
 }
@@ -614,6 +611,13 @@ function syncResUI(){ renderAll(); }
 function renderGantt(){
   const today = new Date();
   const sel = selected();
+  // Legenda de projetos DINÂMICA (só os presentes na seleção, com sua cor).
+  const projLeg = document.getElementById('drillProjLegend');
+  if (projLeg) {
+    const present = [...new Set(sel.map(e => e.project))].sort();
+    projLeg.innerHTML = present.map(k =>
+      `<span class="legend-item"><span class="legend-swatch" style="background:${PROJ_COLOR[k]||'#48507D'}"></span> ${escapeHtml(k)}</span>`).join('');
+  }
   // Separa por recurso: AGENDADO (tem janela de datas) vs NÃO AGENDADO ativo.
   const dated = [];
   const datedByRes = {}, undatedByRes = {};

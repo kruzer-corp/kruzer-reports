@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KPIs de Projetos — Kruzer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/shared/tokens.css">
+<!--
+  KPIs de Projetos (HML — em estruturação). Persona: executivo/PMO.
+  Escopo: projetos/spaces do JIRA (filtro dinâmico). Métricas: Planejado ×
+  Executado (Original Estimate × Worklogs nativos) EM EVIDÊNCIA + KPIs de
+  Development e PMO (dos slides). KPIs não-deriváveis do JIRA aparecem como
+  placeholder honesto ("requer dado") — o JIRA ainda é imaturo.
+-->
+<style>
+.container { padding: 16px 20px 48px; max-width: 1400px; margin: 0 auto; }
+.back { font-size: 12px; color: var(--kruzer-primary); text-decoration: none; margin-bottom: 8px; display: inline-block; }
+.back:hover { text-decoration: underline; }
+.header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; flex-wrap: wrap; }
+.header h1 { margin: 0 0 4px; font-size: 26px; font-weight: 700; letter-spacing: -0.01em; }
+.header .sub { color: var(--kruzer-navy-300); font-size: 13px; }
+.controls { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+.control { display: flex; flex-direction: column; gap: 4px; }
+.control label { font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--kruzer-neutral-700); letter-spacing: 0.04em; }
+select, button { font-family: inherit; font-size: 13px; padding: 8px 12px; border: 1px solid var(--kruzer-neutral-300); border-radius: 8px; background: #fff; color: var(--kruzer-navy); cursor: pointer; }
+button.primary { background: var(--kruzer-primary); color: #fff; border-color: var(--kruzer-primary); font-weight: 600; }
+button.primary:hover { background: var(--kruzer-primary-700); }
+button:disabled { opacity: .6; cursor: wait; }
+
+/* Filtro de projetos (chips) */
+.filter-bar { margin-bottom: 16px; padding: 12px 14px; background: #fff; border: 1px solid var(--kruzer-neutral-300); border-radius: 8px; box-shadow: var(--shadow); }
+.fb-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+.fb-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; color: var(--kruzer-neutral-700); }
+.fb-actions { display: flex; gap: 6px; }
+.fb-actions button, .fb-add { font-size: 11px; padding: 5px 10px; border-radius: 6px; }
+.fb-add { max-width: 240px; }
+.fb-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.fb-chip { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; border-radius: 999px; padding: 4px 12px; color: #fff; }
+.fb-x { border: none; background: rgba(255,255,255,.28); color: #fff; width: 18px; height: 18px; border-radius: 50%; font-size: 14px; line-height: 1; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+.fb-x:hover { background: #fff; color: var(--kruzer-navy); }
+.fb-empty { font-size: 13px; color: var(--kruzer-neutral-500); }
+
+.section { background: #fff; border: 1px solid var(--kruzer-neutral-300); border-radius: 10px; padding: 20px 22px; margin-bottom: 16px; box-shadow: var(--shadow); }
+.section h2 { margin: 0 0 4px; font-size: 18px; font-weight: 700; }
+.section .sub { font-size: 12px; color: var(--kruzer-neutral-700); margin-bottom: 16px; }
+.section.hero { border-left: 5px solid var(--kruzer-primary); }
+
+/* Planejado × Executado */
+.pe-total { display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 18px; }
+.pe-big { flex: 1 1 180px; }
+.pe-big .v { font-size: 30px; font-weight: 700; line-height: 1; color: var(--kruzer-navy); }
+.pe-big .l { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--kruzer-neutral-700); font-weight: 600; margin-top: 4px; }
+.pe-big .v.exec { color: var(--kruzer-primary); }
+.pe-big .v.over { color: var(--kruzer-error); }
+.pe-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.pe-table th, .pe-table td { padding: 8px 10px; border-bottom: 1px solid var(--kruzer-neutral-200,#EDEDF2); text-align: right; }
+.pe-table th { font-size: 10px; text-transform: uppercase; letter-spacing: .4px; color: var(--kruzer-neutral-700); font-weight: 700; }
+.pe-table td.proj, .pe-table th.proj { text-align: left; }
+.pe-proj-tag { display: inline-block; font-size: 11px; font-weight: 700; color: #fff; padding: 2px 8px; border-radius: 4px; }
+.pe-bar-wrap { position: relative; height: 16px; background: var(--kruzer-neutral-100); border-radius: 4px; min-width: 120px; overflow: hidden; }
+.pe-bar-plan { position: absolute; inset: 0; background: repeating-linear-gradient(45deg,#C7CCDD,#C7CCDD 4px,#DDE0EC 4px,#DDE0EC 8px); }
+.pe-bar-exec { position: absolute; top: 0; left: 0; bottom: 0; background: var(--kruzer-primary); border-radius: 4px; }
+.pe-bar-exec.over { background: var(--kruzer-error); }
+.pe-var.pos { color: var(--kruzer-error); font-weight: 700; }
+.pe-var.neg { color: var(--kruzer-success); font-weight: 700; }
+
+/* KPI cards */
+.kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+@media (max-width: 1000px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+.kc { border: 1px solid var(--kruzer-neutral-300); border-radius: 10px; padding: 14px 16px; border-top: 3px solid var(--kruzer-primary); background: #fff; display: flex; flex-direction: column; gap: 4px; }
+.kc.na { border-top-color: var(--kruzer-neutral-500); opacity: .85; }
+.kc .kc-name { font-size: 12px; font-weight: 700; color: var(--kruzer-navy); }
+.kc .kc-v { font-size: 28px; font-weight: 700; line-height: 1.05; color: var(--kruzer-navy); }
+.kc .kc-v small { font-size: 14px; color: var(--kruzer-neutral-700); font-weight: 600; }
+.kc .kc-v.na { font-size: 14px; color: var(--kruzer-neutral-500); font-weight: 600; }
+.kc .kc-desc { font-size: 11px; color: var(--kruzer-neutral-700); line-height: 1.45; }
+.kc .kc-tag { font-size: 8.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; padding: 1px 6px; border-radius: 999px; align-self: flex-start; }
+.kc .kc-tag.calc { background: #DCFCE7; color: #166534; }
+.kc .kc-tag.approx { background: #FEF3C7; color: #92400E; }
+.kc .kc-tag.na { background: var(--kruzer-neutral-100); color: var(--kruzer-neutral-700); }
+
+.loading { padding: 60px 20px; text-align: center; color: var(--kruzer-neutral-700); }
+.loading .spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid var(--kruzer-neutral-300); border-top-color: var(--kruzer-primary); border-radius: 50%; animation: spin .8s linear infinite; vertical-align: middle; margin-right: 8px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.error { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; padding: 12px 16px; border-radius: 8px; margin-bottom: 12px; font-size: 13px; }
+.note { font-size: 11.5px; color: var(--kruzer-neutral-700); margin-top: 12px; font-style: italic; }
+</style>
+</head>
+<body>
+<div class="container">
+  <a href="/" class="back">← Todos os dashboards</a>
+  <div class="header">
+    <div>
+      <h1>KPIs de Projetos</h1>
+      <div class="sub" id="subtitle">Carregando dados…</div>
+    </div>
+    <div class="controls">
+      <div class="control"><label for="periodSel">Período</label>
+        <select id="periodSel">
+          <option value="90">Últimos 90 dias</option>
+          <option value="30">Últimos 30 dias</option>
+          <option value="180">Últimos 180 dias</option>
+          <option value="365">Último ano</option>
+          <option value="0">Tudo</option>
+        </select>
+      </div>
+      <div class="control"><label>&nbsp;</label><button class="primary" id="refreshBtn">Atualizar dados</button></div>
+    </div>
+  </div>
+
+  <div id="errorBox"></div>
+  <div id="loadingBox" class="loading"><span class="spinner"></span>Cruzando issues e worklogs do JIRA…</div>
+
+  <div id="content" style="display:none">
+    <div class="filter-bar" id="filterBar"></div>
+
+    <section class="section hero">
+      <h2>Planejado × Executado</h2>
+      <div class="sub">Base nativa do JIRA: <b>Original Estimate</b> (planejado) × <b>Worklogs / Time Spent</b> (executado), somados por projeto. Consumo &gt; 100% = estourou o estimado.</div>
+      <div class="pe-total" id="peTotal"></div>
+      <div style="overflow-x:auto"><table class="pe-table" id="peTable"></table></div>
+      <div class="note" id="peNote"></div>
+    </section>
+
+    <section class="section">
+      <h2>KPIs — Development</h2>
+      <div class="sub">Velocidade, previsibilidade e qualidade da entrega. Período: <span id="devPeriodLbl">—</span>.</div>
+      <div class="kpi-grid" id="devKpis"></div>
+    </section>
+
+    <section class="section">
+      <h2>KPIs — PMO</h2>
+      <div class="sub">Governança e controle de execução. KPIs sem base no JIRA aparecem como <b>requer dado</b>.</div>
+      <div class="kpi-grid" id="pmoKpis"></div>
+    </section>
+
+    <section class="section">
+      <h2>Convencionais</h2>
+      <div class="sub">Higiene do backlog no escopo selecionado.</div>
+      <div class="kpi-grid" id="convKpis"></div>
+    </section>
+  </div>
+</div>
+
+<script src="/shared/api.js"></script>
+<script>
+const JIRA_BASE = 'https://kruzer.atlassian.net';
+const MS_DAY = 86400000;
+// Original Estimate + Worklog nativo (timespent) — em segundos no JIRA.
+const FIELDS = ['summary','status','statusCategory','assignee','created','resolutiondate','duedate','issuetype','priority','labels','timeoriginalestimate','timespent'];
+const KNOWN_COLOR = { FST:'#F79009', VENA:'#3151CE', DCT:'#14B8A6', PMD:'#DB2777' };
+const PALETTE = ['#0EA5E9','#8B5CF6','#EC4899','#65A30D','#6366F1','#0891B2','#9333EA','#E11D48','#4F46E5','#CA8A04','#0D9488','#DC2626'];
+const PROJ_COLOR = {}, PROJ_NAME = {};
+let JIRA_PROJECTS = [], PROJ_SEL = new Set(), RAW = [];
+let ISSUES_BY_PROJ = {};   // cache por projeto (carrega sob demanda)
+let ACTIVE_PROJS = [];     // projetos com épico ativo atribuído (default/preset)
+
+function esc(s){ return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function parseDate(s){ if(!s) return null; const d = new Date(s.length===10?s+'T00:00:00':s); return isNaN(d)?null:d; }
+function h1(sec){ return (typeof sec==='number' && sec>0) ? sec/3600 : 0; }
+function fmtH(h){ return h>=1000 ? (h/1000).toFixed(1)+'k h' : Math.round(h)+' h'; }
+function setupProjects(list){ JIRA_PROJECTS = list; let pi=0; list.forEach(p=>{ PROJ_NAME[p.key]=p.name||p.key; if(!PROJ_COLOR[p.key]) PROJ_COLOR[p.key]=KNOWN_COLOR[p.key]||PALETTE[pi++%PALETTE.length]; }); }
+function inScope(e){ return PROJ_SEL.has(e.project); }
+
+function normalize(issue){
+  const f = issue.fields || {};
+  const proj = f.project?.key || (issue.key||'').split('-')[0];
+  const statusCat = f.status?.statusCategory?.name || '';
+  return {
+    key: issue.key, url: `${JIRA_BASE}/browse/${issue.key}`, project: proj,
+    type: f.issuetype?.name || '—', status: f.status?.name || '—', statusCat,
+    assignee: f.assignee?.displayName || 'Sem responsável',
+    priority: f.priority?.name || '—',
+    labels: f.labels || [],
+    created: parseDate(f.created), resolved: parseDate(f.resolutiondate), due: parseDate(f.duedate),
+    plannedH: h1(f.timeoriginalestimate), spentH: h1(f.timespent),
+    blocked: /bloque|blocked|impediment/i.test(f.status?.name||''),
+    done: !!f.resolutiondate || /done/i.test(statusCat),
+  };
+}
+
+function periodStart(){ const d = +document.getElementById('periodSel').value; return d ? new Date(Date.now() - d*MS_DAY) : null; }
+function inPeriod(dt){ const ps = periodStart(); return dt && (!ps || dt >= ps); }
+function avg(a){ return a.length ? a.reduce((x,y)=>x+y,0)/a.length : null; }
+
+// ── Filtro de projetos ────────────────────────────────────────────────────────
+function renderFilterBar(){
+  const el = document.getElementById('filterBar');
+  const sel = [...PROJ_SEL].sort();
+  const chips = sel.length ? sel.map(k => `<span class="fb-chip" style="background:${PROJ_COLOR[k]}"><span>${esc(k)}</span><button class="fb-x" data-proj="${esc(k)}" title="Remover">×</button></span>`).join('')
+    : `<span class="fb-empty">Nenhum projeto selecionado.</span>`;
+  const addable = JIRA_PROJECTS.filter(p => !PROJ_SEL.has(p.key));
+  const opts = addable.map(p => `<option value="${esc(p.key)}">${esc(p.key)} — ${esc(p.name)}</option>`).join('');
+  el.innerHTML = `<div class="fb-top"><span class="fb-label">Projetos · ${PROJ_SEL.size} de ${JIRA_PROJECTS.length}</span>` +
+    `<div class="fb-actions"><select class="fb-add" id="fbProjAdd"${addable.length?'':' disabled'}><option value="">+ Projeto…</option>${opts}</select>` +
+    `<button data-act="active">Só com atividade</button><button data-act="all">Todos</button></div></div>` +
+    `<div class="fb-chips">${chips}</div>`;
+}
+
+// ── Planejado × Executado ─────────────────────────────────────────────────────
+function renderPlannedExecuted(scope){
+  const byProj = {};
+  scope.forEach(e => { const p = byProj[e.project] || (byProj[e.project] = { plan:0, exec:0, n:0, est:0 }); p.plan += e.plannedH; p.exec += e.spentH; p.n++; if (e.plannedH>0) p.est++; });
+  const rows = Object.entries(byProj).map(([k,v]) => ({ k, ...v })).sort((a,b) => b.plan - a.plan);
+  const totPlan = rows.reduce((s,r)=>s+r.plan,0), totExec = rows.reduce((s,r)=>s+r.exec,0);
+  const pct = totPlan ? totExec/totPlan*100 : 0;
+  document.getElementById('peTotal').innerHTML =
+    `<div class="pe-big"><div class="v">${fmtH(totPlan)}</div><div class="l">Planejado (Original Estimate)</div></div>` +
+    `<div class="pe-big"><div class="v exec">${fmtH(totExec)}</div><div class="l">Executado (Worklogs)</div></div>` +
+    `<div class="pe-big"><div class="v ${pct>100?'over':''}">${totPlan?pct.toFixed(0)+'%':'—'}</div><div class="l">Consumo do estimado</div></div>` +
+    `<div class="pe-big"><div class="v ${totExec-totPlan>0?'over':''}">${totPlan?(totExec-totPlan>=0?'+':'')+fmtH(totExec-totPlan):'—'}</div><div class="l">Desvio (exec − plan)</div></div>`;
+  const maxScale = Math.max(1, ...rows.map(r => Math.max(r.plan, r.exec)));
+  document.getElementById('peTable').innerHTML =
+    `<thead><tr><th class="proj">Projeto</th><th>Planejado</th><th>Executado</th><th>Consumo</th><th style="width:26%">Plan ▓ / Exec █</th><th># c/ estimativa</th></tr></thead><tbody>` +
+    rows.map(r => {
+      const cons = r.plan ? r.exec/r.plan*100 : null;
+      const planW = (r.plan/maxScale*100).toFixed(1), execW = (r.exec/maxScale*100).toFixed(1);
+      const over = cons != null && cons > 100;
+      return `<tr><td class="proj"><span class="pe-proj-tag" style="background:${PROJ_COLOR[r.k]}">${esc(r.k)}</span></td>` +
+        `<td>${r.plan?fmtH(r.plan):'—'}</td><td>${r.exec?fmtH(r.exec):'—'}</td>` +
+        `<td class="pe-var ${over?'pos':'neg'}">${cons!=null?cons.toFixed(0)+'%':'—'}</td>` +
+        `<td><div class="pe-bar-wrap"><div class="pe-bar-plan" style="width:${planW}%"></div><div class="pe-bar-exec ${over?'over':''}" style="width:${execW}%"></div></div></td>` +
+        `<td>${r.est}/${r.n}</td></tr>`;
+    }).join('') + `</tbody>`;
+  const covered = scope.filter(e => e.plannedH>0).length, logged = scope.filter(e => e.spentH>0).length;
+  document.getElementById('peNote').textContent =
+    `* soma no nível do item (pode haver dupla contagem épico↔filho). ${covered}/${scope.length} itens têm Original Estimate · ${logged}/${scope.length} têm worklog. Baixa cobertura = JIRA imaturo no apontamento.`;
+}
+
+// ── Cards de KPI ───────────────────────────────────────────────────────────────
+function card(name, value, desc, tag){
+  const na = value == null;
+  return `<div class="kc ${na?'na':''}"><span class="kc-tag ${tag}">${tag==='calc'?'calculado':tag==='approx'?'aproximado':'requer dado'}</span>` +
+    `<div class="kc-name">${name}</div>` +
+    (na ? `<div class="kc-v na">sem base no JIRA</div>` : `<div class="kc-v">${value}</div>`) +
+    `<div class="kc-desc">${desc}</div></div>`;
+}
+function renderDevKpis(scope){
+  const resolved = scope.filter(e => e.resolved && inPeriod(e.resolved));
+  const leads = resolved.filter(e => e.created).map(e => (e.resolved - e.created)/MS_DAY);
+  const lead = avg(leads);
+  const withDue = resolved.filter(e => e.due);
+  const onTime = withDue.length ? withDue.filter(e => e.resolved <= new Date(e.due.getTime()+MS_DAY)).length / withDue.length * 100 : null;
+  const isBug = e => /bug|defeito/i.test(e.type) || e.labels.some(l => /bug|retrabalho|hotfix/i.test(l));
+  const rework = resolved.length ? resolved.filter(isBug).length / resolved.length * 100 : null;
+  document.getElementById('devKpis').innerHTML =
+    card('Lead Time de Entrega', lead!=null?`${lead.toFixed(1)}<small> dias</small>`:null, 'Tempo médio criação → resolução das entregas concluídas no período.', lead!=null?'calc':'na') +
+    card('Taxa de Entregas no Prazo', onTime!=null?`${onTime.toFixed(0)}<small>%</small>`:null, `Concluídas dentro do due / total com due (${withDue.length}). Depende de due preenchido.`, onTime!=null?'approx':'na') +
+    card('Retrabalho / Bugs', rework!=null?`${rework.toFixed(0)}<small>%</small>`:null, 'Aproximação: % das entregas do período que são Bug/retrabalho (tipo ou label). "Pós-publicação" não é rastreado.', rework!=null?'approx':'na') +
+    card('Throughput', String(resolved.length), 'Itens concluídos no período — leitura de capacidade produtiva.', 'calc');
+}
+function renderPmoKpis(scope){
+  const epics = scope.filter(e => /epic|épico/i.test(e.type));
+  const resolvedEpics = epics.filter(e => e.resolved && inPeriod(e.resolved));
+  const epicsDue = resolvedEpics.filter(e => e.due);
+  const onTime = epicsDue.length ? epicsDue.filter(e => e.resolved <= new Date(e.due.getTime()+MS_DAY)).length / epicsDue.length * 100 : null;
+  const desvios = epicsDue.filter(e => e.created).map(e => { const planned = (e.due - e.created)/MS_DAY; return planned>0 ? (e.resolved - e.due)/MS_DAY / planned * 100 : null; }).filter(x => x!=null);
+  const desvio = avg(desvios);
+  document.getElementById('pmoKpis').innerHTML =
+    card('% Projetos/Marcos no Prazo', onTime!=null?`${onTime.toFixed(0)}<small>%</small>`:null, `Épicos concluídos dentro do due / com due (${epicsDue.length}). Proxy de marcos.`, onTime!=null?'approx':'na') +
+    card('% Status Report em Dia', null, 'Disciplina de governança — não rastreado no JIRA (vive nos status reports/D1). Integrável depois.', 'na') +
+    card('% Risco Mapeado + Plano', null, 'Maturidade de controle — não há matriz de risco no JIRA. Requer campo/estrutura.', 'na') +
+    card('Índice de Desvio de Prazo', desvio!=null?`${(desvio>=0?'+':'')+desvio.toFixed(0)}<small>%</small>`:null, 'Atraso médio (resolução − due) sobre a duração planejada dos épicos com due.', desvio!=null?'approx':'na');
+}
+function renderConvKpis(scope){
+  const open = scope.filter(e => !e.done);
+  const resolved = scope.filter(e => e.resolved && inPeriod(e.resolved));
+  const blocked = open.filter(e => e.blocked).length;
+  const noEst = open.filter(e => e.plannedH === 0).length;
+  const noLog = scope.filter(e => !e.done && e.spentH === 0).length;
+  document.getElementById('convKpis').innerHTML =
+    card('Itens no escopo', String(scope.length), 'Total de issues nos projetos selecionados.', 'calc') +
+    card('Abertos / Concluídos', `${open.length} <small>/ ${resolved.length}</small>`, 'Abertos agora · concluídos no período.', 'calc') +
+    card('Bloqueados', String(blocked), 'Itens abertos em status de bloqueio.', 'calc') +
+    card('Sem estimativa / sem apontamento', `${noEst} <small>/ ${noLog}</small>`, 'Abertos sem Original Estimate · sem worklog. Higiene de dado.', 'calc');
+}
+
+function renderAll(){
+  renderFilterBar();
+  const scope = RAW.filter(inScope);
+  renderPlannedExecuted(scope);
+  const pl = { 90:'últimos 90 dias', 30:'últimos 30 dias', 180:'últimos 180 dias', 365:'último ano', 0:'todo o histórico' }[+document.getElementById('periodSel').value];
+  document.getElementById('devPeriodLbl').textContent = pl;
+  renderDevKpis(scope); renderPmoKpis(scope); renderConvKpis(scope);
+  document.getElementById('subtitle').textContent = `${RAW.length} issues · ${JIRA_PROJECTS.length} projetos no JIRA · ${PROJ_SEL.size} no escopo • atualizado ${new Date().toLocaleString('pt-BR')}`;
+}
+
+// Carrega issues SOB DEMANDA por projeto (cacheado). Evita puxar o JIRA inteiro.
+async function ensureIssues(keys){
+  const missing = keys.filter(k => !(k in ISSUES_BY_PROJ));
+  if (missing.length){
+    const jql = `project in (${missing.map(k => `"${k}"`).join(',')}) AND (resolution is EMPTY OR resolved >= -365d) ORDER BY created DESC`;
+    const issues = await KruzerAPI.fetchAll({ jql, fields: FIELDS, maxPages: 60 });
+    missing.forEach(k => ISSUES_BY_PROJ[k] = []);              // marca como carregado (mesmo se 0)
+    issues.map(normalize).forEach(e => { (ISSUES_BY_PROJ[e.project] = ISSUES_BY_PROJ[e.project] || []).push(e); });
+  }
+  RAW = Object.values(ISSUES_BY_PROJ).flat();
+}
+async function withBusy(fn){
+  const btn = document.getElementById('refreshBtn'); const t = btn.textContent; btn.disabled = true; btn.textContent = 'Carregando…';
+  try { await fn(); } catch (e) { document.getElementById('errorBox').innerHTML = `<div class="error"><b>Falha:</b> ${esc(e.message)}</div>`; }
+  finally { btn.disabled = false; btn.textContent = t === 'Carregando…' ? 'Atualizar dados' : t; }
+}
+
+async function loadAndRender(){
+  document.getElementById('errorBox').innerHTML = '';
+  document.getElementById('loadingBox').style.display = '';
+  document.getElementById('content').style.display = 'none';
+  const btn = document.getElementById('refreshBtn'); btn.disabled = true; btn.textContent = 'Atualizando…';
+  try {
+    ISSUES_BY_PROJ = {};
+    const projList = await KruzerAPI.fetchProjects().catch(() => []);
+    if (!projList.length) throw new Error('Nenhum projeto acessível no JIRA.');
+    setupProjects(projList.slice().sort((a,b) => a.key.localeCompare(b.key)));
+    // Probe leve: projetos com ÉPICO ATIVO ATRIBUÍDO = default (gente alocada em andamento).
+    const probe = await KruzerAPI.fetchAll({ jql: `issuetype = Epic AND statusCategory != Done AND assignee is not EMPTY`, fields: ['project'], maxPages: 20 });
+    ACTIVE_PROJS = [...new Set(probe.map(i => i.fields.project?.key).filter(Boolean))];
+    PROJ_SEL = new Set(ACTIVE_PROJS.length ? ACTIVE_PROJS : JIRA_PROJECTS.slice(0, 4).map(p => p.key));
+    await ensureIssues([...PROJ_SEL]);
+    document.getElementById('loadingBox').style.display = 'none';
+    document.getElementById('content').style.display = '';
+    renderAll();
+  } catch (e) {
+    document.getElementById('loadingBox').style.display = 'none';
+    document.getElementById('errorBox').innerHTML = `<div class="error"><b>Falha ao carregar dados:</b> ${esc(e.message)}</div>`;
+  } finally { btn.disabled = false; btn.textContent = 'Atualizar dados'; }
+}
+
+document.getElementById('refreshBtn').addEventListener('click', loadAndRender);
+document.getElementById('periodSel').addEventListener('change', renderAll);
+document.getElementById('filterBar').addEventListener('click', e => {
+  const act = e.target.dataset.act;
+  if (act === 'all') { withBusy(async () => { PROJ_SEL = new Set(JIRA_PROJECTS.map(p => p.key)); await ensureIssues([...PROJ_SEL]); renderAll(); }); return; }
+  if (act === 'active') { withBusy(async () => { PROJ_SEL = new Set(ACTIVE_PROJS); await ensureIssues([...PROJ_SEL]); renderAll(); }); return; }
+  const x = e.target.closest('.fb-x'); if (x) { PROJ_SEL.delete(x.dataset.proj); renderAll(); }  // remover = só re-render (já cacheado)
+});
+document.getElementById('filterBar').addEventListener('change', e => {
+  if (e.target.id === 'fbProjAdd' && e.target.value) { const k = e.target.value; withBusy(async () => { PROJ_SEL.add(k); await ensureIssues([k]); renderAll(); }); }
+});
+loadAndRender();
+</script>
+</body>
+</html>

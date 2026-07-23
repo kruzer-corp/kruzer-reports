@@ -19,6 +19,7 @@
 .header .sub { color: var(--ink-soft); font-size: 13px; }
 .controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .control { display: flex; flex-direction: column; gap: 4px; }
+.exporting .export-hide, .exporting .csv-btn, .exporting .table-filter-note { display: none !important; }
 .control label { font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--muted); letter-spacing: 0.04em; }
 select, button { font-family: inherit; font-size: 13px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--ink); cursor: pointer; }
 select:hover, button:hover { border-color: #c8cbd6; }
@@ -179,7 +180,8 @@ table.pivot tr.total-row td.grand { background: var(--kruzer-primary-700); color
     <div class="controls">
       <div class="control"><label>Período</label><div class="dropdown" id="periodDropdown"><button type="button" class="dd-toggle" id="periodToggle" aria-label="Selecionar período" aria-haspopup="listbox"><span id="periodLabel">Semana atual</span><span class="dd-caret">▾</span></button><div class="dd-panel" id="periodPanel" hidden></div></div></div>
       <div class="control"><label for="orgFilter">Organização</label><select id="orgFilter" aria-label="Filtrar por organização"><option value="all">Todas</option></select></div>
-      <div class="control"><label>&nbsp;</label><button class="primary" id="refreshBtn">Atualizar dados</button></div>
+      <div class="control export-hide"><label>&nbsp;</label><button id="exportBtn">⬇ Exportar PDF</button></div>
+      <div class="control export-hide"><label>&nbsp;</label><button class="primary" id="refreshBtn">Atualizar dados</button></div>
     </div>
   </div>
   <div id="errorBox"></div>
@@ -410,7 +412,40 @@ function renderAll(){const f=applyFilter();renderAlerts(f);renderKPIs(f);renderS
 async function loadAndRender(){document.getElementById('errorBox').innerHTML='';document.getElementById('loadingBox').style.display='';document.getElementById('content').style.display='none';const btn=document.getElementById('refreshBtn');btn.disabled=true;btn.textContent='Atualizando…';try{generatePeriodOptions();const jql=`project = ${PROJECT} AND (resolution is EMPTY OR resolved >= -120d OR created >= -120d) ORDER BY created DESC`;const issues=await KruzerAPI.fetchAll({jql,fields:FIELDS,expand:['changelog']});RAW=issues.map(normalize);populateOrgs();document.getElementById('loadingBox').style.display='none';document.getElementById('content').style.display='';renderAll();}catch(e){document.getElementById('loadingBox').style.display='none';document.getElementById('errorBox').innerHTML=`<div class="error"><b>Falha ao carregar dados:</b> ${e.message}</div>`;}finally{btn.disabled=false;btn.textContent='Atualizar dados';}}
 
 document.getElementById('refreshBtn').addEventListener('click',loadAndRender);
+document.getElementById('exportBtn').addEventListener('click',exportPDF);
 document.getElementById('orgFilter').addEventListener('change',renderAll);
+
+// Export PDF — snapshot do estado atual (igual aos status reports). Paginação por
+// bloco (header + cada seção do #content), fundo sólido pra html2canvas/JPEG.
+function loadScript(src){return new Promise((res,rej)=>{const s=document.createElement('script');s.src=src;s.onload=res;s.onerror=()=>rej(new Error('falha ao carregar '+src));document.head.appendChild(s);});}
+async function exportPDF(){
+  const btn=document.getElementById('exportBtn');const orig=btn.textContent;btn.disabled=true;btn.textContent='Exportando…';
+  try{
+    if(!window.html2canvas)await loadScript('https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js');
+    if(!window.jspdf)await loadScript('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js');
+    const {jsPDF}=window.jspdf;const pdf=new jsPDF('p','mm','a4');
+    const pageW=pdf.internal.pageSize.getWidth(),pageH=pdf.internal.pageSize.getHeight();
+    const M=8,gap=4,usableW=pageW-2*M,usableH=pageH-2*M;
+    const fillBg=()=>{pdf.setFillColor(244,244,248);pdf.rect(0,0,pageW,pageH,'F');};
+    const container=document.querySelector('.container'),content=document.getElementById('content');
+    const blocks=[document.querySelector('.header')];
+    if(content)[...content.children].forEach(c=>{if(!['errorBox','loadingBox'].includes(c.id)&&c.offsetHeight>0)blocks.push(c);});
+    const visible=blocks.filter(b=>b&&b.offsetHeight>0);
+    document.body.classList.add('exporting');fillBg();let cursorY=M;
+    try{
+      for(const block of visible){
+        const canvas=await html2canvas(block,{scale:2,backgroundColor:'#F4F4F8',windowWidth:container.scrollWidth,scrollX:0,scrollY:-window.scrollY,useCORS:true});
+        const imgW=usableW,imgH=canvas.height*imgW/canvas.width;const imgData=canvas.toDataURL('image/jpeg',0.95);
+        if(imgH<=usableH){if(cursorY+imgH>pageH-M){pdf.addPage();fillBg();cursorY=M;}pdf.addImage(imgData,'JPEG',M,cursorY,imgW,imgH);cursorY+=imgH+gap;}
+        else{if(cursorY>M){pdf.addPage();fillBg();cursorY=M;}const pxPerMm=canvas.height/imgH;let remaining=imgH,srcYmm=0;
+          while(remaining>0){const sliceH=Math.min(usableH,remaining);const sc=document.createElement('canvas');sc.width=canvas.width;sc.height=Math.round(sliceH*pxPerMm);const sctx=sc.getContext('2d');sctx.fillStyle='#F4F4F8';sctx.fillRect(0,0,sc.width,sc.height);sctx.drawImage(canvas,0,Math.round(srcYmm*pxPerMm),canvas.width,sc.height,0,0,canvas.width,sc.height);pdf.addImage(sc.toDataURL('image/jpeg',0.95),'JPEG',M,M,imgW,sliceH);remaining-=sliceH;srcYmm+=sliceH;if(remaining>0){pdf.addPage();fillBg();}else{cursorY=M+sliceH+gap;}}}
+      }
+    }finally{document.body.classList.remove('exporting');}
+    const d=new Date();const ds=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    pdf.save(`KRZR-ServiceDesk-${ds}.pdf`);
+  }catch(e){document.getElementById('errorBox').innerHTML=`<div class="error"><b>Falha ao exportar PDF:</b> ${e.message}</div>`;}
+  finally{btn.disabled=false;btn.textContent=orig;}
+}
 document.getElementById('periodToggle').addEventListener('click',e=>{e.stopPropagation();const p=document.getElementById('periodPanel');p.hidden=!p.hidden;});
 document.getElementById('periodPanel').addEventListener('click',e=>{const exp=e.target.closest('.dd-expand');if(exp){e.stopPropagation();const w=document.querySelector('#periodPanel .dd-weeks');w.hidden=!w.hidden;exp.textContent=w.hidden?'▸':'▾';return;}const item=e.target.closest('.dd-item');if(item)selectPeriod(item.getAttribute('data-value'),item.getAttribute('data-label'));});
 document.addEventListener('click',e=>{const dd=document.getElementById('periodDropdown');if(dd&&!dd.contains(e.target))document.getElementById('periodPanel').hidden=true;});
