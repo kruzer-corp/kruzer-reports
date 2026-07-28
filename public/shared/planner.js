@@ -35,7 +35,7 @@ window.KruzerAPI = window.KruzerAPI || (function(){
 // ============================================================================
 const PROJECT = CFG.project, JIRA_BASE = 'https://kruzer.atlassian.net';
 // FastShop estima em HORAS (não tem story points). A unidade de esforço aqui é hora.
-const EPIC_FIELDS = ['summary','status','priority','labels','duedate','customfield_10015','timeoriginalestimate','aggregatetimeoriginalestimate','assignee'];
+const EPIC_FIELDS = ['summary','status','priority','labels','duedate','customfield_10015','timeoriginalestimate','aggregatetimeoriginalestimate'];
 // customfield_10015 = Start date · timeoriginalestimate = estimativa em segundos
 
 const TSHIRT = { XS:8, S:20, M:40, L:80, XL:160 };   // em HORAS
@@ -189,7 +189,6 @@ function normalizeEpic(issue){
     status,
     jiraStatus,
     priority: priorityTier(f.priority?.name),   // P0..P3
-    assignee: f.assignee?.displayName || 'Sem responsável',
     jiraStart,
     jiraDue: parseDate(f.duedate),
     jiraEstimateH: estSec != null ? Math.round(estSec / 3600 * 10) / 10 : null,
@@ -421,7 +420,6 @@ function render(){
   renderBacklog(sched);
   renderHeatmap(sched);
   renderOverlaps(sched);
-  renderConcurrency(sched);
   renderTable(sched);
   wireSortables();
   document.getElementById('subtitle').textContent =
@@ -664,102 +662,6 @@ function renderOverlaps(sched){
   const li = ov.slice(0, 8).map(o => `<li>Track ${o.trackIdx+1}: <b>${escapeHtml(o.aKey)}</b> × <b>${escapeHtml(o.bKey)}</b> — ${fmtBR(new Date(o.fromISO))}–${fmtBR(new Date(o.toISO))} (${o.days}d)${o.loadPct?` · <b>${o.loadPct}%</b> da faixa`:''}</li>`).join('');
   const more = ov.length > 8 ? `<li>+ ${ov.length-8} outra(s)…</li>` : '';
   h.innerHTML = `<div class="ov-head">⚠ ${ov.length} sobreposição(ões) na esteira — demandas concorrentes disputando a mesma capacidade</div><ul>${li}${more}</ul>`;
-}
-
-// ── Sobreposição no tempo (Gantt por data, empilha concorrentes) ──────────────
-// A esteira é empacotada por esforço e não mostra concorrência; esta visão
-// posiciona as demandas por DATA real/projetada e empilha as que se sobrepõem,
-// marcando "recurso dividido" (mesmo assignee em demandas concorrentes).
-const CONC_STATUS_COLOR = {
-  'Hyper Care':'#12B76A','Em Execução':'#3151CE','Aguardando Aprovação':'#F79009',
-  'UAT':'#7C3AED','Aguardando Estimativa':'#C6C9D9','Backlog':'#48507D',
-};
-function ensureConcHost(){
-  let h = document.getElementById('concurrencyView');
-  if (!h){ h = document.createElement('div'); h.id = 'concurrencyView'; h.className = 'conc-view';
-    const bs = document.getElementById('boardScroll'); if (bs && bs.parentNode) bs.parentNode.insertBefore(h, bs); }
-  return h;
-}
-function renderConcurrency(sched){
-  const host = ensureConcHost();
-  const today = sched.today;
-  const PPWK = 30, LABEL_W = 132, ROWH = 26, BARH = 18;
-  const totalWeeks = Math.max(sched.totalWeeks, 4);
-  const W = totalWeeks * PPWK;
-  const xOf = d => ((startOfDay(d) - today) / MS_DAY / 7) * PPWK;
-  const wOf = (s, e) => Math.max(8, ((e - s) / MS_DAY / 7) * PPWK);
-
-  // Empacotamento por sub-linha (interval-graph): concorrentes vão pra linhas
-  // diferentes → a sobreposição fica visível empilhada.
-  function pack(items){
-    const its = items.filter(e => e.scheduledStart && e.scheduledEnd)
-      .slice().sort((a, b) => a.scheduledStart - b.scheduledStart);
-    const rowEnd = []; const placed = [];
-    its.forEach(e => {
-      let ri = rowEnd.findIndex(end => e.scheduledStart.getTime() >= end);
-      if (ri < 0) { ri = rowEnd.length; rowEnd.push(0); }
-      rowEnd[ri] = e.scheduledEnd.getTime();
-      placed.push({ e, row: ri });
-    });
-    return { placed, nrows: Math.max(1, rowEnd.length) };
-  }
-
-  // "Recurso dividido": mesmo assignee em demandas concorrentes no tempo.
-  const all = sched.placed.concat(sched.dedEpic ? [sched.dedEpic] : [])
-    .filter(e => e.scheduledStart && e.scheduledEnd && e.assignee && e.assignee !== 'Sem responsável');
-  const byA = {}; all.forEach(e => (byA[e.assignee] = byA[e.assignee] || []).push(e));
-  const splitKeys = new Set(); const splitPairs = [];
-  Object.entries(byA).forEach(([a, arr]) => {
-    arr.sort((x, y) => x.scheduledStart - y.scheduledStart);
-    for (let i = 0; i < arr.length; i++) for (let j = i + 1; j < arr.length; j++) {
-      const from = Math.max(arr[i].scheduledStart, arr[j].scheduledStart);
-      const to = Math.min(arr[i].scheduledEnd, arr[j].scheduledEnd);
-      if (to > from) { splitKeys.add(arr[i].key); splitKeys.add(arr[j].key); splitPairs.push({ a, aKey: arr[i].key, bKey: arr[j].key, days: Math.round((to - from) / MS_DAY) }); }
-    }
-  });
-
-  // Eixo de meses.
-  let axis = '';
-  for (let w = 0; w <= totalWeeks; w++) {
-    const d = addDays(today, w * 7), x = w * PPWK, isMonth = d.getDate() <= 7;
-    axis += `<div class="cv-gl ${isMonth ? 'mo' : ''}" style="left:${x}px">${isMonth ? `<span>${d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')}</span>` : ''}</div>`;
-  }
-  const todayX = 0; // hoje = início do eixo
-
-  const bar = (e, row) => {
-    const s = e.scheduledStart, en = e.scheduledEnd;
-    const left = Math.max(0, xOf(s)), w = wOf(s.getTime(), en.getTime());
-    const color = CONC_STATUS_COLOR[e.status] || '#48507D';
-    const split = splitKeys.has(e.key);
-    const nm = (e.summary || e.key).length > 22 ? (e.summary).slice(0, 21) + '…' : (e.summary || e.key);
-    return `<div class="cv-bar${split ? ' split' : ''}${e.overlapped ? ' hot' : ''}" style="left:${left}px;top:${row * ROWH + 2}px;width:${w}px;background:${color}" ` +
-      `title="${escapeHtml(e.key + ' · ' + (e.summary || ''))}\n${fmtBR(s)}–${fmtBR(en)} · ${e.assignee || '—'}${split ? '\n⚠ recurso dividido' : ''}">` +
-      `<span class="cv-k">${e.key}</span><span class="cv-nm">${escapeHtml(nm)}</span></div>`;
-  };
-
-  let lanes = '';
-  const trackList = [];
-  if (sched.dedEpic) trackList.push({ label: DEDICATED.label, items: [sched.dedEpic] });
-  (sched.tracks || []).forEach((items, ti) => trackList.push({ label: 'Track ' + (ti + 1), items }));
-  trackList.forEach(t => {
-    const { placed, nrows } = pack(t.items);
-    const conc = nrows > 1 ? `<span class="cv-conc">máx ${nrows} concorrentes</span>` : '';
-    const h = nrows * ROWH + 6;
-    lanes += `<div class="cv-lane"><div class="cv-head lane-head-w"><div class="cv-nm-h">${escapeHtml(t.label)}</div>${conc}</div>` +
-      `<div class="cv-track" style="width:${W}px;height:${h}px">` +
-      placed.map(p => bar(p.e, p.row)).join('') + `</div></div>`;
-  });
-
-  const splitNote = splitPairs.length
-    ? `<div class="cv-split-note">⚠ Recurso dividido: ${[...new Set(splitPairs.map(p => p.a))].map(a => {
-        const ks = [...new Set(splitPairs.filter(p => p.a === a).flatMap(p => [p.aKey, p.bKey]))];
-        return `<b>${escapeHtml(a)}</b> em ${ks.join(' + ')}`;
-      }).join(' · ')}</div>` : '';
-
-  host.innerHTML =
-    `<div class="cv-title">Sobreposição no tempo <span>— demandas posicionadas por data; concorrentes empilhadas. Barra tracejada = recurso dividido (mesmo responsável em paralelo).</span></div>` +
-    splitNote +
-    `<div class="cv-scroll"><div class="cv-axis" style="margin-left:${LABEL_W}px;width:${W}px">${axis}<div class="cv-today" style="left:${todayX}px"></div></div>${lanes}</div>`;
 }
 
 let gridInst = null;
