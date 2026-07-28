@@ -29,6 +29,14 @@
     border-radius: 999px; padding: 4px 12px; font-size: 12px; font-weight: 600; cursor: pointer;
   }
   .preset-row button:hover { background: #DCE3F7; }
+  .proj-row { display: flex; gap: 7px; margin-top: 8px; align-items: center; flex-wrap: wrap; }
+  .proj-row .pr-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; color: var(--kruzer-neutral-700); margin-right: 2px; }
+  .proj-row .pr-act { font-size: 11px; font-weight: 600; color: var(--kruzer-primary); background: none; border: none; cursor: pointer; padding: 2px 4px; }
+  .pchip { font-size: 12px; font-weight: 600; border-radius: 999px; padding: 4px 11px; cursor: pointer; border: 1px solid var(--kruzer-neutral-300); user-select: none; }
+  .pchip.on { background: var(--kruzer-primary); border-color: var(--kruzer-primary); color: #fff; }
+  .pchip.off { background: #fff; color: var(--kruzer-neutral-700); }
+  .pchip.off:hover { border-color: var(--kruzer-primary); color: var(--kruzer-primary); }
+  .proj-row .pr-empty { font-size: 12px; color: var(--kruzer-neutral-500); }
 
   /* KPIs */
   .kpis { grid-template-columns: repeat(4, 1fr); }
@@ -134,8 +142,8 @@
     <button data-preset="lastMonth">Mês passado</button>
     <button data-preset="last7">Últimos 7 dias</button>
     <button data-preset="last30">Últimos 30 dias</button>
-    <label class="zero-toggle scope"><input type="checkbox" id="inclKrzr" checked> Incluir KRZR (service desk)</label>
   </div>
+  <div class="proj-row" id="projRow"></div>
 
   <div id="errorBox"></div>
   <div id="loadingBox" class="loading"><span class="spinner"></span>Carregando lançamentos de tempo…</div>
@@ -170,9 +178,10 @@
   const MO = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
   const $ = s => document.querySelector(s);
   const el = (t, c, h) => { const e = document.createElement(t); if (c) e.className = c; if (h != null) e.innerHTML = h; return e; };
-  const BASE_PROJECTS = ['FST', 'VENA', 'DCT', 'PMD'];
   let lastData = null;
-  const currentProjects = () => $('#inclKrzr').checked ? [...BASE_PROJECTS, 'KRZR'] : [...BASE_PROJECTS];
+  let PROJ_ALL = [];              // projetos COM worklog no período [{key,name}]
+  let PROJ_SEL = new Set();       // projetos selecionados no filtro
+  const currentProjects = () => [...PROJ_SEL];
 
   // ---- date helpers (UTC-safe: só manipulamos a parte de data) ----
   const iso = d => d.toISOString().slice(0, 10);
@@ -350,12 +359,42 @@
     $('#metaUpdated').textContent = new Date(data.generatedAt).toLocaleString('pt-BR');
   }
 
+  // ---- descoberta dinâmica: projetos/spaces COM worklog no período ----
+  // Usa o proxy de leitura /api/jira/jql (worklogDate no range) e extrai os projetos
+  // distintos. Substitui a lista hardcoded — o filtro reflete onde houve apontamento.
+  async function discoverProjects(from, to) {
+    const prev = new Set(PROJ_SEL);
+    const hadSel = PROJ_SEL.size > 0;
+    try {
+      const issues = await KruzerAPI.fetchAll({
+        jql: `worklogDate >= "${from}" AND worklogDate <= "${to}" ORDER BY project`,
+        fields: ['project'], maxPages: 30,
+      });
+      const map = new Map();
+      issues.forEach(i => { const p = i.fields?.project; if (p?.key && !map.has(p.key)) map.set(p.key, p.name || p.key); });
+      PROJ_ALL = [...map.entries()].map(([key, name]) => ({ key, name })).sort((a, b) => a.key.localeCompare(b.key));
+    } catch (e) { console.warn('discoverProjects falhou:', e.message); PROJ_ALL = []; }
+    // Seleção: preserva o que o usuário tinha (se ainda existe); senão, todos.
+    const keys = PROJ_ALL.map(p => p.key);
+    PROJ_SEL = new Set(hadSel ? keys.filter(k => prev.has(k)) : keys);
+    if (!PROJ_SEL.size) PROJ_SEL = new Set(keys);   // nunca deixa vazio no discover
+    renderProjRow();
+  }
+  function renderProjRow() {
+    const row = $('#projRow');
+    if (!PROJ_ALL.length) { row.innerHTML = `<span class="pr-empty">Nenhum projeto com worklog no período.</span>`; return; }
+    row.innerHTML = `<span class="pr-label">Projetos c/ worklog</span>` +
+      PROJ_ALL.map(p => `<span class="pchip ${PROJ_SEL.has(p.key) ? 'on' : 'off'}" data-key="${p.key}" title="${(p.name||'').replace(/"/g,'&quot;')}">${p.key}</span>`).join('') +
+      `<button class="pr-act" data-act="all">todos</button><button class="pr-act" data-act="none">limpar</button>`;
+  }
+
   // ---- load ----
   async function load() {
     const from = $('#from').value, to = $('#to').value;
     if (!from || !to) return;
     const projects = currentProjects();
-    $('#metaScope').textContent = projects.join(' · ');
+    $('#metaScope').textContent = projects.length ? projects.join(' · ') : '—';
+    if (!projects.length) { $('#loadingBox').style.display = 'none'; $('#content').style.display = 'none'; $('#errorBox').innerHTML = `<div class="error">Selecione ao menos um projeto.</div>`; return; }
     $('#loadingBox').style.display = 'block';
     $('#content').style.display = 'none';
     $('#errorBox').innerHTML = '';
@@ -418,18 +457,34 @@
     download(`Tempo_${lastData.from}_a_${lastData.to}.csv`, csv);
   }
 
+  // Período mudou → re-descobre os projetos com worklog e carrega.
+  async function refresh() {
+    const from = $('#from').value, to = $('#to').value;
+    if (!from || !to) return;
+    $('#loadingBox').style.display = 'block'; $('#content').style.display = 'none'; $('#errorBox').innerHTML = '';
+    await discoverProjects(from, to);
+    await load();
+  }
+
   document.querySelectorAll('.preset-row button').forEach(b =>
-    b.addEventListener('click', () => { preset(b.dataset.preset); load(); }));
-  $('#apply').addEventListener('click', load);
+    b.addEventListener('click', () => { preset(b.dataset.preset); refresh(); }));
+  $('#apply').addEventListener('click', refresh);
   $('#exportBtn').addEventListener('click', exportCsv);
-  $('#inclKrzr').addEventListener('change', load);
+  // Toggle de projeto (chip) ou ações todos/limpar → re-carrega (sem re-descobrir).
+  $('#projRow').addEventListener('click', e => {
+    const act = e.target.dataset.act;
+    if (act === 'all') { PROJ_SEL = new Set(PROJ_ALL.map(p => p.key)); renderProjRow(); load(); return; }
+    if (act === 'none') { PROJ_SEL = new Set(); renderProjRow(); load(); return; }
+    const chip = e.target.closest('.pchip');
+    if (chip) { const k = chip.dataset.key; if (PROJ_SEL.has(k)) PROJ_SEL.delete(k); else PROJ_SEL.add(k); renderProjRow(); load(); }
+  });
   $('#showZero').addEventListener('change', e =>
     document.body.classList.toggle('show-zero', e.target.checked));
 
   // init
   document.body.classList.add('show-zero');
   preset('thisMonth');
-  load();
+  refresh();
 })();
 </script>
 </body>

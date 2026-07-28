@@ -449,7 +449,8 @@ async function handleWorklogs(request, env) {
   const beforeMs = Date.parse(`${to}T23:59:59.999-03:00`);
 
   try {
-    const jql = `project in (${projects.join(',')}) AND worklogDate >= "${from}" AND worklogDate <= "${to}"`;
+    // Chaves entre aspas: algumas (ex.: "IN") são palavras reservadas do JQL.
+    const jql = `project in (${projects.map(p => `"${p}"`).join(',')}) AND worklogDate >= "${from}" AND worklogDate <= "${to}"`;
     const issues = await jiraSearchAll(env, jql,
       ['summary', 'issuetype', 'project', 'worklog'], 100, 10);
 
