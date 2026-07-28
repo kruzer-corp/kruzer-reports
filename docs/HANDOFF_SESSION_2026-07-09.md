@@ -45,7 +45,7 @@ specifics dele (ver §5) antes de mexer.
 
 | Ambiente | URL | Version | Conteúdo |
 |---|---|---|---|
-| **PROD** | kruzer-dashboards.matheus-mereb.workers.dev | `0c4d59aa` | **branch HEAD inteira** (deploy cheio). Tudo do cutover + Alocação de recursos (heatmap recurso×semana, cards de atuação, drill Gantt, filtro dinâmico de projetos do JIRA via `/api/jira/projects`, toggle "ver todos sem teto", legenda dinâmica), export PDF do KRZR, e o NOVO report `/kpis/` (Planejado×Executado leaf-only + KPIs Dev/PMO). |
+| **PROD** | kruzer-dashboards.matheus-mereb.workers.dev | `42c912d8` | **branch HEAD inteira** (deploy cheio). Alocação de recursos (heatmap), export PDF do KRZR, report `/kpis/` (Planejado×Executado leaf-only + Cobertura de worklog + **drill por KPI** com base/amostra/itens linkados ao JIRA), e `/tempo/` com **filtro dinâmico de projetos** (descobre spaces com worklog no período; JQL com chaves entre aspas p/ reservadas tipo "IN"). |
 | **HML** | kruzer-dashboards-hml.matheus-mereb.workers.dev | `ac235797`+ | branch HEAD — igual à prod. |
 
 **2026-07-20: prod deixou de ser seletiva.** O usuário aprovou publicar tudo, então
