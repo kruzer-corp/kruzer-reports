@@ -81,6 +81,32 @@ button:disabled { opacity: .6; cursor: wait; }
 .kc .kc-tag.calc { background: #DCFCE7; color: #166534; }
 .kc .kc-tag.approx { background: #FEF3C7; color: #92400E; }
 .kc .kc-tag.na { background: var(--kruzer-neutral-100); color: var(--kruzer-neutral-700); }
+.kc.has-detail { cursor: pointer; transition: border-color .12s, box-shadow .12s, transform .12s; }
+.kc.has-detail:hover { border-color: var(--kruzer-primary); box-shadow: 0 6px 18px rgba(11,16,32,.10); transform: translateY(-1px); }
+.kc-drill { font-size: 10px; font-weight: 700; color: var(--kruzer-primary); white-space: nowrap; }
+
+/* Drawer de detalhamento */
+.drawer-overlay { position: fixed; inset: 0; background: rgba(11,16,32,.35); z-index: 40; }
+.drawer-overlay[hidden] { display: none; }
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(680px, 95vw); background: #fff; z-index: 41; box-shadow: -10px 0 40px rgba(11,16,32,.18); display: flex; flex-direction: column; }
+.drawer[hidden] { display: none; }
+.drawer-head { padding: 16px 20px; border-bottom: 1px solid var(--kruzer-neutral-300); display: flex; align-items: center; justify-content: space-between; gap: 12px; flex: none; }
+.drawer-head h3 { margin: 0; font-size: 17px; font-weight: 700; }
+.drawer-close { border: none; background: none; font-size: 24px; line-height: 1; cursor: pointer; color: var(--kruzer-neutral-700); padding: 0 4px; }
+.drawer-close:hover { color: var(--kruzer-navy); }
+.drawer-body { padding: 16px 20px; overflow-y: auto; }
+.dw-basis { font-size: 13px; color: var(--kruzer-navy); line-height: 1.55; background: var(--kruzer-neutral-100); border-radius: 8px; padding: 10px 12px; margin-bottom: 14px; }
+.dw-sample { display: flex; gap: 22px; margin-bottom: 12px; flex-wrap: wrap; }
+.dw-sample .s { font-size: 11px; text-transform: uppercase; letter-spacing: .4px; color: var(--kruzer-neutral-700); font-weight: 600; }
+.dw-sample .s b { font-size: 22px; color: var(--kruzer-navy); display: block; letter-spacing: 0; }
+.dw-jira { display: inline-block; font-size: 12.5px; font-weight: 600; color: var(--kruzer-primary); margin-bottom: 14px; }
+.dw-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.dw-table th, .dw-table td { padding: 6px 8px; border-bottom: 1px solid var(--kruzer-neutral-200,#EDEDF2); text-align: left; white-space: nowrap; }
+.dw-table th { font-size: 10px; text-transform: uppercase; letter-spacing: .4px; color: var(--kruzer-neutral-700); position: sticky; top: 0; background: #fff; }
+.dw-k { font-weight: 600; color: var(--kruzer-primary-700); text-decoration: none; }
+.dw-k:hover { text-decoration: underline; }
+.dw-ok { color: #166534; font-weight: 700; } .dw-bad { color: var(--kruzer-error); font-weight: 700; }
+.dw-more { font-size: 11.5px; color: var(--kruzer-neutral-700); margin-top: 10px; font-style: italic; }
 
 .loading { padding: 60px 20px; text-align: center; color: var(--kruzer-neutral-700); }
 .loading .spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid var(--kruzer-neutral-300); border-top-color: var(--kruzer-primary); border-radius: 50%; animation: spin .8s linear infinite; vertical-align: middle; margin-right: 8px; }
@@ -144,6 +170,9 @@ button:disabled { opacity: .6; cursor: wait; }
     </section>
   </div>
 </div>
+
+<div class="drawer-overlay" id="drawerOverlay" hidden></div>
+<aside class="drawer" id="kpiDrawer" hidden></aside>
 
 <script src="/shared/api.js"></script>
 <script>
@@ -242,55 +271,101 @@ function renderPlannedExecuted(scope){
     `* conta só folhas (${leaves.length} de ${scope.length} itens) — pais/épicos não somam para evitar dupla contagem. ${covered}/${leaves.length} folhas têm Original Estimate · ${logged}/${leaves.length} têm worklog. Baixa cobertura = JIRA imaturo no apontamento.`;
 }
 
-// ── Cards de KPI ───────────────────────────────────────────────────────────────
-function card(name, value, desc, tag){
+// ── Cards de KPI (com drill: cada KPI abre um drawer com base/amostra/itens) ────
+let KPI_DETAILS = {}, KPI_SEQ = 0;
+const DRILL_CAP = 200;
+function pk(){ return [...PROJ_SEL].map(k => `"${k}"`).join(','); }
+function resolvedClause(){ const d = +document.getElementById('periodSel').value; return d ? `resolved >= -${d}d` : 'resolved is not EMPTY'; }
+function jiraSearch(jql){ return `${JIRA_BASE}/issues/?jql=${encodeURIComponent(jql)}`; }
+function fmtShort(d){ return d ? `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getFullYear()).slice(2)}` : '—'; }
+function regDetail(o){ const id = 'kd' + (KPI_SEQ++); KPI_DETAILS[id] = o; return id; }
+
+function card(name, value, desc, tag, det){
   const na = value == null;
-  return `<div class="kc ${na?'na':''}"><span class="kc-tag ${tag}">${tag==='calc'?'calculado':tag==='approx'?'aproximado':'requer dado'}</span>` +
-    `<div class="kc-name">${name}</div>` +
+  const id = det ? regDetail(det) : '';
+  return `<div class="kc ${na?'na':''} ${det?'has-detail':''}" ${id?`data-detail="${id}"`:''}><span class="kc-tag ${tag}">${tag==='calc'?'calculado':tag==='approx'?'aproximado':'requer dado'}</span>` +
+    `<div class="kc-name">${name}${det?' <span class="kc-drill">ver dados ›</span>':''}</div>` +
     (na ? `<div class="kc-v na">sem base no JIRA</div>` : `<div class="kc-v">${value}</div>`) +
     `<div class="kc-desc">${desc}</div></div>`;
 }
+// Monta as linhas do drawer a partir de itens + um mapper (cells + ok opcional).
+function drillRows(items, map){ return items.slice(0, DRILL_CAP).map(e => ({ key: e.key, url: e.url, ...map(e) })); }
+
 function renderDevKpis(scope){
   const resolved = scope.filter(e => e.resolved && inPeriod(e.resolved));
-  const leads = resolved.filter(e => e.created).map(e => (e.resolved - e.created)/MS_DAY);
-  const lead = avg(leads);
   const withDue = resolved.filter(e => e.due);
-  const onTime = withDue.length ? withDue.filter(e => e.resolved <= new Date(e.due.getTime()+MS_DAY)).length / withDue.length * 100 : null;
+  const onTimeN = withDue.filter(e => e.resolved <= new Date(e.due.getTime()+MS_DAY)).length;
+  const onTime = withDue.length ? onTimeN/withDue.length*100 : null;
   const isBug = e => /bug|defeito/i.test(e.type) || e.labels.some(l => /bug|retrabalho|hotfix/i.test(l));
-  const rework = resolved.length ? resolved.filter(isBug).length / resolved.length * 100 : null;
+  const bugs = resolved.filter(isBug);
+  const rework = resolved.length ? bugs.length/resolved.length*100 : null;
+  const leadItems = resolved.filter(e => e.created).slice().sort((a,b) => (b.resolved-b.created)-(a.resolved-a.created));
+  const lead = avg(leadItems.map(e => (e.resolved-e.created)/MS_DAY));
+  const base = `project in (${pk()}) AND ${resolvedClause()}`;
   document.getElementById('devKpis').innerHTML =
-    card('Lead Time de Entrega', lead!=null?`${lead.toFixed(1)}<small> dias</small>`:null, 'Tempo médio criação → resolução das entregas concluídas no período.', lead!=null?'calc':'na') +
-    card('Taxa de Entregas no Prazo', onTime!=null?`${onTime.toFixed(0)}<small>%</small>`:null, `Concluídas dentro do due / total com due (${withDue.length}). Depende de due preenchido.`, onTime!=null?'approx':'na') +
-    card('Retrabalho / Bugs', rework!=null?`${rework.toFixed(0)}<small>%</small>`:null, 'Aproximação: % das entregas do período que são Bug/retrabalho (tipo ou label). "Pós-publicação" não é rastreado.', rework!=null?'approx':'na') +
-    card('Throughput', String(resolved.length), 'Itens concluídos no período — leitura de capacidade produtiva.', 'calc');
+    card('Lead Time de Entrega', lead!=null?`${lead.toFixed(1)}<small> dias</small>`:null, 'Tempo médio criação → resolução das entregas concluídas no período.', lead!=null?'calc':'na',
+      lead==null?null:{ title:'Lead Time de Entrega', basis:'Média de (data de resolução − data de criação) das entregas <b>concluídas no período</b>. Cada linha é uma entrega; o KPI é a média da coluna Lead.', num:leadItems.length, den:leadItems.length, sampleLabel:'entregas na média', jql:`${base} ORDER BY resolved DESC`, cols:['Criado','Resolvido','Lead (d)'], rows: drillRows(leadItems, e => ({ cells:[fmtShort(e.created), fmtShort(e.resolved), ((e.resolved-e.created)/MS_DAY).toFixed(1)] })), total:leadItems.length }) +
+    card('Taxa de Entregas no Prazo', onTime!=null?`${onTime.toFixed(0)}<small>%</small>`:null, `Concluídas dentro do due / total com due (${withDue.length}). Depende de due preenchido.`, onTime!=null?'approx':'na',
+      onTime==null?null:{ title:'Taxa de Entregas no Prazo', basis:'Base: entregas <b>concluídas no período que têm Due date</b>. No prazo = resolução ≤ Due (tolerância +1 dia). % = no prazo ÷ total com due. Itens sem due ficam fora da amostra.', num:onTimeN, den:withDue.length, sampleLabel:'no prazo / com due', jql:`${base} AND due is not EMPTY ORDER BY due ASC`, cols:['Due','Resolvido'], hasOk:true, okLabel:'no prazo', badLabel:'atrasado', rows: drillRows(withDue.slice().sort((a,b)=>a.due-b.due), e => ({ ok: e.resolved <= new Date(e.due.getTime()+MS_DAY), cells:[fmtShort(e.due), fmtShort(e.resolved)] })), total:withDue.length }) +
+    card('Retrabalho / Bugs', rework!=null?`${rework.toFixed(0)}<small>%</small>`:null, 'Aproximação: % das entregas do período que são Bug/retrabalho (tipo ou label). "Pós-publicação" não é rastreado.', rework!=null?'approx':'na',
+      rework==null?null:{ title:'Retrabalho / Bugs', basis:'Aproximação: das entregas concluídas no período, quantas são <b>Bug/defeito</b> (tipo) ou têm label bug/retrabalho/hotfix. Não distingue "pós-publicação" (o JIRA não marca isso).', num:bugs.length, den:resolved.length, sampleLabel:'bugs / entregas', jql:`${base} ORDER BY resolved DESC`, cols:['Tipo','Resolvido'], hasOk:true, okLabel:'bug/retrabalho', badLabel:'entrega normal', rows: drillRows(resolved.slice().sort((a,b)=>(isBug(b)?1:0)-(isBug(a)?1:0)), e => ({ ok: isBug(e), cells:[e.type, fmtShort(e.resolved)] })), total:resolved.length }) +
+    card('Throughput', String(resolved.length), 'Itens concluídos no período — leitura de capacidade produtiva.', 'calc',
+      { title:'Throughput', basis:'Contagem de <b>itens concluídos no período</b> (com data de resolução na janela). Cada linha é um item entregue.', num:resolved.length, den:resolved.length, sampleLabel:'itens concluídos', jql:`${base} ORDER BY resolved DESC`, cols:['Tipo','Projeto','Resolvido'], rows: drillRows(resolved.slice().sort((a,b)=>b.resolved-a.resolved), e => ({ cells:[e.type, e.project, fmtShort(e.resolved)] })), total:resolved.length });
 }
 function renderPmoKpis(scope){
   const epics = scope.filter(e => /epic|épico/i.test(e.type));
-  const resolvedEpics = epics.filter(e => e.resolved && inPeriod(e.resolved));
-  const epicsDue = resolvedEpics.filter(e => e.due);
-  const onTime = epicsDue.length ? epicsDue.filter(e => e.resolved <= new Date(e.due.getTime()+MS_DAY)).length / epicsDue.length * 100 : null;
-  const desvios = epicsDue.filter(e => e.created).map(e => { const planned = (e.due - e.created)/MS_DAY; return planned>0 ? (e.resolved - e.due)/MS_DAY / planned * 100 : null; }).filter(x => x!=null);
+  const epicsDue = epics.filter(e => e.resolved && inPeriod(e.resolved) && e.due);
+  const onTimeN = epicsDue.filter(e => e.resolved <= new Date(e.due.getTime()+MS_DAY)).length;
+  const onTime = epicsDue.length ? onTimeN/epicsDue.length*100 : null;
+  const desItems = epicsDue.filter(e => e.created && (e.due-e.created)>0);
+  const desvios = desItems.map(e => (e.resolved-e.due)/MS_DAY / ((e.due-e.created)/MS_DAY) * 100);
   const desvio = avg(desvios);
-  // KPIs sem base no JIRA (Status Report em dia, Risco mapeado) ficam OCULTOS por ora.
+  const base = `project in (${pk()}) AND issuetype = Epic AND ${resolvedClause()} AND due is not EMPTY`;
   document.getElementById('pmoKpis').innerHTML =
-    card('% Projetos/Marcos no Prazo', onTime!=null?`${onTime.toFixed(0)}<small>%</small>`:null, `Épicos concluídos dentro do due / com due (${epicsDue.length}). Proxy de marcos.`, onTime!=null?'approx':'na') +
-    card('Índice de Desvio de Prazo', desvio!=null?`${(desvio>=0?'+':'')+desvio.toFixed(0)}<small>%</small>`:null, 'Atraso médio (resolução − due) sobre a duração planejada dos épicos com due.', desvio!=null?'approx':'na');
+    card('% Projetos/Marcos no Prazo', onTime!=null?`${onTime.toFixed(0)}<small>%</small>`:null, `Épicos concluídos dentro do due / com due (${epicsDue.length}). Proxy de marcos.`, onTime!=null?'approx':'na',
+      onTime==null?null:{ title:'% Projetos/Marcos no Prazo', basis:'Base: <b>ÉPICOS com Due date preenchido, concluídos no período</b> (proxy de marco/projeto). No prazo = resolução ≤ Due (tolerância +1 dia). % = no prazo ÷ total com due. Épicos sem due não entram na amostra — por isso a cobertura de due importa.', num:onTimeN, den:epicsDue.length, sampleLabel:'no prazo / épicos com due', jql:`${base} ORDER BY due ASC`, cols:['Due','Resolvido','Desvio'], hasOk:true, okLabel:'no prazo', badLabel:'atrasado', rows: drillRows(epicsDue.slice().sort((a,b)=>a.due-b.due), e => ({ ok: e.resolved <= new Date(e.due.getTime()+MS_DAY), cells:[fmtShort(e.due), fmtShort(e.resolved), (Math.round((e.resolved-e.due)/MS_DAY)>=0?'+':'')+Math.round((e.resolved-e.due)/MS_DAY)+'d'] })), total:epicsDue.length }) +
+    card('Índice de Desvio de Prazo', desvio!=null?`${(desvio>=0?'+':'')+desvio.toFixed(0)}<small>%</small>`:null, 'Atraso médio (resolução − due) sobre a duração planejada dos épicos com due.', desvio!=null?'approx':'na',
+      desvio==null?null:{ title:'Índice de Desvio de Prazo', basis:'Para cada épico com due e criação: desvio% = (resolução − due) ÷ duração planejada (due − criação). O KPI é a média. Positivo = atrasou; negativo = adiantou.', num:desItems.length, den:desItems.length, sampleLabel:'épicos na média', jql:`${base} ORDER BY resolved DESC`, cols:['Criado','Due','Resolvido','Desvio %'], rows: drillRows(desItems.slice().sort((a,b)=> ((b.resolved-b.due)/(b.due-b.created)) - ((a.resolved-a.due)/(a.due-a.created))), e => ({ cells:[fmtShort(e.created), fmtShort(e.due), fmtShort(e.resolved), ((( e.resolved-e.due)/(e.due-e.created)*100)>=0?'+':'')+Math.round((e.resolved-e.due)/(e.due-e.created)*100)+'%'] })), total:desItems.length });
 }
 function renderConvKpis(scope){
   const open = scope.filter(e => !e.done);
   const resolved = scope.filter(e => e.resolved && inPeriod(e.resolved));
-  const blocked = open.filter(e => e.blocked).length;
-  const noEst = open.filter(e => e.plannedH === 0).length;
-  const noLog = scope.filter(e => !e.done && e.spentH === 0).length;
+  const blocked = open.filter(e => e.blocked);
+  const noEst = open.filter(e => e.plannedH === 0);
+  const noLog = open.filter(e => e.spentH === 0);
+  const projIn = `project in (${pk()})`;
+  const mkOpen = arr => drillRows(arr, e => ({ cells:[e.type, e.assignee, e.status] }));
   document.getElementById('convKpis').innerHTML =
-    card('Itens no escopo', String(scope.length), 'Total de issues nos projetos selecionados.', 'calc') +
-    card('Abertos / Concluídos', `${open.length} <small>/ ${resolved.length}</small>`, 'Abertos agora · concluídos no período.', 'calc') +
-    card('Bloqueados', String(blocked), 'Itens abertos em status de bloqueio.', 'calc') +
-    card('Sem estimativa / sem apontamento', `${noEst} <small>/ ${noLog}</small>`, 'Abertos sem Original Estimate · sem worklog. Higiene de dado.', 'calc');
+    card('Itens no escopo', String(scope.length), 'Total de issues nos projetos selecionados.', 'calc',
+      { title:'Itens no escopo', basis:'Todas as issues carregadas dos projetos selecionados (abertas + concluídas no último ano).', num:scope.length, den:scope.length, sampleLabel:'issues', jql:`${projIn} ORDER BY created DESC`, cols:['Tipo','Status','Responsável'], rows: drillRows(scope, e => ({ cells:[e.type, e.status, e.assignee] })), total:scope.length }) +
+    card('Abertos / Concluídos', `${open.length} <small>/ ${resolved.length}</small>`, 'Abertos agora · concluídos no período.', 'calc',
+      { title:'Abertos (agora)', basis:'Itens ainda não concluídos (statusCategory ≠ Done) no escopo. O segundo número (concluídos) é o Throughput.', num:open.length, den:scope.length, sampleLabel:'abertos', jql:`${projIn} AND statusCategory != Done ORDER BY created DESC`, cols:['Tipo','Responsável','Status'], rows: mkOpen(open), total:open.length }) +
+    card('Bloqueados', String(blocked.length), 'Itens abertos em status de bloqueio.', 'calc',
+      { title:'Bloqueados', basis:'Itens abertos cujo status contém "bloque/blocked/impediment".', num:blocked.length, den:open.length, sampleLabel:'bloqueados / abertos', jql:`${projIn} AND statusCategory != Done ORDER BY updated ASC`, cols:['Tipo','Responsável','Status'], rows: mkOpen(blocked), total:blocked.length }) +
+    card('Sem estimativa / sem apontamento', `${noEst.length} <small>/ ${noLog.length}</small>`, 'Abertos sem Original Estimate · sem worklog. Higiene de dado.', 'calc',
+      { title:'Abertos sem Original Estimate', basis:'Itens abertos sem Original Estimate preenchido — não entram no "Planejado". (O 2º número, sem worklog, é a base da Cobertura de worklog.)', num:noEst.length, den:open.length, sampleLabel:'sem estimativa / abertos', jql:`${projIn} AND statusCategory != Done AND originalEstimate is EMPTY ORDER BY created DESC`, cols:['Tipo','Responsável','Status'], rows: mkOpen(noEst), total:noEst.length });
 }
+
+// ── Drawer de detalhamento do KPI ───────────────────────────────────────────────
+function openKpiDetail(id){
+  const d = KPI_DETAILS[id]; if (!d) return;
+  const sample = d.num != null ? `<div class="dw-sample"><div class="s"><b>${d.num}</b>${d.sampleLabel ? d.sampleLabel.split(' / ')[0] : 'no critério'}</div>${d.den!=null&&d.den!==d.num?`<div class="s"><b>${d.den}</b>${d.sampleLabel&&d.sampleLabel.includes(' / ')?d.sampleLabel.split(' / ')[1]:'amostra'}</div>`:''}${(d.den&&d.num!=null&&d.hasOk)?`<div class="s"><b>${(d.num/d.den*100).toFixed(0)}%</b>resultado</div>`:''}</div>` : '';
+  const jira = d.jql ? `<a class="dw-jira" href="${jiraSearch(d.jql)}" target="_blank" rel="noopener">Ver a amostra no JIRA ↗</a>` : '';
+  const thead = `<tr><th>Item</th>${d.cols.map(c => `<th>${esc(c)}</th>`).join('')}${d.hasOk ? '<th></th>' : ''}</tr>`;
+  const body = d.rows.map(r => `<tr><td><a class="dw-k" href="${r.url}" target="_blank" rel="noopener">${esc(r.key)}</a></td>${r.cells.map(c => `<td>${esc(c)}</td>`).join('')}${d.hasOk ? `<td class="${r.ok?'dw-ok':'dw-bad'}">${r.ok ? '✓ '+(d.okLabel||'ok') : '✗ '+(d.badLabel||'não')}</td>` : ''}</tr>`).join('');
+  const more = d.total > d.rows.length ? `<div class="dw-more">Mostrando ${d.rows.length} de ${d.total} itens. Use “Ver no JIRA” para a lista completa.</div>` : '';
+  document.getElementById('kpiDrawer').innerHTML =
+    `<div class="drawer-head"><h3>${esc(d.title)}</h3><button class="drawer-close" aria-label="Fechar">×</button></div>` +
+    `<div class="drawer-body"><div class="dw-basis">${d.basis}</div>${sample}${jira}` +
+    (d.rows.length ? `<table class="dw-table"><thead>${thead}</thead><tbody>${body}</tbody></table>${more}` : `<div class="dw-more">Sem itens na amostra.</div>`) + `</div>`;
+  document.getElementById('kpiDrawer').hidden = false;
+  document.getElementById('drawerOverlay').hidden = false;
+}
+function closeKpiDetail(){ document.getElementById('kpiDrawer').hidden = true; document.getElementById('drawerOverlay').hidden = true; }
 
 function renderAll(){
   renderFilterBar();
+  KPI_DETAILS = {}; KPI_SEQ = 0;   // registro de drill zerado a cada render
   const scope = RAW.filter(inScope);
   renderPlannedExecuted(scope);
   const pl = { 90:'últimos 90 dias', 30:'últimos 30 dias', 180:'últimos 180 dias', 365:'último ano', 0:'todo o histórico' }[+document.getElementById('periodSel').value];
@@ -342,6 +417,13 @@ async function loadAndRender(){
 
 document.getElementById('refreshBtn').addEventListener('click', loadAndRender);
 document.getElementById('periodSel').addEventListener('change', renderAll);
+// Abrir/fechar o drawer de detalhamento do KPI.
+document.getElementById('content').addEventListener('click', e => {
+  const kc = e.target.closest('.kc.has-detail'); if (kc && kc.dataset.detail) openKpiDetail(kc.dataset.detail);
+});
+document.getElementById('drawerOverlay').addEventListener('click', closeKpiDetail);
+document.getElementById('kpiDrawer').addEventListener('click', e => { if (e.target.closest('.drawer-close')) closeKpiDetail(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeKpiDetail(); });
 document.getElementById('filterBar').addEventListener('click', e => {
   const act = e.target.dataset.act;
   if (act === 'all') { withBusy(async () => { PROJ_SEL = new Set(JIRA_PROJECTS.map(p => p.key)); await ensureIssues([...PROJ_SEL]); renderAll(); }); return; }
