@@ -4,7 +4,7 @@
 // do FST e os status nativos do VENA). Rede de segurança: scripts/render-snapshot.js.
 window.KruzerReport = { mount: function (CFG) {
 const PROJECT = CFG.project, JIRA_BASE = 'https://kruzer.atlassian.net';
-const FIELDS = ['summary','status','priority','issuetype','parent','issuelinks','created','resolutiondate','labels','duedate','description','customfield_10015','timeoriginalestimate','aggregatetimeoriginalestimate'].concat(KruzerCapacity.DEV_DUE_FIELD ? [KruzerCapacity.DEV_DUE_FIELD] : []);
+const FIELDS = ['summary','status','priority','issuetype','parent','issuelinks','created','resolutiondate','labels','duedate','description','customfield_10015','timeoriginalestimate','aggregatetimeoriginalestimate','assignee'].concat(KruzerCapacity.DEV_DUE_FIELD ? [KruzerCapacity.DEV_DUE_FIELD] : []);
 
 // Dependências (issuelinks): coleta as chaves que ESTE item bloqueia/precede
 // (link outward do tipo "blocks"/"depends"). Uma aresta dirigida origem→alvo.
@@ -164,6 +164,7 @@ function normalize(issue){
     url: `${JIRA_BASE}/browse/${issue.key}`,
     summary: f.summary || '',
     statusName: f.status?.name || '—',
+    assignee: f.assignee?.displayName || 'Sem responsável',
     priority: f.priority?.name || '—',
     priorityTier: priorityTier(f.priority?.name),
     labels: f.labels || [],
@@ -729,6 +730,23 @@ function renderGantt(){
     body += `<text class="g-axis" x="${(hx+4).toFixed(1)}" y="${(TOP-2).toFixed(1)}" fill="#F79009">horizonte ${pa.horizonWeeks||''}sem</text>`;
   }
 
+  // Recurso dividido: épicos que se sobrepõem no tempo com outro do MESMO
+  // responsável (mesma pessoa tocando demandas concorrentes). Marca as barras.
+  const asgOf = {}; RAW.forEach(o => { asgOf[o.key] = o.assignee; });
+  const splitKeys = new Set(); const splitByA = {};
+  const byAsg = {};
+  renderItems.filter(it => !it.isChild && asgOf[it.key] && asgOf[it.key] !== 'Sem responsável')
+    .forEach(it => (byAsg[asgOf[it.key]] = byAsg[asgOf[it.key]] || []).push(it));
+  Object.entries(byAsg).forEach(([a, arr]) => {
+    arr.sort((x, y2) => x.start - y2.start);
+    for (let i = 0; i < arr.length; i++) for (let j = i + 1; j < arr.length; j++) {
+      if (arr[j].start < arr[i].end && arr[i].start < arr[j].end) {
+        splitKeys.add(arr[i].key); splitKeys.add(arr[j].key);
+        (splitByA[a] = splitByA[a] || new Set()).add(arr[i].key); splitByA[a].add(arr[j].key);
+      }
+    }
+  });
+
   const barPos = {};   // key -> {x1,x2,y} p/ desenhar as setas de dependência
   let y = TOP;
   augmented.forEach(g=>{
@@ -758,6 +776,8 @@ function renderGantt(){
         + ` data-due="${e.dueD?fmtShort(e.dueD):''}" data-late="${e.late?'1':''}" data-url="${e.url}"/>`;
       if (clampedLeft && bw > 16) body += `<polyline points="${(bx+8).toFixed(1)},${by+3} ${(bx+3).toFixed(1)},${by+H/2} ${(bx+8).toFixed(1)},${by+H-3}" fill="none" stroke="#fff" stroke-width="1.5"/>`;
       if (!e.isChild && bw > 46) body += `<text class="g-barlabel" x="${(bx+(clampedLeft?14:6)).toFixed(1)}" y="${by+13}" ${e.placeholder?'fill="#232534"':''}>${effLabel(e)}</text>`;
+      // Recurso dividido: contorno âmbar tracejado + tooltip com o responsável.
+      if (!e.isChild && splitKeys.has(e.key)) body += `<rect x="${bx.toFixed(1)}" y="${(by-2).toFixed(1)}" width="${bw.toFixed(1)}" height="${H+4}" rx="5" fill="none" stroke="#B45309" stroke-width="1.5" stroke-dasharray="3 2" pointer-events="none"><title>Recurso dividido — ${escapeHtml(asgOf[e.key]||'')} em demandas concorrentes</title></rect>`;
       barPos[e.key] = { x1: bx, x2: bx+bw, y: by + H/2 };
       y += ROW;
     });
@@ -778,6 +798,11 @@ function renderGantt(){
   if (depCount) {
     const cur = document.getElementById('ganttNote').textContent;
     document.getElementById('ganttNote').textContent = (cur ? cur + ' ' : '') + `↝ ${depCount} dependência(s) (blocks) desenhada(s).`;
+  }
+  if (Object.keys(splitByA).length) {
+    const cur = document.getElementById('ganttNote').textContent;
+    const parts = Object.entries(splitByA).map(([a, ks]) => `${escapeHtml(a)} (${[...ks].join(', ')})`);
+    document.getElementById('ganttNote').textContent = (cur ? cur + ' ' : '') + `⚠ Recurso dividido (contorno âmbar): ${parts.join(' · ')}.`;
   }
 
   // Linha de hoje — por último (z-index acima das faixas/barras).
