@@ -180,6 +180,31 @@ button:disabled { opacity: 0.6; cursor: wait; }
 .rt-bar.split { box-shadow: 0 0 0 1.5px #B45309; }
 .rt-bar.est { opacity: .72; background-image: repeating-linear-gradient(45deg, rgba(255,255,255,.28) 0 5px, transparent 5px 10px); }
 .rt-est-lg { color: #6B7280; }
+.rt-bar { cursor: grab; touch-action: none; }
+.rt-bar.dragging { cursor: grabbing; opacity: .92; z-index: 20; box-shadow: 0 2px 8px rgba(11,16,32,.28); }
+.rt-bar.edited { outline: 2px solid #6C5CE7; outline-offset: -2px; }
+.rt-bar.edited::after { content: "✎"; position: absolute; top: -1px; right: 3px; font-size: 9px; color: #fff; text-shadow: 0 0 2px rgba(0,0,0,.5); }
+.rt-lane.drop .rt-body { background: rgba(108,92,231,.10); box-shadow: inset 0 0 0 1.5px #6C5CE7; }
+.rt-actions { display: flex; align-items: center; gap: 10px; margin: 6px 0 2px; flex-wrap: wrap; }
+.rt-actions .rt-hint { font-size: 11px; color: #6B7280; }
+.rt-apply { background: #6C5CE7; color: #fff; border: none; border-radius: 6px; padding: 5px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
+.rt-apply:hover { background: #574bd0; } .rt-apply:disabled { opacity: .6; cursor: default; }
+.rt-revert { background: #fff; color: #b4442f; border: 1px solid #e6c3ba; border-radius: 6px; padding: 5px 10px; font-size: 12px; cursor: pointer; }
+.rt-revert:hover { background: #fdf1ee; }
+.rt-modal { display: none; position: fixed; inset: 0; z-index: 9999; }
+.rt-mbd { position: absolute; inset: 0; background: rgba(11,16,32,.42); }
+.rt-mbox { position: relative; max-width: 560px; margin: 6vh auto 0; background: #fff; border-radius: 12px; padding: 18px 20px; box-shadow: 0 12px 40px rgba(11,16,32,.3); max-height: 80vh; display: flex; flex-direction: column; }
+.rt-mhd { font-size: 15px; font-weight: 600; color: #0B1020; }
+.rt-mwarn { font-size: 12px; color: #92531b; background: #FDF3E3; border-radius: 6px; padding: 6px 10px; margin: 8px 0; }
+.rt-mlist { overflow-y: auto; flex: 1; }
+.rt-prow { display: flex; gap: 12px; padding: 8px 0; border-top: 0.5px solid #ECECF2; }
+.rt-pk { width: 150px; flex: none; } .rt-pk b { font-size: 12px; } .rt-pk span { display: block; font-size: 11px; color: #6B7280; }
+.rt-pc { flex: 1; } .rt-df { font-size: 12px; margin: 1px 0; } .rt-df .lb { display: inline-block; width: 74px; color: #6B7280; }
+.rt-df .old { color: #9AA0AE; text-decoration: line-through; } .rt-df .new { color: #106b45; font-weight: 600; }
+.rt-mft { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.rt-cancel { background: #fff; border: 1px solid #D8DAE5; border-radius: 6px; padding: 5px 12px; font-size: 12px; cursor: pointer; }
+.rt-mlog { font-size: 11px; margin-top: 8px; max-height: 120px; overflow-y: auto; }
+.rt-mlog .ok { color: #106b45; } .rt-mlog .err { color: #b4442f; } .rt-mlog .sum { color: #0B1020; font-weight: 600; margin-top: 4px; }
 .block.overlapped { box-shadow: 0 0 0 2px #F04438, 0 1px 3px rgba(11,16,32,.15); }
 .block.overlapped::after { content: "⚠"; position: absolute; top: 2px; left: 4px; font-size: 9px; color: #fff; text-shadow: 0 0 2px rgba(0,0,0,.5); }
 
@@ -417,7 +442,13 @@ window.KruzerAPI = window.KruzerAPI || (function(){
     }
     return all;
   }
-  return { jqlPage, fetchAll };
+  async function postJson(path, payload){
+    const res = await fetch(path, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+    if (!res.ok){ const text = await res.text().catch(()=> ''); throw new Error(`${res.status}: ${text || res.statusText}`); }
+    return res.json().catch(()=> ({}));
+  }
+  function updateFields(key, fields){ return postJson('/api/jira/issue-update', { key, fields }); }
+  return { jqlPage, fetchAll, postJson, updateFields };
 })();
 
 // ============================================================================
@@ -490,6 +521,8 @@ function defaultState(){
     dependencies: {},       // epicKey -> [epicKeys]
     trackParallelism: {},   // trackIdx -> grau de paralelismo (2+ = sobreposição)
     childDone: {},          // childKey -> bool (override manual de done)
+    dateOverride: {},       // epicKey -> { start:'YYYY-MM-DD'|null, due:'YYYY-MM-DD'|null } (replaneja no cenário)
+    assigneeOverride: {},   // epicKey -> { accountId, name } | null (null = tira o responsável)
     whatIfMode: false,
     createdAt: new Date().toISOString(),
   };
@@ -551,6 +584,7 @@ function normalizeEpic(issue){
     status,
     priority: f.priority?.name || 'Medium',
     assignee: f.assignee?.displayName || null,
+    assigneeId: f.assignee?.accountId || null,  // p/ reatribuição e write-back no JIRA
     jiraStart,
     jiraDue: parseDate(f.duedate),
     jiraSp: f.customfield_10016 != null ? Number(f.customfield_10016) : null,
@@ -916,16 +950,41 @@ function ensureRTHost(){
   return h;
 }
 function loadColor(n){ return n >= 3 ? '#EE6A5F' : n === 2 ? '#F5B54B' : '#86C99A'; }
+// ---- Camada de override (replaneja no cenário, sem tocar no JIRA) -----------
+let RT_EDIT = null;
+function isoDay(d){ return d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` : null; }
+function ovStartD(e){ const o = STATE.dateOverride[e.key]; return (o && o.start) ? startOfDay(new Date(o.start + 'T00:00:00')) : e.jiraStart; }
+function ovDueD(e){ const o = STATE.dateOverride[e.key]; return (o && o.due) ? startOfDay(new Date(o.due + 'T00:00:00')) : e.jiraDue; }
+function effAssigneeName(e){ const o = STATE.assigneeOverride; return Object.prototype.hasOwnProperty.call(o, e.key) ? (o[e.key] ? o[e.key].name : 'Sem responsável') : ((e.assignee && e.assignee.trim()) || 'Sem responsável'); }
+function effAssigneeId(e){ const o = STATE.assigneeOverride; return Object.prototype.hasOwnProperty.call(o, e.key) ? (o[e.key] ? o[e.key].accountId : null) : (e.assigneeId || null); }
+function isEdited(k){ return !!STATE.dateOverride[k] || Object.prototype.hasOwnProperty.call(STATE.assigneeOverride, k); }
+function computePending(){
+  const out = [];
+  (EPICS || []).forEach(e => {
+    const ch = {};
+    const od = STATE.dateOverride[e.key];
+    if (od){
+      const curStart = isoDay(e.jiraStart), curDue = isoDay(e.jiraDue);
+      if (od.start !== undefined && (od.start || null) !== curStart) ch.start = { from: curStart, to: od.start || null };
+      if (od.due   !== undefined && (od.due   || null) !== curDue)   ch.due   = { from: curDue,   to: od.due   || null };
+    }
+    if (Object.prototype.hasOwnProperty.call(STATE.assigneeOverride, e.key)){
+      const ov = STATE.assigneeOverride[e.key];
+      const curId = e.assigneeId || null, newId = ov ? ov.accountId : null;
+      if (newId !== curId) ch.assignee = { from: e.assignee || 'Sem responsável', to: ov ? ov.name : 'Sem responsável', accountId: newId };
+    }
+    if (Object.keys(ch).length) out.push({ key: e.key, summary: e.summary, ch });
+  });
+  return out;
+}
+
 function renderResourceTimeline(sched){
   const host = ensureRTHost();
   const all = sched.placed.concat(sched.dedEpic ? [sched.dedEpic] : []);
-  // POSICIONA POR DATAS REAIS DO JIRA (start/due). A projeção do engine é serial
-  // (uma demanda após a outra) — então qualquer view dela parece "linear" e some
-  // com a sobreposição. As datas reais revelam onde os recursos de fato se dividem.
-  const dS = e => startOfDay(e.jiraStart || e.scheduledStart);
-  const dE = e => { const s = dS(e); let en = startOfDay(e.jiraDue || e.scheduledEnd || addDays(s, 7)); if (+en <= +s) en = addDays(s, 7); return en; };
-  const items = all.filter(e => (e.jiraStart || e.scheduledStart) && (e.jiraDue || e.scheduledEnd));
-  if (!items.length){ host.style.display = 'none'; host.innerHTML = ''; return; }
+  const dS = e => startOfDay(ovStartD(e) || e.scheduledStart);
+  const dE = e => { const s = dS(e); let en = startOfDay(ovDueD(e) || e.scheduledEnd || addDays(s, 7)); if (+en <= +s) en = addDays(s, 7); return en; };
+  const items = all.filter(e => (ovStartD(e) || e.scheduledStart) && (ovDueD(e) || e.scheduledEnd));
+  if (!items.length){ host.style.display = 'none'; host.innerHTML = ''; RT_EDIT = null; return; }
   host.style.display = '';
   const minMs = Math.min(...items.map(e => +dS(e)));
   const maxMs = Math.max(...items.map(e => +dE(e)));
@@ -935,21 +994,21 @@ function renderResourceTimeline(sched){
   const PX_DAY = Math.min(11, Math.max(4, Math.round(880 / totalDays)));
   const W = Math.round(totalDays * PX_DAY), LABEL = 168, ROWH = 26, LOADH = 12;
   const xOf = ms => Math.round(((startOfDay(new Date(ms)) - axisStart) / MS_DAY) * PX_DAY);
-  // AGRUPA POR RECURSO (assignee). "Sem responsável" por último.
+  RT_EDIT = { axisStartMs: +axisStart, pxDay: PX_DAY, W, label: LABEL };
   const byA = new Map();
-  items.forEach(e => { const k = (e.assignee && e.assignee.trim()) || 'Sem responsável'; if (!byA.has(k)) byA.set(k, []); byA.get(k).push(e); });
+  items.forEach(e => { const k = effAssigneeName(e); if (!byA.has(k)) byA.set(k, []); byA.get(k).push(e); });
   const segsOf = arr => { const ev = []; arr.forEach(e => { ev.push([+dS(e), 1]); ev.push([+dE(e), -1]); }); ev.sort((a, b) => a[0] - b[0] || a[1] - b[1]); const out = []; let cur = 0, prev = null; ev.forEach(([t, d]) => { if (prev != null && t > prev && cur > 0) out.push([prev, t, cur]); cur += d; prev = t; }); return out; };
   const packRows = arr => { const its = arr.slice().sort((a, b) => +dS(a) - +dS(b)); const rowEnd = []; const placed = []; its.forEach(e => { let r = rowEnd.findIndex(end => +dS(e) >= end); if (r < 0) { r = rowEnd.length; rowEnd.push(0); } rowEnd[r] = +dE(e); placed.push({ e, r }); }); return { placed, nrows: Math.max(1, rowEnd.length) }; };
   const countCol = n => n >= 3 ? '#EE6A5F' : n === 2 ? '#F5B54B' : '#86C99A';
   let axis = ''; let m = new Date(axisStart);
   while (m < axisEnd) { axis += `<div class="rt-mo" style="left:${xOf(+m)}px">${m.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')}</div>`; m = new Date(m.getFullYear(), m.getMonth() + 1, 1); }
   const todayX = xOf(+sched.today), todayInRange = sched.today >= axisStart && sched.today < axisEnd;
-  const hasDate = e => !!(e.jiraStart || e.jiraDue);
+  const hasDate = e => !!(ovStartD(e) || ovDueD(e));
   const peakOf = arr => Math.max(1, ...segsOf(arr.filter(hasDate)).map(s => s[2]));
-  const groups = [...byA.entries()].map(([label, arr]) => ({ label, arr, peak: peakOf(arr) }));
+  const groups = [...byA.entries()].map(([label, arr]) => ({ label, arr, peak: peakOf(arr), acct: effAssigneeId(arr[0]) }));
   groups.sort((a, b) => (a.label === 'Sem responsável') - (b.label === 'Sem responsável') || b.peak - a.peak || a.label.localeCompare(b.label));
   const leitura = [];
-  const lanes = groups.map(({ label, arr, peak }) => {
+  const lanes = groups.map(({ label, arr, peak, acct }) => {
     const { placed, nrows } = packRows(arr); const dated = arr.filter(hasDate); const segs = segsOf(dated); const bodyH = LOADH + 6 + nrows * ROWH;
     const nUndated = arr.length - dated.length;
     const splitKeys = new Set();
@@ -957,15 +1016,120 @@ function renderResourceTimeline(sched){
     const loadHtml = segs.map(([f, t, n]) => `<div class="rt-load" style="left:${xOf(f)}px;width:${Math.max(2, xOf(t) - xOf(f))}px;background:${countCol(n)}" title="${fmtBR(new Date(f))}–${fmtBR(new Date(t))}: ${n} demanda${n>1?'s':''} ao mesmo tempo">${n >= 2 && xOf(t) - xOf(f) > 22 ? '×' + n : ''}</div>`).join('');
     if (peak >= 2 && label !== 'Sem responsável') { const seg = segs.filter(s => s[2] >= 2).sort((x, y) => (x[1]-x[0])-(y[1]-y[0])).pop(); const ks = [...splitKeys]; leitura.push(`<b>${escapeHtml(label)}</b>: ${ks.join(' + ')}${seg ? ` (${fmtBR(new Date(seg[0]))}→${fmtBR(new Date(seg[1]))}, ×${peak})` : ''}`); }
     let gm = new Date(axisStart), gl = ''; while (gm < axisEnd) { gl += `<div class="rt-gl" style="left:${xOf(+gm)}px"></div>`; gm = new Date(gm.getFullYear(), gm.getMonth() + 1, 1); }
-    const bars = placed.map(({ e, r }) => { const left = xOf(+dS(e)), w = Math.max(10, xOf(+dE(e)) - left); const color = RT_STATUS_COLOR[e.status] || RT_STATUS_COLOR[e.jiraStatus] || '#48507D'; const nm = (e.summary || e.key).length > 26 ? e.summary.slice(0, 25) + '…' : (e.summary || e.key); return `<div class="rt-bar${splitKeys.has(e.key) ? ' split' : ''}${hasDate(e) ? '' : ' est'}" style="left:${left}px;top:${LOADH + 6 + r * ROWH}px;width:${w}px;background:${color}" title="${escapeHtml(e.key + ' · ' + (e.summary || ''))}\n${fmtBR(dS(e))}–${fmtBR(dE(e))}${hasDate(e) ? '' : ' (estimado — sem data no JIRA)'} · ${e.effectiveSp||0} SP"><b>${e.key}</b><span>${escapeHtml(nm)}</span></div>`; }).join('');
+    const bars = placed.map(({ e, r }) => { const left = xOf(+dS(e)), w = Math.max(10, xOf(+dE(e)) - left); const color = RT_STATUS_COLOR[e.status] || RT_STATUS_COLOR[e.jiraStatus] || '#48507D'; const nm = (e.summary || e.key).length > 26 ? e.summary.slice(0, 25) + '…' : (e.summary || e.key); const ed = isEdited(e.key); return `<div class="rt-bar${splitKeys.has(e.key) ? ' split' : ''}${hasDate(e) ? '' : ' est'}${ed ? ' edited' : ''}" data-key="${e.key}" style="left:${left}px;top:${LOADH + 6 + r * ROWH}px;width:${w}px;background:${color}" title="${escapeHtml(e.key + ' · ' + (e.summary || ''))}\n${fmtBR(dS(e))}–${fmtBR(dE(e))}${hasDate(e) ? '' : ' (estimado — sem data no JIRA)'}${ed ? ' · ✎ replanejado' : ''} · ${e.effectiveSp||0} SP\n↔ arraste move · bordas redimensionam · solte em outra raia p/ reatribuir"><b>${e.key}</b><span>${escapeHtml(nm)}</span></div>`; }).join('');
     const hot = peak >= 2;
     const sub = `<span class="rt-peak ${hot ? 'hot' : 'ok'}">${dated.length} c/ data${hot ? ` · ×${peak} simultâneas` : ''}${nUndated ? ` · +${nUndated} sem data` : ''}</span>`;
-    return `<div class="rt-lane"><div class="rt-head" style="width:${LABEL}px"><div class="rt-nm">${escapeHtml(label)}</div>${sub}</div><div class="rt-body" style="width:${W}px;height:${bodyH}px">${gl}${todayInRange ? `<div class="rt-today" style="left:${todayX}px"></div>` : ''}${loadHtml}${bars}</div></div>`;
+    return `<div class="rt-lane" data-name="${escapeHtml(label)}" data-acct="${acct || ''}"><div class="rt-head" style="width:${LABEL}px"><div class="rt-nm">${escapeHtml(label)}</div>${sub}</div><div class="rt-body" style="width:${W}px;height:${bodyH}px">${gl}${todayInRange ? `<div class="rt-today" style="left:${todayX}px"></div>` : ''}${loadHtml}${bars}</div></div>`;
   }).join('');
+  const pend = computePending();
+  const actions = pend.length
+    ? `<div class="rt-actions"><button class="rt-apply" id="rtApply">Aplicar no JIRA (${pend.length})</button><button class="rt-revert" id="rtRevert">Reverter tudo</button><span class="rt-hint">${pend.length} demanda(s) replanejada(s) no cenário — nada foi gravado no JIRA ainda</span></div>`
+    : `<div class="rt-actions"><span class="rt-hint">Arraste as barras p/ replanejar datas · solte em outra raia p/ reatribuir · nada é gravado no JIRA até você aplicar</span></div>`;
   host.innerHTML = `<div class="rt-title">Alocação por recurso · sobreposição real <span>— barras nas <b>datas reais do JIRA</b>; a faixa mostra quantas demandas o recurso toca ao mesmo tempo (×2 dividido · ×3+ sobrecarregado).</span></div>` +
     (leitura.length ? `<div class="rt-read">⚠ Recurso dividido: ${leitura.join(' · ')}</div>` : `<div class="rt-read ok">Nenhum recurso com demandas concorrentes no período.</div>`) +
+    actions +
     `<div class="rt-legend"><span><i style="background:#86C99A"></i>×1</span><span><i style="background:#F5B54B"></i>×2 dividido</span><span><i style="background:#EE6A5F"></i>×3+ sobrecarga</span><span class="rt-est-lg">▨ estimado (sem data)</span></div>` +
     `<div class="rt-scroll"><div class="rt-axis" style="margin-left:${LABEL}px;width:${W}px;height:18px">${axis}${todayInRange ? `<div class="rt-today" style="left:${todayX}px"></div>` : ''}</div>${lanes}</div>`;
+  wireTimelineEditing(host);
+}
+
+function wireTimelineEditing(host){
+  const applyBtn = host.querySelector('#rtApply'); if (applyBtn) applyBtn.onclick = openApplyModal;
+  const revertBtn = host.querySelector('#rtRevert'); if (revertBtn) revertBtn.onclick = () => { if (confirm('Descartar todos os replanejamentos do cenário?')) { STATE.dateOverride = {}; STATE.assigneeOverride = {}; persist(); render(); } };
+  const scroll = host.querySelector('.rt-scroll'); if (!scroll || !RT_EDIT) return;
+  let drag = null;
+  const laneAt = (x, y) => { for (const lane of host.querySelectorAll('.rt-lane')) { const r = lane.getBoundingClientRect(); if (y >= r.top && y <= r.bottom) return { el: lane, name: lane.dataset.name, acct: lane.dataset.acct }; } return null; };
+  scroll.addEventListener('pointerdown', ev => {
+    const bar = ev.target.closest('.rt-bar'); if (!bar) return;
+    const r = bar.getBoundingClientRect(); const off = ev.clientX - r.left;
+    const mode = off < 9 ? 'l' : off > r.width - 9 ? 'r' : 'move';
+    drag = { key: bar.dataset.key, bar, mode, x0: ev.clientX, y0: ev.clientY, left0: parseFloat(bar.style.left) || 0, w0: parseFloat(bar.style.width) || 10, moved: false };
+    bar.setPointerCapture(ev.pointerId); bar.classList.add('dragging'); ev.preventDefault();
+  });
+  scroll.addEventListener('pointermove', ev => {
+    if (!drag) return;
+    const dx = ev.clientX - drag.x0;
+    if (Math.abs(dx) > 3 || Math.abs(ev.clientY - drag.y0) > 3) drag.moved = true;
+    if (drag.mode === 'move') drag.bar.style.left = (drag.left0 + dx) + 'px';
+    else if (drag.mode === 'l') { drag.bar.style.left = (drag.left0 + dx) + 'px'; drag.bar.style.width = Math.max(10, drag.w0 - dx) + 'px'; }
+    else drag.bar.style.width = Math.max(10, drag.w0 + dx) + 'px';
+    const lane = laneAt(ev.clientX, ev.clientY);
+    host.querySelectorAll('.rt-lane.drop').forEach(l => l.classList.remove('drop'));
+    if (lane && drag.mode === 'move') lane.el.classList.add('drop');
+  });
+  scroll.addEventListener('pointerup', ev => {
+    if (!drag) return; const d = drag; drag = null; d.bar.classList.remove('dragging');
+    host.querySelectorAll('.rt-lane.drop').forEach(l => l.classList.remove('drop'));
+    if (!d.moved) { openDrawer(d.key); return; }
+    const dxDays = Math.round((ev.clientX - d.x0) / RT_EDIT.pxDay);
+    commitTimelineEdit(d, dxDays, ev.clientX, ev.clientY, laneAt);
+  });
+}
+function commitTimelineEdit(d, dxDays, clientX, clientY, laneAt){
+  const e = LAST_SCHEDULE && LAST_SCHEDULE.byKey[d.key]; if (!e){ render(); return; }
+  let cs = startOfDay(ovStartD(e) || e.scheduledStart);
+  let ce = startOfDay(ovDueD(e) || e.scheduledEnd || addDays(cs, 7)); if (+ce <= +cs) ce = addDays(cs, 7);
+  let ns = cs, nd = ce;
+  if (d.mode === 'move'){ ns = addDays(cs, dxDays); nd = addDays(ce, dxDays); }
+  else if (d.mode === 'l'){ ns = addDays(cs, dxDays); if (+ns >= +nd) ns = addDays(nd, -1); }
+  else { nd = addDays(ce, dxDays); if (+nd <= +ns) nd = addDays(ns, 1); }
+  STATE.dateOverride[d.key] = { start: isoDay(ns), due: isoDay(nd) };
+  if (d.mode === 'move'){
+    const lane = laneAt(clientX, clientY);
+    if (lane && lane.name !== effAssigneeName(e)){
+      if (lane.name === 'Sem responsável') STATE.assigneeOverride[d.key] = null;
+      else STATE.assigneeOverride[d.key] = { accountId: lane.acct || null, name: lane.name };
+    }
+  }
+  persist(); render();
+}
+function openApplyModal(){
+  const pend = computePending(); if (!pend.length) return;
+  let host = document.getElementById('rtApplyModal');
+  if (!host){ host = document.createElement('div'); host.id = 'rtApplyModal'; host.className = 'rt-modal'; document.body.appendChild(host); }
+  const rows = pend.map(p => {
+    const parts = [];
+    if (p.ch.start) parts.push(`<div class="rt-df"><span class="lb">Início</span> <span class="old">${p.ch.start.from || '—'}</span> → <span class="new">${p.ch.start.to || '—'}</span></div>`);
+    if (p.ch.due) parts.push(`<div class="rt-df"><span class="lb">Due</span> <span class="old">${p.ch.due.from || '—'}</span> → <span class="new">${p.ch.due.to || '—'}</span></div>`);
+    if (p.ch.assignee) parts.push(`<div class="rt-df"><span class="lb">Responsável</span> <span class="old">${escapeHtml(p.ch.assignee.from)}</span> → <span class="new">${escapeHtml(p.ch.assignee.to)}</span></div>`);
+    return `<div class="rt-prow"><div class="rt-pk"><b>${p.key}</b><span>${escapeHtml((p.summary||'').slice(0,44))}</span></div><div class="rt-pc">${parts.join('')}</div></div>`;
+  }).join('');
+  host.innerHTML = `<div class="rt-mbd"></div><div class="rt-mbox"><div class="rt-mhd">Aplicar no JIRA · ${pend.length} demanda(s)</div>` +
+    `<div class="rt-mwarn">Isto grava as datas/responsável direto no JIRA. Revise antes de confirmar.</div>` +
+    `<div class="rt-mlist">${rows}</div>` +
+    `<div class="rt-mft"><button class="rt-cancel" id="rtCancel">Cancelar</button><button class="rt-apply" id="rtConfirm">Confirmar e gravar</button></div>` +
+    `<div class="rt-mlog" id="rtLog"></div></div>`;
+  host.style.display = 'block';
+  host.querySelector('.rt-mbd').onclick = () => { host.style.display = 'none'; };
+  host.querySelector('#rtCancel').onclick = () => { host.style.display = 'none'; };
+  host.querySelector('#rtConfirm').onclick = () => applyPendingToJira(pend, host);
+}
+async function applyPendingToJira(pend, host){
+  const log = host.querySelector('#rtLog'); const confirmBtn = host.querySelector('#rtConfirm');
+  confirmBtn.disabled = true; confirmBtn.textContent = 'Gravando…';
+  let ok = 0, fail = 0;
+  for (const p of pend){
+    const fields = {};
+    if (p.ch.start) fields.customfield_10015 = p.ch.start.to;
+    if (p.ch.due) fields.duedate = p.ch.due.to;
+    if (p.ch.assignee) fields.assignee = p.ch.assignee.accountId ? { accountId: p.ch.assignee.accountId } : null;
+    try {
+      await KruzerAPI.updateFields(p.key, fields);
+      ok++;
+      delete STATE.dateOverride[p.key]; delete STATE.assigneeOverride[p.key];
+      const e = (EPICS || []).find(x => x.key === p.key);
+      if (e){
+        if (p.ch.start) e.jiraStart = p.ch.start.to ? startOfDay(new Date(p.ch.start.to + 'T00:00:00')) : null;
+        if (p.ch.due) e.jiraDue = p.ch.due.to ? startOfDay(new Date(p.ch.due.to + 'T00:00:00')) : null;
+        if (p.ch.assignee){ e.assignee = p.ch.assignee.to; e.assigneeId = p.ch.assignee.accountId; }
+      }
+      log.innerHTML += `<div class="ok">✓ ${p.key}</div>`;
+    } catch (err){ fail++; log.innerHTML += `<div class="err">✗ ${p.key}: ${escapeHtml(String(err.message || err)).slice(0,120)}</div>`; }
+  }
+  persist(); render();
+  confirmBtn.textContent = fail ? `Concluído com ${fail} erro(s)` : 'Concluído';
+  log.innerHTML += `<div class="sum">${ok} gravada(s)${fail ? `, ${fail} falha(s)` : ''}.</div>`;
+  if (!fail) setTimeout(() => { host.style.display = 'none'; }, 1200);
 }
 
 let gridInst = null;
