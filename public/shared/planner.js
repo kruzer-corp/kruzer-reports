@@ -678,83 +678,77 @@ function ensureRTHost(){
 function loadColor(n){ return n >= 3 ? '#EE6A5F' : n === 2 ? '#F5B54B' : '#86C99A'; }
 function renderResourceTimeline(sched){
   const host = ensureRTHost();
-  const items = sched.placed.concat(sched.dedEpic ? [sched.dedEpic] : [])
-    .filter(e => e.scheduledStart && e.scheduledEnd);
+  const all = sched.placed.concat(sched.dedEpic ? [sched.dedEpic] : []);
+  // POSICIONA POR DATAS REAIS DO JIRA (start/due). A projeção do engine é serial
+  // (uma demanda após a outra) — então QUALQUER view dela parece "linear" e some
+  // com a sobreposição. As datas reais é que revelam onde os recursos de fato se
+  // sobrepõem (ex.: FST-1 + FST-135 no mesmo recurso, concorrentes com FST-138).
+  const dS = e => startOfDay(e.jiraStart || e.scheduledStart);
+  const dE = e => { const s = dS(e); let en = startOfDay(e.jiraDue || e.scheduledEnd || addDays(s, 7)); if (+en <= +s) en = addDays(s, 7); return en; };
+  const items = all.filter(e => (e.jiraStart || e.scheduledStart) && (e.jiraDue || e.scheduledEnd));
   if (!items.length){ host.style.display = 'none'; host.innerHTML = ''; return; }
   host.style.display = '';
-  const minMs = Math.min(...items.map(e => +startOfDay(e.scheduledStart)));
-  const maxMs = Math.max(...items.map(e => +startOfDay(e.scheduledEnd)));
+  const minMs = Math.min(...items.map(e => +dS(e)));
+  const maxMs = Math.max(...items.map(e => +dE(e)));
   const d0 = new Date(minMs), axisStart = new Date(d0.getFullYear(), d0.getMonth(), 1);
   const d1 = new Date(maxMs), axisEnd = new Date(d1.getFullYear(), d1.getMonth() + 1, 1);
   const totalDays = Math.max(30, (axisEnd - axisStart) / MS_DAY);
   const PX_DAY = Math.min(11, Math.max(4, Math.round(880 / totalDays)));
-  const W = Math.round(totalDays * PX_DAY), LABEL = 168, ROWH = 26, BARH = 22, LOADH = 12;
+  const W = Math.round(totalDays * PX_DAY), LABEL = 168, ROWH = 26, LOADH = 12;
   const xOf = ms => Math.round(((startOfDay(new Date(ms)) - axisStart) / MS_DAY) * PX_DAY);
 
-  // agrupa por TRACK (frente de trabalho) — cada track vira uma raia por data.
-  // (assignee dos épicos do FST costuma ser vazio; a track é o "recurso" real aqui.)
-  const groups = [];
-  if (sched.dedEpic && sched.dedEpic.scheduledStart && sched.dedEpic.scheduledEnd)
-    groups.push({ label: (DEDICATED.label || 'Dedicada'), items: [sched.dedEpic] });
-  (sched.tracks || []).forEach((its, ti) => groups.push({ label: 'Track ' + (ti + 1), items: (its || []).filter(e => e.scheduledStart && e.scheduledEnd) }));
+  // AGRUPA POR RECURSO (assignee). "Sem responsável" fica por último. Cada demanda
+  // é posicionada pela sua janela real; concorrentes do mesmo recurso empilham.
+  const byA = new Map();
+  items.forEach(e => { const k = (e.assignee && e.assignee.trim()) || 'Sem responsável'; if (!byA.has(k)) byA.set(k, []); byA.get(k).push(e); });
 
+  // concorrência (sweep-line): quantas demandas o recurso tem AO MESMO TEMPO.
+  const segsOf = arr => { const ev = []; arr.forEach(e => { ev.push([+dS(e), 1]); ev.push([+dE(e), -1]); }); ev.sort((a, b) => a[0] - b[0] || a[1] - b[1]); const out = []; let cur = 0, prev = null; ev.forEach(([t, d]) => { if (prev != null && t > prev && cur > 0) out.push([prev, t, cur]); cur += d; prev = t; }); return out; };
   // sub-linhas (interval graph): concorrentes vão pra linhas diferentes.
-  const packRows = arr => {
-    const its = arr.slice().sort((a, b) => a.scheduledStart - b.scheduledStart);
-    const rowEnd = []; const placed = [];
-    its.forEach(e => { let r = rowEnd.findIndex(end => +e.scheduledStart >= end); if (r < 0) { r = rowEnd.length; rowEnd.push(0); } rowEnd[r] = +e.scheduledEnd; placed.push({ e, r }); });
-    return { placed, nrows: Math.max(1, rowEnd.length) };
-  };
-  // Carga = SOMA das taxas semanais das demandas ativas na semana / capacidade da
-  // track. >110% = sobrecarga (afogado). É a leitura de "onde está sobrecarregado".
-  const WEEK = 7 * MS_DAY, thr = sched.throughputPerTrack || 1;
-  const rateOf = e => (e.effectiveSp || 0) / Math.max(1, (startOfDay(e.scheduledEnd) - startOfDay(e.scheduledStart)) / WEEK);
-  const weekPct = (arr, ws) => { const we = ws + WEEK; let s = 0; arr.forEach(e => { if (+startOfDay(e.scheduledStart) < we && +startOfDay(e.scheduledEnd) > ws) s += rateOf(e); }); return s / thr; };
-  const loadCol = p => p > 1.1 ? '#EE6A5F' : p > 1.0 ? '#F5B54B' : p >= 0.85 ? '#86C99A' : '#D8F0DE';
+  const packRows = arr => { const its = arr.slice().sort((a, b) => +dS(a) - +dS(b)); const rowEnd = []; const placed = []; its.forEach(e => { let r = rowEnd.findIndex(end => +dS(e) >= end); if (r < 0) { r = rowEnd.length; rowEnd.push(0); } rowEnd[r] = +dE(e); placed.push({ e, r }); }); return { placed, nrows: Math.max(1, rowEnd.length) }; };
+  const countCol = n => n >= 3 ? '#EE6A5F' : n === 2 ? '#F5B54B' : '#86C99A';
 
   // eixo de meses
-  let axis = '';
-  let m = new Date(axisStart);
-  while (m < axisEnd) { const x = xOf(+m); axis += `<div class="rt-mo" style="left:${x}px">${m.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')}</div>`; m = new Date(m.getFullYear(), m.getMonth() + 1, 1); }
-  const todayX = xOf(+sched.today);
-  const todayInRange = sched.today >= axisStart && sched.today < axisEnd;
+  let axis = ''; let m = new Date(axisStart);
+  while (m < axisEnd) { axis += `<div class="rt-mo" style="left:${xOf(+m)}px">${m.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')}</div>`; m = new Date(m.getFullYear(), m.getMonth() + 1, 1); }
+  const todayX = xOf(+sched.today), todayInRange = sched.today >= axisStart && sched.today < axisEnd;
 
-  // raias (uma por track, na ordem natural; só as que têm demanda datada)
+  // Sinal de sobrecarga vem SÓ das demandas COM data real — senão as sem-data
+  // (posicionadas por estimativa) inventariam concorrência fantasma. As sem-data
+  // aparecem como barras hachuradas (contexto), mas nunca disparam alerta.
+  const hasDate = e => !!(e.jiraStart || e.jiraDue);
+  const peakOf = arr => Math.max(1, ...segsOf(arr.filter(hasDate)).map(s => s[2]));
+  const groups = [...byA.entries()].map(([label, arr]) => ({ label, arr, peak: peakOf(arr) }));
+  groups.sort((a, b) => (a.label === 'Sem responsável') - (b.label === 'Sem responsável') || b.peak - a.peak || a.label.localeCompare(b.label));
+
   const leitura = [];
-  const lanes = groups.filter(g => g.items.length).map(g => {
-    const arr = g.items, label = g.label; const { placed, nrows } = packRows(arr);
-    const bodyH = LOADH + 6 + nrows * ROWH;
-    // itens em sobreposição (contorno) + carga semana a semana
+  const lanes = groups.map(({ label, arr, peak }) => {
+    const { placed, nrows } = packRows(arr); const dated = arr.filter(hasDate); const segs = segsOf(dated); const bodyH = LOADH + 6 + nrows * ROWH;
+    const nUndated = arr.length - dated.length;
     const splitKeys = new Set();
-    for (let i = 0; i < arr.length; i++) for (let j = i + 1; j < arr.length; j++)
-      if (arr[i].scheduledStart < arr[j].scheduledEnd && arr[j].scheduledStart < arr[i].scheduledEnd) { splitKeys.add(arr[i].key); splitKeys.add(arr[j].key); }
-    let loadHtml = '', peakPct = 0, overFrom = null, overTo = null;
-    for (let ws = +axisStart; ws < +axisEnd; ws += WEEK) {
-      const p = weekPct(arr, ws); if (p > peakPct) peakPct = p;
-      if (p > 1.1) { if (overFrom == null) overFrom = ws; overTo = ws + WEEK; }
-      const x = xOf(ws), w = Math.max(1, xOf(ws + WEEK) - x);
-      loadHtml += `<div class="rt-load" style="left:${x}px;width:${w}px;background:${loadCol(p)}" title="${fmtBR(new Date(ws))}: ${(p*100).toFixed(0)}% da capacidade da track">${p > 1.1 && w > 22 ? (p*100).toFixed(0)+'%' : ''}</div>`;
-    }
-    if (peakPct > 1.1) leitura.push(`<b>${escapeHtml(label)}</b> ${(peakPct*100).toFixed(0)}% no pico${overFrom ? ` (${fmtBR(new Date(overFrom))}→${fmtBR(new Date(overTo))})` : ''}`);
-    let gm = new Date(axisStart); let gl = '';
-    while (gm < axisEnd) { gl += `<div class="rt-gl" style="left:${xOf(+gm)}px"></div>`; gm = new Date(gm.getFullYear(), gm.getMonth() + 1, 1); }
+    for (let i = 0; i < dated.length; i++) for (let j = i + 1; j < dated.length; j++)
+      if (+dS(dated[i]) < +dE(dated[j]) && +dS(dated[j]) < +dE(dated[i])) { splitKeys.add(dated[i].key); splitKeys.add(dated[j].key); }
+    // faixa de carga = nº de demandas datadas simultâneas ao longo do tempo (×1/×2/×3+)
+    const loadHtml = segs.map(([f, t, n]) => `<div class="rt-load" style="left:${xOf(f)}px;width:${Math.max(2, xOf(t) - xOf(f))}px;background:${countCol(n)}" title="${fmtBR(new Date(f))}–${fmtBR(new Date(t))}: ${n} demanda${n>1?'s':''} ao mesmo tempo">${n >= 2 && xOf(t) - xOf(f) > 22 ? '×' + n : ''}</div>`).join('');
+    if (peak >= 2 && label !== 'Sem responsável') { const seg = segs.filter(s => s[2] >= 2).sort((x, y) => (x[1]-x[0])-(y[1]-y[0])).pop(); const ks = [...splitKeys]; leitura.push(`<b>${escapeHtml(label)}</b>: ${ks.join(' + ')}${seg ? ` (${fmtBR(new Date(seg[0]))}→${fmtBR(new Date(seg[1]))}, ×${peak})` : ''}`); }
+    let gm = new Date(axisStart), gl = ''; while (gm < axisEnd) { gl += `<div class="rt-gl" style="left:${xOf(+gm)}px"></div>`; gm = new Date(gm.getFullYear(), gm.getMonth() + 1, 1); }
     const bars = placed.map(({ e, r }) => {
-      const left = xOf(+e.scheduledStart), w = Math.max(10, xOf(+e.scheduledEnd) - left);
+      const left = xOf(+dS(e)), w = Math.max(10, xOf(+dE(e)) - left);
       const color = RT_STATUS_COLOR[e.status] || '#48507D';
       const nm = (e.summary || e.key).length > 26 ? e.summary.slice(0, 25) + '…' : (e.summary || e.key);
-      return `<div class="rt-bar${splitKeys.has(e.key) ? ' split' : ''}" style="left:${left}px;top:${LOADH + 6 + r * ROWH}px;width:${w}px;background:${color}" title="${escapeHtml(e.key + ' · ' + (e.summary || ''))}\n${fmtBR(e.scheduledStart)}–${fmtBR(e.scheduledEnd)} · ${e.effectiveSp||0}h${e.assignee && e.assignee!=='Sem responsável' ? '\n'+e.assignee : ''}">` +
+      return `<div class="rt-bar${splitKeys.has(e.key) ? ' split' : ''}${hasDate(e) ? '' : ' est'}" style="left:${left}px;top:${LOADH + 6 + r * ROWH}px;width:${w}px;background:${color}" title="${escapeHtml(e.key + ' · ' + (e.summary || ''))}\n${fmtBR(dS(e))}–${fmtBR(dE(e))}${hasDate(e) ? '' : ' (estimado — sem data no JIRA)'} · ${e.effectiveSp||0}h">` +
         `<b>${e.key}</b><span>${escapeHtml(nm)}</span></div>`;
     }).join('');
-    const hot = peakPct > 1.1;
-    const sub = `<span class="rt-peak ${hot ? 'hot' : 'ok'}">${arr.length} demanda${arr.length>1?'s':''} · pico ${(peakPct*100).toFixed(0)}%</span>`;
+    const hot = peak >= 2;
+    const sub = `<span class="rt-peak ${hot ? 'hot' : 'ok'}">${dated.length} c/ data${hot ? ` · ×${peak} simultâneas` : ''}${nUndated ? ` · +${nUndated} sem data` : ''}</span>`;
     return `<div class="rt-lane"><div class="rt-head" style="width:${LABEL}px"><div class="rt-nm">${escapeHtml(label)}</div>${sub}</div>` +
       `<div class="rt-body" style="width:${W}px;height:${bodyH}px">${gl}${todayInRange ? `<div class="rt-today" style="left:${todayX}px"></div>` : ''}${loadHtml}${bars}</div></div>`;
   }).join('');
 
   host.innerHTML =
-    `<div class="rt-title">Alocação por track · sobreposição no tempo <span>— cada raia é uma track; barra = demanda (por data). A faixa = <b>carga vs capacidade da track</b> por semana; >110% = sobrecarga.</span></div>` +
-    (leitura.length ? `<div class="rt-read">⚠ Track sobrecarregada: ${leitura.join(' · ')}</div>` : `<div class="rt-read ok">Nenhuma track acima de 110% no período.</div>`) +
-    `<div class="rt-legend"><span><i style="background:#D8F0DE"></i>folga</span><span><i style="background:#86C99A"></i>~ok</span><span><i style="background:#F5B54B"></i>100–110%</span><span><i style="background:#EE6A5F"></i>&gt;110% afogado</span></div>` +
+    `<div class="rt-title">Alocação por recurso · sobreposição real <span>— barras nas <b>datas reais do JIRA</b>; a faixa mostra quantas demandas o recurso toca ao mesmo tempo (×2 dividido · ×3+ sobrecarregado).</span></div>` +
+    (leitura.length ? `<div class="rt-read">⚠ Recurso dividido: ${leitura.join(' · ')}</div>` : `<div class="rt-read ok">Nenhum recurso com demandas concorrentes no período.</div>`) +
+    `<div class="rt-legend"><span><i style="background:#86C99A"></i>×1</span><span><i style="background:#F5B54B"></i>×2 dividido</span><span><i style="background:#EE6A5F"></i>×3+ sobrecarga</span><span class="rt-est-lg">▨ estimado (sem data)</span></div>` +
     `<div class="rt-scroll"><div class="rt-axis" style="margin-left:${LABEL}px;width:${W}px;height:18px">${axis}${todayInRange ? `<div class="rt-today" style="left:${todayX}px"></div>` : ''}</div>${lanes}</div>`;
 }
 
