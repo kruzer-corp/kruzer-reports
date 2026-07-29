@@ -682,6 +682,8 @@ function ensureRTHost(){
 function loadColor(n){ return n >= 3 ? '#EE6A5F' : n === 2 ? '#F5B54B' : '#86C99A'; }
 // ---- Camada de override (replaneja no cenário, sem tocar no JIRA) -----------
 let RT_EDIT = null; // geometria da timeline p/ traduzir arraste → dias
+let RT_TRACKMAP = null; // nome real do recurso -> rótulo exibido ("Track N"). Anonimiza a exibição; identidade real fica só no data-name/accountId (não visível).
+function rtTrack(name){ return (RT_TRACKMAP && RT_TRACKMAP.get(name)) || (name === 'Sem responsável' ? 'Sem responsável' : '—'); }
 function isoDay(d){ return d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` : null; }
 function ovStartD(e){ const o = STATE.dateOverride[e.key]; return (o && o.start) ? startOfDay(new Date(o.start + 'T00:00:00')) : e.jiraStart; }
 function ovDueD(e){ const o = STATE.dateOverride[e.key]; return (o && o.due) ? startOfDay(new Date(o.due + 'T00:00:00')) : e.jiraDue; }
@@ -746,16 +748,21 @@ function renderResourceTimeline(sched){
   const peakOf = arr => Math.max(1, ...segsOf(arr.filter(hasDate)).map(s => s[2]));
   const groups = [...byA.entries()].map(([label, arr]) => ({ label, arr, peak: peakOf(arr), acct: effAssigneeId(arr[0]) }));
   groups.sort((a, b) => (a.label === 'Sem responsável') - (b.label === 'Sem responsável') || b.peak - a.peak || a.label.localeCompare(b.label));
+  // Anonimiza: cada recurso vira "Track N" na exibição; identidade real (nome/acct)
+  // fica só no data-name/data-acct p/ a reatribuição funcionar.
+  let _tn = 0;
+  groups.forEach(g => { g.display = (g.label === 'Sem responsável') ? 'Sem responsável' : ('Track ' + (++_tn)); });
+  RT_TRACKMAP = new Map(groups.map(g => [g.label, g.display]));
 
   const leitura = [];
-  const lanes = groups.map(({ label, arr, peak, acct }) => {
+  const lanes = groups.map(({ label, arr, peak, acct, display }) => {
     const { placed, nrows } = packRows(arr); const dated = arr.filter(hasDate); const segs = segsOf(dated); const bodyH = LOADH + 6 + nrows * ROWH;
     const nUndated = arr.length - dated.length;
     const splitKeys = new Set();
     for (let i = 0; i < dated.length; i++) for (let j = i + 1; j < dated.length; j++)
       if (+dS(dated[i]) < +dE(dated[j]) && +dS(dated[j]) < +dE(dated[i])) { splitKeys.add(dated[i].key); splitKeys.add(dated[j].key); }
     const loadHtml = segs.map(([f, t, n]) => `<div class="rt-load" style="left:${xOf(f)}px;width:${Math.max(2, xOf(t) - xOf(f))}px;background:${countCol(n)}" title="${fmtBR(new Date(f))}–${fmtBR(new Date(t))}: ${n} demanda${n>1?'s':''} ao mesmo tempo">${n >= 2 && xOf(t) - xOf(f) > 22 ? '×' + n : ''}</div>`).join('');
-    if (peak >= 2 && label !== 'Sem responsável') { const seg = segs.filter(s => s[2] >= 2).sort((x, y) => (x[1]-x[0])-(y[1]-y[0])).pop(); const ks = [...splitKeys]; leitura.push(`<b>${escapeHtml(label)}</b>: ${ks.join(' + ')}${seg ? ` (${fmtBR(new Date(seg[0]))}→${fmtBR(new Date(seg[1]))}, ×${peak})` : ''}`); }
+    if (peak >= 2 && label !== 'Sem responsável') { const seg = segs.filter(s => s[2] >= 2).sort((x, y) => (x[1]-x[0])-(y[1]-y[0])).pop(); const ks = [...splitKeys]; leitura.push(`<b>${escapeHtml(display)}</b>: ${ks.join(' + ')}${seg ? ` (${fmtBR(new Date(seg[0]))}→${fmtBR(new Date(seg[1]))}, ×${peak})` : ''}`); }
     let gm = new Date(axisStart), gl = ''; while (gm < axisEnd) { gl += `<div class="rt-gl" style="left:${xOf(+gm)}px"></div>`; gm = new Date(gm.getFullYear(), gm.getMonth() + 1, 1); }
     const bars = placed.map(({ e, r }) => {
       const left = xOf(+dS(e)), w = Math.max(10, xOf(+dE(e)) - left);
@@ -767,7 +774,7 @@ function renderResourceTimeline(sched){
     }).join('');
     const hot = peak >= 2;
     const sub = `<span class="rt-peak ${hot ? 'hot' : 'ok'}">${dated.length} c/ data${hot ? ` · ×${peak} simultâneas` : ''}${nUndated ? ` · +${nUndated} sem data` : ''}</span>`;
-    return `<div class="rt-lane" data-name="${escapeHtml(label)}" data-acct="${acct || ''}"><div class="rt-head" style="width:${LABEL}px"><div class="rt-nm">${escapeHtml(label)}</div>${sub}</div>` +
+    return `<div class="rt-lane" data-name="${escapeHtml(label)}" data-acct="${acct || ''}"><div class="rt-head" style="width:${LABEL}px"><div class="rt-nm">${escapeHtml(display)}</div>${sub}</div>` +
       `<div class="rt-body" style="width:${W}px;height:${bodyH}px">${gl}${todayInRange ? `<div class="rt-today" style="left:${todayX}px"></div>` : ''}${loadHtml}${bars}</div></div>`;
   }).join('');
 
@@ -847,7 +854,7 @@ function openApplyModal(){
     const parts = [];
     if (p.ch.start) parts.push(`<div class="rt-df"><span class="lb">Início</span> <span class="old">${p.ch.start.from || '—'}</span> → <span class="new">${p.ch.start.to || '—'}</span></div>`);
     if (p.ch.due) parts.push(`<div class="rt-df"><span class="lb">Due</span> <span class="old">${p.ch.due.from || '—'}</span> → <span class="new">${p.ch.due.to || '—'}</span></div>`);
-    if (p.ch.assignee) parts.push(`<div class="rt-df"><span class="lb">Responsável</span> <span class="old">${escapeHtml(p.ch.assignee.from)}</span> → <span class="new">${escapeHtml(p.ch.assignee.to)}</span></div>`);
+    if (p.ch.assignee) parts.push(`<div class="rt-df"><span class="lb">Track</span> <span class="old">${escapeHtml(rtTrack(p.ch.assignee.from))}</span> → <span class="new">${escapeHtml(rtTrack(p.ch.assignee.to))}</span></div>`);
     return `<div class="rt-prow"><div class="rt-pk"><b>${p.key}</b><span>${escapeHtml((p.summary||'').slice(0,44))}</span></div><div class="rt-pc">${parts.join('')}</div></div>`;
   }).join('');
   host.innerHTML = `<div class="rt-mbd"></div><div class="rt-mbox"><div class="rt-mhd">Aplicar no JIRA · ${pend.length} demanda(s)</div>` +

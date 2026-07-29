@@ -951,6 +951,8 @@ function ensureRTHost(){
 function loadColor(n){ return n >= 3 ? '#EE6A5F' : n === 2 ? '#F5B54B' : '#86C99A'; }
 // ---- Camada de override (replaneja no cenário, sem tocar no JIRA) -----------
 let RT_EDIT = null;
+let RT_TRACKMAP = null; // nome real -> "Track N" (anonimiza exibição; identidade fica no data-name/accountId)
+function rtTrack(name){ return (RT_TRACKMAP && RT_TRACKMAP.get(name)) || (name === 'Sem responsável' ? 'Sem responsável' : '—'); }
 function isoDay(d){ return d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` : null; }
 function ovStartD(e){ const o = STATE.dateOverride[e.key]; return (o && o.start) ? startOfDay(new Date(o.start + 'T00:00:00')) : e.jiraStart; }
 function ovDueD(e){ const o = STATE.dateOverride[e.key]; return (o && o.due) ? startOfDay(new Date(o.due + 'T00:00:00')) : e.jiraDue; }
@@ -1006,19 +1008,21 @@ function renderResourceTimeline(sched){
   const peakOf = arr => Math.max(1, ...segsOf(arr.filter(hasDate)).map(s => s[2]));
   const groups = [...byA.entries()].map(([label, arr]) => ({ label, arr, peak: peakOf(arr), acct: effAssigneeId(arr[0]) }));
   groups.sort((a, b) => (a.label === 'Sem responsável') - (b.label === 'Sem responsável') || b.peak - a.peak || a.label.localeCompare(b.label));
+  let _tn = 0; groups.forEach(g => { g.display = (g.label === 'Sem responsável') ? 'Sem responsável' : ('Track ' + (++_tn)); });
+  RT_TRACKMAP = new Map(groups.map(g => [g.label, g.display]));
   const leitura = [];
-  const lanes = groups.map(({ label, arr, peak, acct }) => {
+  const lanes = groups.map(({ label, arr, peak, acct, display }) => {
     const { placed, nrows } = packRows(arr); const dated = arr.filter(hasDate); const segs = segsOf(dated); const bodyH = LOADH + 6 + nrows * ROWH;
     const nUndated = arr.length - dated.length;
     const splitKeys = new Set();
     for (let i = 0; i < dated.length; i++) for (let j = i + 1; j < dated.length; j++) if (+dS(dated[i]) < +dE(dated[j]) && +dS(dated[j]) < +dE(dated[i])) { splitKeys.add(dated[i].key); splitKeys.add(dated[j].key); }
     const loadHtml = segs.map(([f, t, n]) => `<div class="rt-load" style="left:${xOf(f)}px;width:${Math.max(2, xOf(t) - xOf(f))}px;background:${countCol(n)}" title="${fmtBR(new Date(f))}–${fmtBR(new Date(t))}: ${n} demanda${n>1?'s':''} ao mesmo tempo">${n >= 2 && xOf(t) - xOf(f) > 22 ? '×' + n : ''}</div>`).join('');
-    if (peak >= 2 && label !== 'Sem responsável') { const seg = segs.filter(s => s[2] >= 2).sort((x, y) => (x[1]-x[0])-(y[1]-y[0])).pop(); const ks = [...splitKeys]; leitura.push(`<b>${escapeHtml(label)}</b>: ${ks.join(' + ')}${seg ? ` (${fmtBR(new Date(seg[0]))}→${fmtBR(new Date(seg[1]))}, ×${peak})` : ''}`); }
+    if (peak >= 2 && label !== 'Sem responsável') { const seg = segs.filter(s => s[2] >= 2).sort((x, y) => (x[1]-x[0])-(y[1]-y[0])).pop(); const ks = [...splitKeys]; leitura.push(`<b>${escapeHtml(display)}</b>: ${ks.join(' + ')}${seg ? ` (${fmtBR(new Date(seg[0]))}→${fmtBR(new Date(seg[1]))}, ×${peak})` : ''}`); }
     let gm = new Date(axisStart), gl = ''; while (gm < axisEnd) { gl += `<div class="rt-gl" style="left:${xOf(+gm)}px"></div>`; gm = new Date(gm.getFullYear(), gm.getMonth() + 1, 1); }
     const bars = placed.map(({ e, r }) => { const left = xOf(+dS(e)), w = Math.max(10, xOf(+dE(e)) - left); const color = RT_STATUS_COLOR[e.status] || RT_STATUS_COLOR[e.jiraStatus] || '#48507D'; const nm = (e.summary || e.key).length > 26 ? e.summary.slice(0, 25) + '…' : (e.summary || e.key); const ed = isEdited(e.key); return `<div class="rt-bar${splitKeys.has(e.key) ? ' split' : ''}${hasDate(e) ? '' : ' est'}${ed ? ' edited' : ''}" data-key="${e.key}" style="left:${left}px;top:${LOADH + 6 + r * ROWH}px;width:${w}px;background:${color}" title="${escapeHtml(e.key + ' · ' + (e.summary || ''))}\n${fmtBR(dS(e))}–${fmtBR(dE(e))}${hasDate(e) ? '' : ' (estimado — sem data no JIRA)'}${ed ? ' · ✎ replanejado' : ''} · ${e.effectiveSp||0} SP\n↔ arraste move · bordas redimensionam · solte em outra raia p/ reatribuir"><b>${e.key}</b><span>${escapeHtml(nm)}</span></div>`; }).join('');
     const hot = peak >= 2;
     const sub = `<span class="rt-peak ${hot ? 'hot' : 'ok'}">${dated.length} c/ data${hot ? ` · ×${peak} simultâneas` : ''}${nUndated ? ` · +${nUndated} sem data` : ''}</span>`;
-    return `<div class="rt-lane" data-name="${escapeHtml(label)}" data-acct="${acct || ''}"><div class="rt-head" style="width:${LABEL}px"><div class="rt-nm">${escapeHtml(label)}</div>${sub}</div><div class="rt-body" style="width:${W}px;height:${bodyH}px">${gl}${todayInRange ? `<div class="rt-today" style="left:${todayX}px"></div>` : ''}${loadHtml}${bars}</div></div>`;
+    return `<div class="rt-lane" data-name="${escapeHtml(label)}" data-acct="${acct || ''}"><div class="rt-head" style="width:${LABEL}px"><div class="rt-nm">${escapeHtml(display)}</div>${sub}</div><div class="rt-body" style="width:${W}px;height:${bodyH}px">${gl}${todayInRange ? `<div class="rt-today" style="left:${todayX}px"></div>` : ''}${loadHtml}${bars}</div></div>`;
   }).join('');
   const pend = computePending();
   const actions = pend.length
@@ -1090,7 +1094,7 @@ function openApplyModal(){
     const parts = [];
     if (p.ch.start) parts.push(`<div class="rt-df"><span class="lb">Início</span> <span class="old">${p.ch.start.from || '—'}</span> → <span class="new">${p.ch.start.to || '—'}</span></div>`);
     if (p.ch.due) parts.push(`<div class="rt-df"><span class="lb">Due</span> <span class="old">${p.ch.due.from || '—'}</span> → <span class="new">${p.ch.due.to || '—'}</span></div>`);
-    if (p.ch.assignee) parts.push(`<div class="rt-df"><span class="lb">Responsável</span> <span class="old">${escapeHtml(p.ch.assignee.from)}</span> → <span class="new">${escapeHtml(p.ch.assignee.to)}</span></div>`);
+    if (p.ch.assignee) parts.push(`<div class="rt-df"><span class="lb">Track</span> <span class="old">${escapeHtml(rtTrack(p.ch.assignee.from))}</span> → <span class="new">${escapeHtml(rtTrack(p.ch.assignee.to))}</span></div>`);
     return `<div class="rt-prow"><div class="rt-pk"><b>${p.key}</b><span>${escapeHtml((p.summary||'').slice(0,44))}</span></div><div class="rt-pc">${parts.join('')}</div></div>`;
   }).join('');
   host.innerHTML = `<div class="rt-mbd"></div><div class="rt-mbox"><div class="rt-mhd">Aplicar no JIRA · ${pend.length} demanda(s)</div>` +
@@ -1235,7 +1239,7 @@ function renderTable(sched){
       {name:'Summary', formatter:v=>cell(esc(v), v, 'cl2')},
       {name:'Status', width:'150px', formatter:(v,row)=>cell(`<span class="badge ${row.cells[11].data}">${esc(v)}</span>`, v, 'cl1')},
       {name:'Prio', width:'95px', formatter:v=>cell(`<span class="badge prio-${String(v).toLowerCase()}">${esc(v)}</span>`, v, 'cl1')},
-      {name:'Responsável', width:'150px', formatter:v=>cell(esc(v), v, 'cl2')},
+      {name:'Track', width:'150px', formatter:v=>{ const t=rtTrack(v||'Sem responsável'); return cell(esc(t), t, 'cl2'); }},
       {name:'SP', width:'70px', sort:{compare:(a,b)=>(parseFloat(a)||0)-(parseFloat(b)||0)}, formatter:v=>cell(esc(v), v, 'cl1')},
       {name:'Fonte', width:'110px', formatter:v=>cell(`<span class="badge src-${esc(v)}">${esc(v)}</span>`, v, 'cl1')},
       {name:'Local', width:'85px', formatter:v=>cell(esc(v), v, 'cl1')},
@@ -1384,7 +1388,7 @@ function openDrawer(key){
     <div class="dgrid">
       <span class="lbl">Status</span><span>${e.status}</span>
       <span class="lbl">Prioridade</span><span>${e.priority}</span>
-      <span class="lbl">Responsável</span><span>${e.key===DEDICATED.epic ? '— <span style="color:var(--kruzer-neutral-700)">(track dedicada, sem recurso)</span>' : (e.assignee || '—')}</span>
+      <span class="lbl">Track</span><span>${e.key===DEDICATED.epic ? '— <span style="color:var(--kruzer-neutral-700)">(track dedicada, sem recurso)</span>' : escapeHtml(rtTrack(e.assignee || 'Sem responsável'))}</span>
       <span class="lbl">Start (JIRA)</span><span>${fmtBR(e.jiraStart)}</span>
       <span class="lbl">Due (JIRA)</span><span>${fmtBR(e.jiraDue)}</span>
       <span class="lbl">SP do épico</span><span>${e.jiraSp!=null?e.jiraSp:'—'}</span>
