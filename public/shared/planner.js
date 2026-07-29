@@ -420,12 +420,10 @@ function render(){
   LAST_SCHEDULE = sched;
   publishSchedule(sched);
   renderKPIs(sched);
-  renderBoard(sched);
+  renderResourceTimeline(sched);   // superfície única (board de tracks foi derrubado)
   renderBacklog(sched);
-  renderHeatmap(sched);
-  renderResourceTimeline(sched);
   renderTable(sched);
-  wireSortables();
+  const bsec = document.getElementById('boardSection'); if (bsec) bsec.style.display = 'none';
   document.getElementById('subtitle').textContent =
     `${EPICS.length} épicos • squad ${sched.squad} h/sem (${STATE.devs} pessoas × ${STATE.velocityPerDev}) · ${STATE.parallelTracks} tracks → ${sched.throughputPerTrack.toFixed(0)} h/sem por track`
     + (STATE.whatIfMode ? ' · ⚠ MODO WHAT-IF' : '');
@@ -534,9 +532,8 @@ function wireLaneOverlap(){
 // Re-renderiza board + tabela juntos (mantém expansão sincronizada) + re-wire drag.
 function rerenderExpansion(){
   if (!LAST_SCHEDULE) return;
-  renderBoard(LAST_SCHEDULE);
+  renderResourceTimeline(LAST_SCHEDULE);
   renderTable(LAST_SCHEDULE);
-  wireSortables();
 }
 function wireBoardCarets(){
   document.querySelectorAll('#lanes .blk-caret').forEach(el => {
@@ -674,8 +671,12 @@ const RT_STATUS_COLOR = {
 };
 function ensureRTHost(){
   let h = document.getElementById('resourceTimeline');
-  if (!h){ h = document.createElement('div'); h.id = 'resourceTimeline'; h.className = 'rt-view';
-    const bs = document.getElementById('boardScroll'); if (bs && bs.parentNode) bs.parentNode.insertBefore(h, bs); }
+  if (!h){ h = document.createElement('div'); h.id = 'resourceTimeline'; h.className = 'rt-view section';
+    // Âncora ANTES da seção do board de tracks (que agora fica oculta) — assim a
+    // timeline é a superfície única e não some junto com o board.
+    const sec = document.getElementById('boardSection');
+    if (sec && sec.parentNode) sec.parentNode.insertBefore(h, sec);
+    else { const bs = document.getElementById('boardScroll'); if (bs && bs.parentNode) bs.parentNode.insertBefore(h, bs); } }
   return h;
 }
 function loadColor(n){ return n >= 3 ? '#EE6A5F' : n === 2 ? '#F5B54B' : '#86C99A'; }
