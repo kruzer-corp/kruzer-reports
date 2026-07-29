@@ -35,7 +35,7 @@ window.KruzerAPI = window.KruzerAPI || (function(){
 // ============================================================================
 const PROJECT = CFG.project, JIRA_BASE = 'https://kruzer.atlassian.net';
 // FastShop estima em HORAS (não tem story points). A unidade de esforço aqui é hora.
-const EPIC_FIELDS = ['summary','status','priority','labels','duedate','customfield_10015','timeoriginalestimate','aggregatetimeoriginalestimate'];
+const EPIC_FIELDS = ['summary','status','priority','labels','duedate','customfield_10015','timeoriginalestimate','aggregatetimeoriginalestimate','assignee'];
 // customfield_10015 = Start date · timeoriginalestimate = estimativa em segundos
 
 const TSHIRT = { XS:8, S:20, M:40, L:80, XL:160 };   // em HORAS
@@ -189,6 +189,7 @@ function normalizeEpic(issue){
     status,
     jiraStatus,
     priority: priorityTier(f.priority?.name),   // P0..P3
+    assignee: f.assignee?.displayName || 'Sem responsável',
     jiraStart,
     jiraDue: parseDate(f.duedate),
     jiraEstimateH: estSec != null ? Math.round(estSec / 3600 * 10) / 10 : null,
@@ -690,24 +691,26 @@ function renderResourceTimeline(sched){
   const W = Math.round(totalDays * PX_DAY), LABEL = 168, ROWH = 26, BARH = 22, LOADH = 12;
   const xOf = ms => Math.round(((startOfDay(new Date(ms)) - axisStart) / MS_DAY) * PX_DAY);
 
-  // agrupa por recurso
-  const byA = {}; items.forEach(e => { const a = e.assignee || 'Sem responsável'; (byA[a] = byA[a] || []).push(e); });
+  // agrupa por TRACK (frente de trabalho) — cada track vira uma raia por data.
+  // (assignee dos épicos do FST costuma ser vazio; a track é o "recurso" real aqui.)
+  const groups = [];
+  if (sched.dedEpic && sched.dedEpic.scheduledStart && sched.dedEpic.scheduledEnd)
+    groups.push({ label: (DEDICATED.label || 'Dedicada'), items: [sched.dedEpic] });
+  (sched.tracks || []).forEach((its, ti) => groups.push({ label: 'Track ' + (ti + 1), items: (its || []).filter(e => e.scheduledStart && e.scheduledEnd) }));
 
-  // segmentos de concorrência (sweep-line)
-  const segsOf = arr => {
-    const ev = []; arr.forEach(e => { ev.push([+startOfDay(e.scheduledStart), 1]); ev.push([+startOfDay(e.scheduledEnd), -1]); });
-    ev.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
-    const out = []; let cur = 0, prev = null;
-    ev.forEach(([t, d]) => { if (prev != null && t > prev && cur > 0) out.push([prev, t, cur]); cur += d; prev = t; });
-    return out;
-  };
-  // sub-linhas (interval graph)
+  // sub-linhas (interval graph): concorrentes vão pra linhas diferentes.
   const packRows = arr => {
     const its = arr.slice().sort((a, b) => a.scheduledStart - b.scheduledStart);
     const rowEnd = []; const placed = [];
     its.forEach(e => { let r = rowEnd.findIndex(end => +e.scheduledStart >= end); if (r < 0) { r = rowEnd.length; rowEnd.push(0); } rowEnd[r] = +e.scheduledEnd; placed.push({ e, r }); });
     return { placed, nrows: Math.max(1, rowEnd.length) };
   };
+  // Carga = SOMA das taxas semanais das demandas ativas na semana / capacidade da
+  // track. >110% = sobrecarga (afogado). É a leitura de "onde está sobrecarregado".
+  const WEEK = 7 * MS_DAY, thr = sched.throughputPerTrack || 1;
+  const rateOf = e => (e.effectiveSp || 0) / Math.max(1, (startOfDay(e.scheduledEnd) - startOfDay(e.scheduledStart)) / WEEK);
+  const weekPct = (arr, ws) => { const we = ws + WEEK; let s = 0; arr.forEach(e => { if (+startOfDay(e.scheduledStart) < we && +startOfDay(e.scheduledEnd) > ws) s += rateOf(e); }); return s / thr; };
+  const loadCol = p => p > 1.1 ? '#EE6A5F' : p > 1.0 ? '#F5B54B' : p >= 0.85 ? '#86C99A' : '#D8F0DE';
 
   // eixo de meses
   let axis = '';
@@ -716,45 +719,42 @@ function renderResourceTimeline(sched){
   const todayX = xOf(+sched.today);
   const todayInRange = sched.today >= axisStart && sched.today < axisEnd;
 
-  // raias
-  const order = Object.keys(byA).sort((a, b) => {
-    if (a === 'Sem responsável') return 1; if (b === 'Sem responsável') return -1;
-    const pa = Math.max(1, ...segsOf(byA[a]).map(s => s[2])), pb = Math.max(1, ...segsOf(byA[b]).map(s => s[2]));
-    return pb - pa;
-  });
+  // raias (uma por track, na ordem natural; só as que têm demanda datada)
   const leitura = [];
-  const lanes = order.map(a => {
-    const arr = byA[a]; const { placed, nrows } = packRows(arr); const segs = segsOf(arr);
-    const peak = Math.max(1, ...segs.map(s => s[2]));
+  const lanes = groups.filter(g => g.items.length).map(g => {
+    const arr = g.items, label = g.label; const { placed, nrows } = packRows(arr);
     const bodyH = LOADH + 6 + nrows * ROWH;
-    // itens em sobreposição (para contorno)
+    // itens em sobreposição (contorno) + carga semana a semana
     const splitKeys = new Set();
     for (let i = 0; i < arr.length; i++) for (let j = i + 1; j < arr.length; j++)
       if (arr[i].scheduledStart < arr[j].scheduledEnd && arr[j].scheduledStart < arr[i].scheduledEnd) { splitKeys.add(arr[i].key); splitKeys.add(arr[j].key); }
-    if (peak >= 2) {
-      const ks = [...splitKeys]; const seg = segs.filter(s => s[2] >= 2).sort((x, y) => (x[1]-x[0])-(y[1]-y[0])).pop();
-      leitura.push(`<b>${escapeHtml(a)}</b> em ${ks.join(' + ')}${seg ? ` (${fmtBR(new Date(seg[0]))}→${fmtBR(new Date(seg[1]))}, ×${peak})` : ''}`);
+    let loadHtml = '', peakPct = 0, overFrom = null, overTo = null;
+    for (let ws = +axisStart; ws < +axisEnd; ws += WEEK) {
+      const p = weekPct(arr, ws); if (p > peakPct) peakPct = p;
+      if (p > 1.1) { if (overFrom == null) overFrom = ws; overTo = ws + WEEK; }
+      const x = xOf(ws), w = Math.max(1, xOf(ws + WEEK) - x);
+      loadHtml += `<div class="rt-load" style="left:${x}px;width:${w}px;background:${loadCol(p)}" title="${fmtBR(new Date(ws))}: ${(p*100).toFixed(0)}% da capacidade da track">${p > 1.1 && w > 22 ? (p*100).toFixed(0)+'%' : ''}</div>`;
     }
-    const loadHtml = segs.map(([f, t, n]) => `<div class="rt-load" style="left:${xOf(f)}px;width:${Math.max(2, xOf(t) - xOf(f))}px;background:${loadColor(n)}">${n >= 2 && xOf(t) - xOf(f) > 26 ? '×' + n : ''}</div>`).join('');
-    const grid = ['']; // month gridlines inside lane
+    if (peakPct > 1.1) leitura.push(`<b>${escapeHtml(label)}</b> ${(peakPct*100).toFixed(0)}% no pico${overFrom ? ` (${fmtBR(new Date(overFrom))}→${fmtBR(new Date(overTo))})` : ''}`);
     let gm = new Date(axisStart); let gl = '';
     while (gm < axisEnd) { gl += `<div class="rt-gl" style="left:${xOf(+gm)}px"></div>`; gm = new Date(gm.getFullYear(), gm.getMonth() + 1, 1); }
     const bars = placed.map(({ e, r }) => {
       const left = xOf(+e.scheduledStart), w = Math.max(10, xOf(+e.scheduledEnd) - left);
       const color = RT_STATUS_COLOR[e.status] || '#48507D';
       const nm = (e.summary || e.key).length > 26 ? e.summary.slice(0, 25) + '…' : (e.summary || e.key);
-      return `<div class="rt-bar${splitKeys.has(e.key) ? ' split' : ''}" style="left:${left}px;top:${LOADH + 6 + r * ROWH}px;width:${w}px;background:${color}" title="${escapeHtml(e.key + ' · ' + (e.summary || ''))}\n${fmtBR(e.scheduledStart)}–${fmtBR(e.scheduledEnd)}">` +
+      return `<div class="rt-bar${splitKeys.has(e.key) ? ' split' : ''}" style="left:${left}px;top:${LOADH + 6 + r * ROWH}px;width:${w}px;background:${color}" title="${escapeHtml(e.key + ' · ' + (e.summary || ''))}\n${fmtBR(e.scheduledStart)}–${fmtBR(e.scheduledEnd)} · ${e.effectiveSp||0}h${e.assignee && e.assignee!=='Sem responsável' ? '\n'+e.assignee : ''}">` +
         `<b>${e.key}</b><span>${escapeHtml(nm)}</span></div>`;
     }).join('');
-    const sub = peak >= 2 ? `<span class="rt-peak hot">${arr.length} demandas · pico ×${peak}</span>` : `<span class="rt-peak ok">${arr.length} demanda${arr.length>1?'s':''} · ×1</span>`;
-    return `<div class="rt-lane"><div class="rt-head" style="width:${LABEL}px"><div class="rt-nm">${escapeHtml(a)}</div>${sub}</div>` +
+    const hot = peakPct > 1.1;
+    const sub = `<span class="rt-peak ${hot ? 'hot' : 'ok'}">${arr.length} demanda${arr.length>1?'s':''} · pico ${(peakPct*100).toFixed(0)}%</span>`;
+    return `<div class="rt-lane"><div class="rt-head" style="width:${LABEL}px"><div class="rt-nm">${escapeHtml(label)}</div>${sub}</div>` +
       `<div class="rt-body" style="width:${W}px;height:${bodyH}px">${gl}${todayInRange ? `<div class="rt-today" style="left:${todayX}px"></div>` : ''}${loadHtml}${bars}</div></div>`;
   }).join('');
 
   host.innerHTML =
-    `<div class="rt-title">Alocação por recurso · sobreposição no tempo <span>— barra = demanda (por data); faixa = carga (×1 ok · ×2 dividido · ×3+ sobrecarga).</span></div>` +
-    (leitura.length ? `<div class="rt-read">⚠ Recurso dividido: ${leitura.join(' · ')}</div>` : `<div class="rt-read ok">Sem recurso dividido no período — cada demanda com folga de capacidade.</div>`) +
-    `<div class="rt-legend"><span><i style="background:#86C99A"></i>×1</span><span><i style="background:#F5B54B"></i>×2 dividido</span><span><i style="background:#EE6A5F"></i>×3+</span></div>` +
+    `<div class="rt-title">Alocação por track · sobreposição no tempo <span>— cada raia é uma track; barra = demanda (por data). A faixa = <b>carga vs capacidade da track</b> por semana; >110% = sobrecarga.</span></div>` +
+    (leitura.length ? `<div class="rt-read">⚠ Track sobrecarregada: ${leitura.join(' · ')}</div>` : `<div class="rt-read ok">Nenhuma track acima de 110% no período.</div>`) +
+    `<div class="rt-legend"><span><i style="background:#D8F0DE"></i>folga</span><span><i style="background:#86C99A"></i>~ok</span><span><i style="background:#F5B54B"></i>100–110%</span><span><i style="background:#EE6A5F"></i>&gt;110% afogado</span></div>` +
     `<div class="rt-scroll"><div class="rt-axis" style="margin-left:${LABEL}px;width:${W}px;height:18px">${axis}${todayInRange ? `<div class="rt-today" style="left:${todayX}px"></div>` : ''}</div>${lanes}</div>`;
 }
 

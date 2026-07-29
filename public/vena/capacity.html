@@ -927,28 +927,34 @@ function renderResourceTimeline(sched){
   const PX_DAY = Math.min(11, Math.max(4, Math.round(880 / totalDays)));
   const W = Math.round(totalDays * PX_DAY), LABEL = 168, ROWH = 26, LOADH = 12;
   const xOf = ms => Math.round(((startOfDay(new Date(ms)) - axisStart) / MS_DAY) * PX_DAY);
-  const byA = {}; items.forEach(e => { const a = e.assignee || 'Sem responsável'; (byA[a] = byA[a] || []).push(e); });
-  const segsOf = arr => { const ev = []; arr.forEach(e => { ev.push([+startOfDay(e.scheduledStart), 1]); ev.push([+startOfDay(e.scheduledEnd), -1]); }); ev.sort((a, b) => a[0] - b[0] || a[1] - b[1]); const out = []; let cur = 0, prev = null; ev.forEach(([t, d]) => { if (prev != null && t > prev && cur > 0) out.push([prev, t, cur]); cur += d; prev = t; }); return out; };
+  const groups = [];
+  if (sched.dedEpic && sched.dedEpic.scheduledStart && sched.dedEpic.scheduledEnd) groups.push({ label: (DEDICATED.label || 'Dedicada'), items: [sched.dedEpic] });
+  (sched.tracks || []).forEach((its, ti) => groups.push({ label: 'Track ' + (ti + 1), items: (its || []).filter(e => e.scheduledStart && e.scheduledEnd) }));
   const packRows = arr => { const its = arr.slice().sort((a, b) => a.scheduledStart - b.scheduledStart); const rowEnd = []; const placed = []; its.forEach(e => { let r = rowEnd.findIndex(end => +e.scheduledStart >= end); if (r < 0) { r = rowEnd.length; rowEnd.push(0); } rowEnd[r] = +e.scheduledEnd; placed.push({ e, r }); }); return { placed, nrows: Math.max(1, rowEnd.length) }; };
+  const WEEK = 7 * MS_DAY, thr = sched.throughputPerTrack || 1;
+  const rateOf = e => (e.effectiveSp || 0) / Math.max(1, (startOfDay(e.scheduledEnd) - startOfDay(e.scheduledStart)) / WEEK);
+  const weekPct = (arr, ws) => { const we = ws + WEEK; let s = 0; arr.forEach(e => { if (+startOfDay(e.scheduledStart) < we && +startOfDay(e.scheduledEnd) > ws) s += rateOf(e); }); return s / thr; };
+  const loadCol = p => p > 1.1 ? '#EE6A5F' : p > 1.0 ? '#F5B54B' : p >= 0.85 ? '#86C99A' : '#D8F0DE';
   let axis = ''; let m = new Date(axisStart);
   while (m < axisEnd) { axis += `<div class="rt-mo" style="left:${xOf(+m)}px">${m.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')}</div>`; m = new Date(m.getFullYear(), m.getMonth() + 1, 1); }
   const todayX = xOf(+sched.today), todayInRange = sched.today >= axisStart && sched.today < axisEnd;
-  const order = Object.keys(byA).sort((a, b) => { if (a === 'Sem responsável') return 1; if (b === 'Sem responsável') return -1; const pa = Math.max(1, ...segsOf(byA[a]).map(s => s[2])), pb = Math.max(1, ...segsOf(byA[b]).map(s => s[2])); return pb - pa; });
   const leitura = [];
-  const lanes = order.map(a => {
-    const arr = byA[a]; const { placed, nrows } = packRows(arr); const segs = segsOf(arr); const peak = Math.max(1, ...segs.map(s => s[2])); const bodyH = LOADH + 6 + nrows * ROWH;
+  const lanes = groups.filter(g => g.items.length).map(g => {
+    const arr = g.items, label = g.label; const { placed, nrows } = packRows(arr); const bodyH = LOADH + 6 + nrows * ROWH;
     const splitKeys = new Set();
     for (let i = 0; i < arr.length; i++) for (let j = i + 1; j < arr.length; j++) if (arr[i].scheduledStart < arr[j].scheduledEnd && arr[j].scheduledStart < arr[i].scheduledEnd) { splitKeys.add(arr[i].key); splitKeys.add(arr[j].key); }
-    if (peak >= 2) { const ks = [...splitKeys]; const seg = segs.filter(s => s[2] >= 2).sort((x, y) => (x[1]-x[0])-(y[1]-y[0])).pop(); leitura.push(`<b>${escapeHtml(a)}</b> em ${ks.join(' + ')}${seg ? ` (${fmtBR(new Date(seg[0]))}→${fmtBR(new Date(seg[1]))}, ×${peak})` : ''}`); }
-    const loadHtml = segs.map(([f, t, n]) => `<div class="rt-load" style="left:${xOf(f)}px;width:${Math.max(2, xOf(t) - xOf(f))}px;background:${loadColor(n)}">${n >= 2 && xOf(t) - xOf(f) > 26 ? '×' + n : ''}</div>`).join('');
+    let loadHtml = '', peakPct = 0, overFrom = null, overTo = null;
+    for (let ws = +axisStart; ws < +axisEnd; ws += WEEK) { const p = weekPct(arr, ws); if (p > peakPct) peakPct = p; if (p > 1.1) { if (overFrom == null) overFrom = ws; overTo = ws + WEEK; } const x = xOf(ws), w = Math.max(1, xOf(ws + WEEK) - x); loadHtml += `<div class="rt-load" style="left:${x}px;width:${w}px;background:${loadCol(p)}" title="${fmtBR(new Date(ws))}: ${(p*100).toFixed(0)}% da capacidade da track">${p > 1.1 && w > 22 ? (p*100).toFixed(0)+'%' : ''}</div>`; }
+    if (peakPct > 1.1) leitura.push(`<b>${escapeHtml(label)}</b> ${(peakPct*100).toFixed(0)}% no pico${overFrom ? ` (${fmtBR(new Date(overFrom))}→${fmtBR(new Date(overTo))})` : ''}`);
     let gm = new Date(axisStart), gl = ''; while (gm < axisEnd) { gl += `<div class="rt-gl" style="left:${xOf(+gm)}px"></div>`; gm = new Date(gm.getFullYear(), gm.getMonth() + 1, 1); }
-    const bars = placed.map(({ e, r }) => { const left = xOf(+e.scheduledStart), w = Math.max(10, xOf(+e.scheduledEnd) - left); const color = RT_STATUS_COLOR[e.status] || RT_STATUS_COLOR[e.jiraStatus] || '#48507D'; const nm = (e.summary || e.key).length > 26 ? e.summary.slice(0, 25) + '…' : (e.summary || e.key); return `<div class="rt-bar${splitKeys.has(e.key) ? ' split' : ''}" style="left:${left}px;top:${LOADH + 6 + r * ROWH}px;width:${w}px;background:${color}" title="${escapeHtml(e.key + ' · ' + (e.summary || ''))}\n${fmtBR(e.scheduledStart)}–${fmtBR(e.scheduledEnd)}"><b>${e.key}</b><span>${escapeHtml(nm)}</span></div>`; }).join('');
-    const sub = peak >= 2 ? `<span class="rt-peak hot">${arr.length} demandas · pico ×${peak}</span>` : `<span class="rt-peak ok">${arr.length} demanda${arr.length>1?'s':''} · ×1</span>`;
-    return `<div class="rt-lane"><div class="rt-head" style="width:${LABEL}px"><div class="rt-nm">${escapeHtml(a)}</div>${sub}</div><div class="rt-body" style="width:${W}px;height:${bodyH}px">${gl}${todayInRange ? `<div class="rt-today" style="left:${todayX}px"></div>` : ''}${loadHtml}${bars}</div></div>`;
+    const bars = placed.map(({ e, r }) => { const left = xOf(+e.scheduledStart), w = Math.max(10, xOf(+e.scheduledEnd) - left); const color = RT_STATUS_COLOR[e.status] || RT_STATUS_COLOR[e.jiraStatus] || '#48507D'; const nm = (e.summary || e.key).length > 26 ? e.summary.slice(0, 25) + '…' : (e.summary || e.key); return `<div class="rt-bar${splitKeys.has(e.key) ? ' split' : ''}" style="left:${left}px;top:${LOADH + 6 + r * ROWH}px;width:${w}px;background:${color}" title="${escapeHtml(e.key + ' · ' + (e.summary || ''))}\n${fmtBR(e.scheduledStart)}–${fmtBR(e.scheduledEnd)} · ${e.effectiveSp||0} SP${e.assignee && e.assignee!=='Sem responsável' ? '\n'+e.assignee : ''}"><b>${e.key}</b><span>${escapeHtml(nm)}</span></div>`; }).join('');
+    const hot = peakPct > 1.1;
+    const sub = `<span class="rt-peak ${hot ? 'hot' : 'ok'}">${arr.length} demanda${arr.length>1?'s':''} · pico ${(peakPct*100).toFixed(0)}%</span>`;
+    return `<div class="rt-lane"><div class="rt-head" style="width:${LABEL}px"><div class="rt-nm">${escapeHtml(label)}</div>${sub}</div><div class="rt-body" style="width:${W}px;height:${bodyH}px">${gl}${todayInRange ? `<div class="rt-today" style="left:${todayX}px"></div>` : ''}${loadHtml}${bars}</div></div>`;
   }).join('');
-  host.innerHTML = `<div class="rt-title">Alocação por recurso · sobreposição no tempo <span>— barra = demanda (por data); faixa = carga (×1 ok · ×2 dividido · ×3+ sobrecarga).</span></div>` +
-    (leitura.length ? `<div class="rt-read">⚠ Recurso dividido: ${leitura.join(' · ')}</div>` : `<div class="rt-read ok">Sem recurso dividido no período.</div>`) +
-    `<div class="rt-legend"><span><i style="background:#86C99A"></i>×1</span><span><i style="background:#F5B54B"></i>×2 dividido</span><span><i style="background:#EE6A5F"></i>×3+</span></div>` +
+  host.innerHTML = `<div class="rt-title">Alocação por track · sobreposição no tempo <span>— cada raia é uma track; barra = demanda (por data). A faixa = <b>carga vs capacidade da track</b> por semana; >110% = sobrecarga.</span></div>` +
+    (leitura.length ? `<div class="rt-read">⚠ Track sobrecarregada: ${leitura.join(' · ')}</div>` : `<div class="rt-read ok">Nenhuma track acima de 110% no período.</div>`) +
+    `<div class="rt-legend"><span><i style="background:#D8F0DE"></i>folga</span><span><i style="background:#86C99A"></i>~ok</span><span><i style="background:#F5B54B"></i>100–110%</span><span><i style="background:#EE6A5F"></i>&gt;110% afogado</span></div>` +
     `<div class="rt-scroll"><div class="rt-axis" style="margin-left:${LABEL}px;width:${W}px;height:18px">${axis}${todayInRange ? `<div class="rt-today" style="left:${todayX}px"></div>` : ''}</div>${lanes}</div>`;
 }
 
