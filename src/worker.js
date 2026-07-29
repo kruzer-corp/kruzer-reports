@@ -669,11 +669,13 @@ async function handleUpdateIssue(request, env) {
   const { key, fields } = body || {};
   if (!key || typeof key !== 'string') return jsonError(400, 'Missing "key"');
   if (!fields || typeof fields !== 'object') return jsonError(400, 'Missing "fields"');
-  // Whitelist: só duedate é editável pelos dashboards (evita escrita arbitrária).
+  // Whitelist de campos editáveis pelos dashboards (evita escrita arbitrária).
   const allowed = {};
   if ('duedate' in fields) allowed.duedate = fields.duedate;   // 'YYYY-MM-DD' ou null
   if ('priority' in fields) allowed.priority = fields.priority; // { name: 'Highest'|'High'|'Medium'|'Low' }
-  if (!Object.keys(allowed).length) return jsonError(400, 'No editable fields (allowed: duedate, priority)');
+  if ('customfield_10015' in fields) allowed.customfield_10015 = fields.customfield_10015; // Start date 'YYYY-MM-DD' ou null
+  if ('assignee' in fields) allowed.assignee = fields.assignee; // { accountId } ou null (desatribui)
+  if (!Object.keys(allowed).length) return jsonError(400, 'No editable fields (allowed: duedate, priority, customfield_10015, assignee)');
   return forwardJira(env, 'PUT', `/rest/api/3/issue/${encodeURIComponent(key)}`, { fields: allowed });
 }
 

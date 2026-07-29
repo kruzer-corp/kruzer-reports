@@ -57,6 +57,10 @@ window.KruzerAPI = (function () {
   function updatePriority(key, name) {
     return postJson('/api/jira/issue-update', { key, fields: { priority: { name } } });
   }
+  // Escrita genérica (whitelist no worker): duedate, customfield_10015 (start), assignee, priority.
+  function updateFields(key, fields) {
+    return postJson('/api/jira/issue-update', { key, fields });
+  }
 
   // Roster = usuários atribuíveis do JIRA nos projetos (inclui quem não pegou épico).
   async function fetchRoster(projects) {
@@ -75,5 +79,5 @@ window.KruzerAPI = (function () {
     return Array.isArray(data && data.projects) ? data.projects : [];
   }
 
-  return { jqlPage, fetchAll, addComment, updateDueDate, updatePriority, fetchRoster, fetchProjects };
+  return { jqlPage, fetchAll, addComment, updateDueDate, updatePriority, updateFields, fetchRoster, fetchProjects };
 })();

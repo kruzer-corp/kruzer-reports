@@ -48,7 +48,7 @@ const LS = {
   current: CFG.lsCurrent,
   saved:   CFG.lsSaved,
 };
-const SCHEMA_VERSION = 2; // bump descarta overrides antigos (aplica DEFAULT_TRACK novo)
+const SCHEMA_VERSION = 3; // bump descarta overrides antigos (aplica DEFAULT_TRACK novo)
 // FST não tem track dedicada — sentinela que nunca casa com nenhum épico.
 const DEDICATED = { epic: CFG.dedicatedEpic, label: '' };
 // Posição default de track por épico (índice 0-based). Pick & Pack começa na Track 2.
@@ -125,6 +125,8 @@ function defaultState(){
     dependencies: {},       // epicKey -> [epicKeys]
     trackParallelism: {},   // trackIdx -> grau de paralelismo (2+ = sobreposição permitida)
     childDone: {},          // childKey -> bool (override manual de done)
+    dateOverride: {},       // demandKey -> { start:'YYYY-MM-DD'|null, due:'YYYY-MM-DD'|null } (replaneja no cenário)
+    assigneeOverride: {},   // demandKey -> { accountId, name } | null (null = tira o responsável)
     whatIfMode: false,
     createdAt: new Date().toISOString(),
   };
@@ -190,6 +192,7 @@ function normalizeEpic(issue){
     jiraStatus,
     priority: priorityTier(f.priority?.name),   // P0..P3
     assignee: f.assignee?.displayName || 'Sem responsável',
+    assigneeId: f.assignee?.accountId || null,  // p/ reatribuição e write-back no JIRA
     jiraStart,
     jiraDue: parseDate(f.duedate),
     jiraEstimateH: estSec != null ? Math.round(estSec / 3600 * 10) / 10 : null,
@@ -676,17 +679,45 @@ function ensureRTHost(){
   return h;
 }
 function loadColor(n){ return n >= 3 ? '#EE6A5F' : n === 2 ? '#F5B54B' : '#86C99A'; }
+// ---- Camada de override (replaneja no cenário, sem tocar no JIRA) -----------
+let RT_EDIT = null; // geometria da timeline p/ traduzir arraste → dias
+function isoDay(d){ return d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` : null; }
+function ovStartD(e){ const o = STATE.dateOverride[e.key]; return (o && o.start) ? startOfDay(new Date(o.start + 'T00:00:00')) : e.jiraStart; }
+function ovDueD(e){ const o = STATE.dateOverride[e.key]; return (o && o.due) ? startOfDay(new Date(o.due + 'T00:00:00')) : e.jiraDue; }
+function effAssigneeName(e){ const o = STATE.assigneeOverride; return Object.prototype.hasOwnProperty.call(o, e.key) ? (o[e.key] ? o[e.key].name : 'Sem responsável') : ((e.assignee && e.assignee.trim()) || 'Sem responsável'); }
+function effAssigneeId(e){ const o = STATE.assigneeOverride; return Object.prototype.hasOwnProperty.call(o, e.key) ? (o[e.key] ? o[e.key].accountId : null) : (e.assigneeId || null); }
+function isEdited(k){ return !!STATE.dateOverride[k] || Object.prototype.hasOwnProperty.call(STATE.assigneeOverride, k); }
+// Demandas cujo efetivo (cenário) difere do JIRA real → o que o "Aplicar no JIRA" grava.
+function computePending(){
+  const out = [];
+  (EPICS || []).forEach(e => {
+    const ch = {};
+    const od = STATE.dateOverride[e.key];
+    if (od){
+      const curStart = isoDay(e.jiraStart), curDue = isoDay(e.jiraDue);
+      if (od.start !== undefined && (od.start || null) !== curStart) ch.start = { from: curStart, to: od.start || null };
+      if (od.due   !== undefined && (od.due   || null) !== curDue)   ch.due   = { from: curDue,   to: od.due   || null };
+    }
+    if (Object.prototype.hasOwnProperty.call(STATE.assigneeOverride, e.key)){
+      const ov = STATE.assigneeOverride[e.key];
+      const curId = e.assigneeId || null, newId = ov ? ov.accountId : null;
+      if (newId !== curId) ch.assignee = { from: e.assignee || 'Sem responsável', to: ov ? ov.name : 'Sem responsável', accountId: newId };
+    }
+    if (Object.keys(ch).length) out.push({ key: e.key, summary: e.summary, ch });
+  });
+  return out;
+}
+
 function renderResourceTimeline(sched){
   const host = ensureRTHost();
   const all = sched.placed.concat(sched.dedEpic ? [sched.dedEpic] : []);
-  // POSICIONA POR DATAS REAIS DO JIRA (start/due). A projeção do engine é serial
-  // (uma demanda após a outra) — então QUALQUER view dela parece "linear" e some
-  // com a sobreposição. As datas reais é que revelam onde os recursos de fato se
-  // sobrepõem (ex.: FST-1 + FST-135 no mesmo recurso, concorrentes com FST-138).
-  const dS = e => startOfDay(e.jiraStart || e.scheduledStart);
-  const dE = e => { const s = dS(e); let en = startOfDay(e.jiraDue || e.scheduledEnd || addDays(s, 7)); if (+en <= +s) en = addDays(s, 7); return en; };
-  const items = all.filter(e => (e.jiraStart || e.scheduledStart) && (e.jiraDue || e.scheduledEnd));
-  if (!items.length){ host.style.display = 'none'; host.innerHTML = ''; return; }
+  // POSICIONA POR DATAS REAIS DO JIRA (start/due), com override de cenário por cima.
+  // A projeção do engine é serial → parece "linear"; as datas reais revelam a
+  // sobreposição verdadeira. Editar arrastando grava só no override (cenário).
+  const dS = e => startOfDay(ovStartD(e) || e.scheduledStart);
+  const dE = e => { const s = dS(e); let en = startOfDay(ovDueD(e) || e.scheduledEnd || addDays(s, 7)); if (+en <= +s) en = addDays(s, 7); return en; };
+  const items = all.filter(e => (ovStartD(e) || e.scheduledStart) && (ovDueD(e) || e.scheduledEnd));
+  if (!items.length){ host.style.display = 'none'; host.innerHTML = ''; RT_EDIT = null; return; }
   host.style.display = '';
   const minMs = Math.min(...items.map(e => +dS(e)));
   const maxMs = Math.max(...items.map(e => +dE(e)));
@@ -696,39 +727,32 @@ function renderResourceTimeline(sched){
   const PX_DAY = Math.min(11, Math.max(4, Math.round(880 / totalDays)));
   const W = Math.round(totalDays * PX_DAY), LABEL = 168, ROWH = 26, LOADH = 12;
   const xOf = ms => Math.round(((startOfDay(new Date(ms)) - axisStart) / MS_DAY) * PX_DAY);
+  RT_EDIT = { axisStartMs: +axisStart, pxDay: PX_DAY, W, label: LABEL };
 
-  // AGRUPA POR RECURSO (assignee). "Sem responsável" fica por último. Cada demanda
-  // é posicionada pela sua janela real; concorrentes do mesmo recurso empilham.
+  // AGRUPA POR RECURSO (assignee efetivo). "Sem responsável" fica por último.
   const byA = new Map();
-  items.forEach(e => { const k = (e.assignee && e.assignee.trim()) || 'Sem responsável'; if (!byA.has(k)) byA.set(k, []); byA.get(k).push(e); });
+  items.forEach(e => { const k = effAssigneeName(e); if (!byA.has(k)) byA.set(k, []); byA.get(k).push(e); });
 
-  // concorrência (sweep-line): quantas demandas o recurso tem AO MESMO TEMPO.
   const segsOf = arr => { const ev = []; arr.forEach(e => { ev.push([+dS(e), 1]); ev.push([+dE(e), -1]); }); ev.sort((a, b) => a[0] - b[0] || a[1] - b[1]); const out = []; let cur = 0, prev = null; ev.forEach(([t, d]) => { if (prev != null && t > prev && cur > 0) out.push([prev, t, cur]); cur += d; prev = t; }); return out; };
-  // sub-linhas (interval graph): concorrentes vão pra linhas diferentes.
   const packRows = arr => { const its = arr.slice().sort((a, b) => +dS(a) - +dS(b)); const rowEnd = []; const placed = []; its.forEach(e => { let r = rowEnd.findIndex(end => +dS(e) >= end); if (r < 0) { r = rowEnd.length; rowEnd.push(0); } rowEnd[r] = +dE(e); placed.push({ e, r }); }); return { placed, nrows: Math.max(1, rowEnd.length) }; };
   const countCol = n => n >= 3 ? '#EE6A5F' : n === 2 ? '#F5B54B' : '#86C99A';
 
-  // eixo de meses
   let axis = ''; let m = new Date(axisStart);
   while (m < axisEnd) { axis += `<div class="rt-mo" style="left:${xOf(+m)}px">${m.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')}</div>`; m = new Date(m.getFullYear(), m.getMonth() + 1, 1); }
   const todayX = xOf(+sched.today), todayInRange = sched.today >= axisStart && sched.today < axisEnd;
 
-  // Sinal de sobrecarga vem SÓ das demandas COM data real — senão as sem-data
-  // (posicionadas por estimativa) inventariam concorrência fantasma. As sem-data
-  // aparecem como barras hachuradas (contexto), mas nunca disparam alerta.
-  const hasDate = e => !!(e.jiraStart || e.jiraDue);
+  const hasDate = e => !!(ovStartD(e) || ovDueD(e));
   const peakOf = arr => Math.max(1, ...segsOf(arr.filter(hasDate)).map(s => s[2]));
-  const groups = [...byA.entries()].map(([label, arr]) => ({ label, arr, peak: peakOf(arr) }));
+  const groups = [...byA.entries()].map(([label, arr]) => ({ label, arr, peak: peakOf(arr), acct: effAssigneeId(arr[0]) }));
   groups.sort((a, b) => (a.label === 'Sem responsável') - (b.label === 'Sem responsável') || b.peak - a.peak || a.label.localeCompare(b.label));
 
   const leitura = [];
-  const lanes = groups.map(({ label, arr, peak }) => {
+  const lanes = groups.map(({ label, arr, peak, acct }) => {
     const { placed, nrows } = packRows(arr); const dated = arr.filter(hasDate); const segs = segsOf(dated); const bodyH = LOADH + 6 + nrows * ROWH;
     const nUndated = arr.length - dated.length;
     const splitKeys = new Set();
     for (let i = 0; i < dated.length; i++) for (let j = i + 1; j < dated.length; j++)
       if (+dS(dated[i]) < +dE(dated[j]) && +dS(dated[j]) < +dE(dated[i])) { splitKeys.add(dated[i].key); splitKeys.add(dated[j].key); }
-    // faixa de carga = nº de demandas datadas simultâneas ao longo do tempo (×1/×2/×3+)
     const loadHtml = segs.map(([f, t, n]) => `<div class="rt-load" style="left:${xOf(f)}px;width:${Math.max(2, xOf(t) - xOf(f))}px;background:${countCol(n)}" title="${fmtBR(new Date(f))}–${fmtBR(new Date(t))}: ${n} demanda${n>1?'s':''} ao mesmo tempo">${n >= 2 && xOf(t) - xOf(f) > 22 ? '×' + n : ''}</div>`).join('');
     if (peak >= 2 && label !== 'Sem responsável') { const seg = segs.filter(s => s[2] >= 2).sort((x, y) => (x[1]-x[0])-(y[1]-y[0])).pop(); const ks = [...splitKeys]; leitura.push(`<b>${escapeHtml(label)}</b>: ${ks.join(' + ')}${seg ? ` (${fmtBR(new Date(seg[0]))}→${fmtBR(new Date(seg[1]))}, ×${peak})` : ''}`); }
     let gm = new Date(axisStart), gl = ''; while (gm < axisEnd) { gl += `<div class="rt-gl" style="left:${xOf(+gm)}px"></div>`; gm = new Date(gm.getFullYear(), gm.getMonth() + 1, 1); }
@@ -736,20 +760,131 @@ function renderResourceTimeline(sched){
       const left = xOf(+dS(e)), w = Math.max(10, xOf(+dE(e)) - left);
       const color = RT_STATUS_COLOR[e.status] || '#48507D';
       const nm = (e.summary || e.key).length > 26 ? e.summary.slice(0, 25) + '…' : (e.summary || e.key);
-      return `<div class="rt-bar${splitKeys.has(e.key) ? ' split' : ''}${hasDate(e) ? '' : ' est'}" style="left:${left}px;top:${LOADH + 6 + r * ROWH}px;width:${w}px;background:${color}" title="${escapeHtml(e.key + ' · ' + (e.summary || ''))}\n${fmtBR(dS(e))}–${fmtBR(dE(e))}${hasDate(e) ? '' : ' (estimado — sem data no JIRA)'} · ${e.effectiveSp||0}h">` +
+      const ed = isEdited(e.key);
+      return `<div class="rt-bar${splitKeys.has(e.key) ? ' split' : ''}${hasDate(e) ? '' : ' est'}${ed ? ' edited' : ''}" data-key="${e.key}" style="left:${left}px;top:${LOADH + 6 + r * ROWH}px;width:${w}px;background:${color}" title="${escapeHtml(e.key + ' · ' + (e.summary || ''))}\n${fmtBR(dS(e))}–${fmtBR(dE(e))}${hasDate(e) ? '' : ' (estimado — sem data no JIRA)'}${ed ? ' · ✎ replanejado' : ''} · ${e.effectiveSp||0}h\n↔ arraste move · bordas redimensionam · solte em outra raia p/ reatribuir">` +
         `<b>${e.key}</b><span>${escapeHtml(nm)}</span></div>`;
     }).join('');
     const hot = peak >= 2;
     const sub = `<span class="rt-peak ${hot ? 'hot' : 'ok'}">${dated.length} c/ data${hot ? ` · ×${peak} simultâneas` : ''}${nUndated ? ` · +${nUndated} sem data` : ''}</span>`;
-    return `<div class="rt-lane"><div class="rt-head" style="width:${LABEL}px"><div class="rt-nm">${escapeHtml(label)}</div>${sub}</div>` +
+    return `<div class="rt-lane" data-name="${escapeHtml(label)}" data-acct="${acct || ''}"><div class="rt-head" style="width:${LABEL}px"><div class="rt-nm">${escapeHtml(label)}</div>${sub}</div>` +
       `<div class="rt-body" style="width:${W}px;height:${bodyH}px">${gl}${todayInRange ? `<div class="rt-today" style="left:${todayX}px"></div>` : ''}${loadHtml}${bars}</div></div>`;
   }).join('');
+
+  const pend = computePending();
+  const actions = pend.length
+    ? `<div class="rt-actions"><button class="rt-apply" id="rtApply">Aplicar no JIRA (${pend.length})</button><button class="rt-revert" id="rtRevert">Reverter tudo</button><span class="rt-hint">${pend.length} demanda(s) replanejada(s) no cenário — nada foi gravado no JIRA ainda</span></div>`
+    : `<div class="rt-actions"><span class="rt-hint">Arraste as barras p/ replanejar datas · solte em outra raia p/ reatribuir · nada é gravado no JIRA até você aplicar</span></div>`;
 
   host.innerHTML =
     `<div class="rt-title">Alocação por recurso · sobreposição real <span>— barras nas <b>datas reais do JIRA</b>; a faixa mostra quantas demandas o recurso toca ao mesmo tempo (×2 dividido · ×3+ sobrecarregado).</span></div>` +
     (leitura.length ? `<div class="rt-read">⚠ Recurso dividido: ${leitura.join(' · ')}</div>` : `<div class="rt-read ok">Nenhum recurso com demandas concorrentes no período.</div>`) +
+    actions +
     `<div class="rt-legend"><span><i style="background:#86C99A"></i>×1</span><span><i style="background:#F5B54B"></i>×2 dividido</span><span><i style="background:#EE6A5F"></i>×3+ sobrecarga</span><span class="rt-est-lg">▨ estimado (sem data)</span></div>` +
     `<div class="rt-scroll"><div class="rt-axis" style="margin-left:${LABEL}px;width:${W}px;height:18px">${axis}${todayInRange ? `<div class="rt-today" style="left:${todayX}px"></div>` : ''}</div>${lanes}</div>`;
+
+  wireTimelineEditing(host);
+}
+
+// ---- Edição por arraste (move / resize / reatribuição) ----------------------
+function wireTimelineEditing(host){
+  const applyBtn = host.querySelector('#rtApply'); if (applyBtn) applyBtn.onclick = openApplyModal;
+  const revertBtn = host.querySelector('#rtRevert'); if (revertBtn) revertBtn.onclick = () => { if (confirm('Descartar todos os replanejamentos do cenário?')) { STATE.dateOverride = {}; STATE.assigneeOverride = {}; persist(); render(); } };
+  const scroll = host.querySelector('.rt-scroll'); if (!scroll || !RT_EDIT) return;
+  let drag = null;
+  const laneAt = (x, y) => { for (const lane of host.querySelectorAll('.rt-lane')) { const r = lane.getBoundingClientRect(); if (y >= r.top && y <= r.bottom) return { el: lane, name: lane.dataset.name, acct: lane.dataset.acct }; } return null; };
+  scroll.addEventListener('pointerdown', ev => {
+    const bar = ev.target.closest('.rt-bar'); if (!bar) return;
+    const r = bar.getBoundingClientRect(); const off = ev.clientX - r.left;
+    const mode = off < 9 ? 'l' : off > r.width - 9 ? 'r' : 'move';
+    drag = { key: bar.dataset.key, bar, mode, x0: ev.clientX, y0: ev.clientY, left0: parseFloat(bar.style.left) || 0, w0: parseFloat(bar.style.width) || 10, moved: false };
+    bar.setPointerCapture(ev.pointerId); bar.classList.add('dragging'); ev.preventDefault();
+  });
+  scroll.addEventListener('pointermove', ev => {
+    if (!drag) return;
+    const dx = ev.clientX - drag.x0;
+    if (Math.abs(dx) > 3 || Math.abs(ev.clientY - drag.y0) > 3) drag.moved = true;
+    if (drag.mode === 'move') drag.bar.style.left = (drag.left0 + dx) + 'px';
+    else if (drag.mode === 'l') { drag.bar.style.left = (drag.left0 + dx) + 'px'; drag.bar.style.width = Math.max(10, drag.w0 - dx) + 'px'; }
+    else drag.bar.style.width = Math.max(10, drag.w0 + dx) + 'px';
+    const lane = laneAt(ev.clientX, ev.clientY);
+    host.querySelectorAll('.rt-lane.drop').forEach(l => l.classList.remove('drop'));
+    if (lane && drag.mode === 'move') lane.el.classList.add('drop');
+  });
+  scroll.addEventListener('pointerup', ev => {
+    if (!drag) return; const d = drag; drag = null; d.bar.classList.remove('dragging');
+    host.querySelectorAll('.rt-lane.drop').forEach(l => l.classList.remove('drop'));
+    if (!d.moved) { openDrawer(d.key); return; }               // clique curto → drawer (SP/deps)
+    const dxDays = Math.round((ev.clientX - d.x0) / RT_EDIT.pxDay);
+    commitTimelineEdit(d, dxDays, ev.clientX, ev.clientY, laneAt);
+  });
+}
+function commitTimelineEdit(d, dxDays, clientX, clientY, laneAt){
+  const e = LAST_SCHEDULE && LAST_SCHEDULE.byKey[d.key]; if (!e){ render(); return; }
+  let cs = startOfDay(ovStartD(e) || e.scheduledStart);
+  let ce = startOfDay(ovDueD(e) || e.scheduledEnd || addDays(cs, 7)); if (+ce <= +cs) ce = addDays(cs, 7);
+  let ns = cs, nd = ce;
+  if (d.mode === 'move'){ ns = addDays(cs, dxDays); nd = addDays(ce, dxDays); }
+  else if (d.mode === 'l'){ ns = addDays(cs, dxDays); if (+ns >= +nd) ns = addDays(nd, -1); }
+  else { nd = addDays(ce, dxDays); if (+nd <= +ns) nd = addDays(ns, 1); }
+  STATE.dateOverride[d.key] = { start: isoDay(ns), due: isoDay(nd) };
+  if (d.mode === 'move'){
+    const lane = laneAt(clientX, clientY);
+    if (lane && lane.name !== effAssigneeName(e)){
+      if (lane.name === 'Sem responsável') STATE.assigneeOverride[d.key] = null;
+      else STATE.assigneeOverride[d.key] = { accountId: lane.acct || null, name: lane.name };
+    }
+  }
+  persist(); render();
+}
+
+// ---- Aplicar no JIRA (push em lote, com resumo e confirmação) ---------------
+function openApplyModal(){
+  const pend = computePending(); if (!pend.length) return;
+  let host = document.getElementById('rtApplyModal');
+  if (!host){ host = document.createElement('div'); host.id = 'rtApplyModal'; host.className = 'rt-modal'; document.body.appendChild(host); }
+  const rows = pend.map(p => {
+    const parts = [];
+    if (p.ch.start) parts.push(`<div class="rt-df"><span class="lb">Início</span> <span class="old">${p.ch.start.from || '—'}</span> → <span class="new">${p.ch.start.to || '—'}</span></div>`);
+    if (p.ch.due) parts.push(`<div class="rt-df"><span class="lb">Due</span> <span class="old">${p.ch.due.from || '—'}</span> → <span class="new">${p.ch.due.to || '—'}</span></div>`);
+    if (p.ch.assignee) parts.push(`<div class="rt-df"><span class="lb">Responsável</span> <span class="old">${escapeHtml(p.ch.assignee.from)}</span> → <span class="new">${escapeHtml(p.ch.assignee.to)}</span></div>`);
+    return `<div class="rt-prow"><div class="rt-pk"><b>${p.key}</b><span>${escapeHtml((p.summary||'').slice(0,44))}</span></div><div class="rt-pc">${parts.join('')}</div></div>`;
+  }).join('');
+  host.innerHTML = `<div class="rt-mbd"></div><div class="rt-mbox"><div class="rt-mhd">Aplicar no JIRA · ${pend.length} demanda(s)</div>` +
+    `<div class="rt-mwarn">Isto grava as datas/responsável direto no JIRA. Revise antes de confirmar.</div>` +
+    `<div class="rt-mlist">${rows}</div>` +
+    `<div class="rt-mft"><button class="rt-cancel" id="rtCancel">Cancelar</button><button class="rt-apply" id="rtConfirm">Confirmar e gravar</button></div>` +
+    `<div class="rt-mlog" id="rtLog"></div></div>`;
+  host.style.display = 'block';
+  host.querySelector('.rt-mbd').onclick = () => { host.style.display = 'none'; };
+  host.querySelector('#rtCancel').onclick = () => { host.style.display = 'none'; };
+  host.querySelector('#rtConfirm').onclick = () => applyPendingToJira(pend, host);
+}
+async function applyPendingToJira(pend, host){
+  const log = host.querySelector('#rtLog'); const confirm = host.querySelector('#rtConfirm');
+  confirm.disabled = true; confirm.textContent = 'Gravando…';
+  let ok = 0, fail = 0;
+  for (const p of pend){
+    const fields = {};
+    if (p.ch.start) fields.customfield_10015 = p.ch.start.to;
+    if (p.ch.due) fields.duedate = p.ch.due.to;
+    if (p.ch.assignee) fields.assignee = p.ch.assignee.accountId ? { accountId: p.ch.assignee.accountId } : null;
+    try {
+      await KruzerAPI.updateFields(p.key, fields);
+      ok++;
+      delete STATE.dateOverride[p.key]; delete STATE.assigneeOverride[p.key];
+      const e = (EPICS || []).find(x => x.key === p.key);
+      if (e){
+        if (p.ch.start) e.jiraStart = p.ch.start.to ? startOfDay(new Date(p.ch.start.to + 'T00:00:00')) : null;
+        if (p.ch.due) e.jiraDue = p.ch.due.to ? startOfDay(new Date(p.ch.due.to + 'T00:00:00')) : null;
+        if (p.ch.assignee){ e.assignee = p.ch.assignee.to; e.assigneeId = p.ch.assignee.accountId; }
+      }
+      log.innerHTML += `<div class="ok">✓ ${p.key}</div>`;
+    } catch (err){ fail++; log.innerHTML += `<div class="err">✗ ${p.key}: ${escapeHtml(String(err.message || err)).slice(0,120)}</div>`; }
+  }
+  persist(); render();
+  confirm.textContent = fail ? `Concluído com ${fail} erro(s)` : 'Concluído';
+  log.innerHTML += `<div class="sum">${ok} gravada(s)${fail ? `, ${fail} falha(s)` : ''}.</div>`;
+  if (!fail) setTimeout(() => { host.style.display = 'none'; }, 1200);
 }
 
 let gridInst = null;
