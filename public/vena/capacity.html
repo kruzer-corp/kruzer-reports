@@ -154,6 +154,30 @@ button:disabled { opacity: 0.6; cursor: wait; }
 .overlap-alert ul { margin: 0; padding-left: 18px; }
 .overlap-alert li { font-size: 12px; color: var(--kruzer-navy); line-height: 1.55; }
 .overlap-alert li b { color: var(--kruzer-primary-700); }
+.rt-view { margin: 0 0 14px; border: 1px solid var(--kruzer-neutral-300); border-radius: 10px; padding: 12px 14px; background: #fff; box-shadow: var(--shadow); }
+.rt-title { font-size: 13px; font-weight: 700; color: var(--kruzer-navy); margin-bottom: 6px; }
+.rt-title span { font-weight: 400; font-size: 11.5px; color: var(--kruzer-neutral-700); }
+.rt-read { font-size: 12.5px; color: #92400E; background: #FFFBEB; border: 1px solid #FDE68A; border-radius: 8px; padding: 7px 11px; margin-bottom: 8px; line-height: 1.5; }
+.rt-read.ok { color: #166534; background: #ECFDF5; border-color: #A7F3D0; }
+.rt-read b { color: var(--kruzer-navy); }
+.rt-legend { display: flex; gap: 14px; font-size: 11px; color: var(--kruzer-navy-300); margin-bottom: 10px; }
+.rt-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.rt-legend i { width: 16px; height: 10px; border-radius: 3px; display: inline-block; }
+.rt-scroll { overflow-x: auto; }
+.rt-axis { position: relative; }
+.rt-mo { position: absolute; top: 2px; font-size: 10px; font-weight: 700; color: var(--kruzer-navy-300); text-transform: uppercase; }
+.rt-lane { display: flex; align-items: stretch; border-top: 1px solid #EDEDF2; padding: 6px 0; }
+.rt-head { flex: none; padding-right: 10px; }
+.rt-head .rt-nm { font-size: 13px; font-weight: 700; color: var(--kruzer-navy); }
+.rt-peak { font-size: 10.5px; font-weight: 700; }
+.rt-peak.hot { color: #B42318; } .rt-peak.ok { color: #16a34a; }
+.rt-body { position: relative; flex: none; }
+.rt-gl { position: absolute; top: 0; bottom: 0; width: 1px; background: #EDEDF2; }
+.rt-today { position: absolute; top: 0; bottom: 0; width: 2px; background: rgba(240,68,56,.5); z-index: 2; }
+.rt-load { position: absolute; top: 2px; height: 12px; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 700; color: #7A3E00; }
+.rt-bar { position: absolute; height: 22px; border-radius: 5px; color: #fff; display: flex; align-items: center; gap: 6px; padding: 0 8px; box-sizing: border-box; overflow: hidden; font-size: 11px; }
+.rt-bar b { white-space: nowrap; } .rt-bar span { opacity: .9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rt-bar.split { box-shadow: 0 0 0 1.5px #B45309; }
 .block.overlapped { box-shadow: 0 0 0 2px #F04438, 0 1px 3px rgba(11,16,32,.15); }
 .block.overlapped::after { content: "⚠"; position: absolute; top: 2px; left: 4px; font-size: 9px; color: #fff; text-shadow: 0 0 2px rgba(0,0,0,.5); }
 
@@ -644,7 +668,7 @@ function render(){
   renderBoard(sched);
   renderBacklog(sched);
   renderHeatmap(sched);
-  renderOverlaps(sched);
+  renderResourceTimeline(sched);
   renderTable(sched);
   wireSortables();
   document.getElementById('subtitle').textContent =
@@ -724,14 +748,11 @@ function renderBoard(sched){
     const items = sched.tracks[ti] || [];
     const sumSp = items.reduce((a,e)=>a+e.effectiveSp,0);
     const lastEnd = items.reduce((m,e)=> e.scheduledEnd&&e.scheduledEnd>m?e.scheduledEnd:m, sched.today);
-    const par = Math.max(1, (STATE.trackParallelism && STATE.trackParallelism[ti]) || 1);
-    const ovBtn = `<button class="lane-overlap${par>1?' on':''}" data-track="${ti}" title="Sobreposição: flutuantes desta track rodam concorrentes, dividindo a capacidade (cada um ${par>1?par+'× ':''}mais lento). Clique p/ alternar 1→2→3.">⇄ ${par>1?('×'+par):'sobrepor'}</button>`;
     lh += `<div class="lane">
       <div class="lane-head">
         <div class="nm">Track ${ti+1}</div>
         <div class="mt">${items.length} épicos · ${sumSp} SP</div>
         <div class="mt">→ ${fmtBR(lastEnd)}</div>
-        ${ovBtn}
       </div>
       <div class="lane-strip" data-track="${ti}" style="min-width:${boardW}px">
         ${strip(items)}
@@ -740,7 +761,6 @@ function renderBoard(sched){
   }
   lanes.innerHTML = lh;
   wireBoardCarets();
-  wireLaneOverlap();
 }
 function wireLaneOverlap(){
   document.querySelectorAll('#lanes .lane-overlap').forEach(b => {
@@ -880,6 +900,56 @@ function renderOverlaps(sched){
   const li = ov.slice(0, 8).map(o => `<li>Track ${o.trackIdx+1}: <b>${escapeHtml(o.aKey)}</b> × <b>${escapeHtml(o.bKey)}</b> — ${fmtBR(new Date(o.fromISO))}–${fmtBR(new Date(o.toISO))} (${o.days}d)${o.loadPct?` · <b>${o.loadPct}%</b> da faixa`:''}</li>`).join('');
   const more = ov.length > 8 ? `<li>+ ${ov.length-8} outra(s)…</li>` : '';
   h.innerHTML = `<div class="ov-head">⚠ ${ov.length} sobreposição(ões) na esteira — demandas concorrentes disputando a mesma capacidade</div><ul>${li}${more}</ul>`;
+}
+
+// ── Alocação por recurso · sobreposição no tempo ──────────────────────────────
+const RT_STATUS_COLOR = {
+  'Hyper Care':'#12B76A','Em Execução':'#3151CE','Backlog':'#48507D','UAT':'#7C3AED',
+  'In Progress':'#3151CE','In Review':'#7C3AED','To Do':'#48507D','Done':'#12B76A','Em andamento':'#3151CE',
+};
+function ensureRTHost(){
+  let h = document.getElementById('resourceTimeline');
+  if (!h){ h = document.createElement('div'); h.id = 'resourceTimeline'; h.className = 'rt-view';
+    const bs = document.getElementById('boardScroll'); if (bs && bs.parentNode) bs.parentNode.insertBefore(h, bs); }
+  return h;
+}
+function loadColor(n){ return n >= 3 ? '#EE6A5F' : n === 2 ? '#F5B54B' : '#86C99A'; }
+function renderResourceTimeline(sched){
+  const host = ensureRTHost();
+  const items = sched.placed.concat(sched.dedEpic ? [sched.dedEpic] : []).filter(e => e.scheduledStart && e.scheduledEnd);
+  if (!items.length){ host.style.display = 'none'; host.innerHTML = ''; return; }
+  host.style.display = '';
+  const minMs = Math.min(...items.map(e => +startOfDay(e.scheduledStart)));
+  const maxMs = Math.max(...items.map(e => +startOfDay(e.scheduledEnd)));
+  const d0 = new Date(minMs), axisStart = new Date(d0.getFullYear(), d0.getMonth(), 1);
+  const d1 = new Date(maxMs), axisEnd = new Date(d1.getFullYear(), d1.getMonth() + 1, 1);
+  const totalDays = Math.max(30, (axisEnd - axisStart) / MS_DAY);
+  const PX_DAY = Math.min(11, Math.max(4, Math.round(880 / totalDays)));
+  const W = Math.round(totalDays * PX_DAY), LABEL = 168, ROWH = 26, LOADH = 12;
+  const xOf = ms => Math.round(((startOfDay(new Date(ms)) - axisStart) / MS_DAY) * PX_DAY);
+  const byA = {}; items.forEach(e => { const a = e.assignee || 'Sem responsável'; (byA[a] = byA[a] || []).push(e); });
+  const segsOf = arr => { const ev = []; arr.forEach(e => { ev.push([+startOfDay(e.scheduledStart), 1]); ev.push([+startOfDay(e.scheduledEnd), -1]); }); ev.sort((a, b) => a[0] - b[0] || a[1] - b[1]); const out = []; let cur = 0, prev = null; ev.forEach(([t, d]) => { if (prev != null && t > prev && cur > 0) out.push([prev, t, cur]); cur += d; prev = t; }); return out; };
+  const packRows = arr => { const its = arr.slice().sort((a, b) => a.scheduledStart - b.scheduledStart); const rowEnd = []; const placed = []; its.forEach(e => { let r = rowEnd.findIndex(end => +e.scheduledStart >= end); if (r < 0) { r = rowEnd.length; rowEnd.push(0); } rowEnd[r] = +e.scheduledEnd; placed.push({ e, r }); }); return { placed, nrows: Math.max(1, rowEnd.length) }; };
+  let axis = ''; let m = new Date(axisStart);
+  while (m < axisEnd) { axis += `<div class="rt-mo" style="left:${xOf(+m)}px">${m.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')}</div>`; m = new Date(m.getFullYear(), m.getMonth() + 1, 1); }
+  const todayX = xOf(+sched.today), todayInRange = sched.today >= axisStart && sched.today < axisEnd;
+  const order = Object.keys(byA).sort((a, b) => { if (a === 'Sem responsável') return 1; if (b === 'Sem responsável') return -1; const pa = Math.max(1, ...segsOf(byA[a]).map(s => s[2])), pb = Math.max(1, ...segsOf(byA[b]).map(s => s[2])); return pb - pa; });
+  const leitura = [];
+  const lanes = order.map(a => {
+    const arr = byA[a]; const { placed, nrows } = packRows(arr); const segs = segsOf(arr); const peak = Math.max(1, ...segs.map(s => s[2])); const bodyH = LOADH + 6 + nrows * ROWH;
+    const splitKeys = new Set();
+    for (let i = 0; i < arr.length; i++) for (let j = i + 1; j < arr.length; j++) if (arr[i].scheduledStart < arr[j].scheduledEnd && arr[j].scheduledStart < arr[i].scheduledEnd) { splitKeys.add(arr[i].key); splitKeys.add(arr[j].key); }
+    if (peak >= 2) { const ks = [...splitKeys]; const seg = segs.filter(s => s[2] >= 2).sort((x, y) => (x[1]-x[0])-(y[1]-y[0])).pop(); leitura.push(`<b>${escapeHtml(a)}</b> em ${ks.join(' + ')}${seg ? ` (${fmtBR(new Date(seg[0]))}→${fmtBR(new Date(seg[1]))}, ×${peak})` : ''}`); }
+    const loadHtml = segs.map(([f, t, n]) => `<div class="rt-load" style="left:${xOf(f)}px;width:${Math.max(2, xOf(t) - xOf(f))}px;background:${loadColor(n)}">${n >= 2 && xOf(t) - xOf(f) > 26 ? '×' + n : ''}</div>`).join('');
+    let gm = new Date(axisStart), gl = ''; while (gm < axisEnd) { gl += `<div class="rt-gl" style="left:${xOf(+gm)}px"></div>`; gm = new Date(gm.getFullYear(), gm.getMonth() + 1, 1); }
+    const bars = placed.map(({ e, r }) => { const left = xOf(+e.scheduledStart), w = Math.max(10, xOf(+e.scheduledEnd) - left); const color = RT_STATUS_COLOR[e.status] || RT_STATUS_COLOR[e.jiraStatus] || '#48507D'; const nm = (e.summary || e.key).length > 26 ? e.summary.slice(0, 25) + '…' : (e.summary || e.key); return `<div class="rt-bar${splitKeys.has(e.key) ? ' split' : ''}" style="left:${left}px;top:${LOADH + 6 + r * ROWH}px;width:${w}px;background:${color}" title="${escapeHtml(e.key + ' · ' + (e.summary || ''))}\n${fmtBR(e.scheduledStart)}–${fmtBR(e.scheduledEnd)}"><b>${e.key}</b><span>${escapeHtml(nm)}</span></div>`; }).join('');
+    const sub = peak >= 2 ? `<span class="rt-peak hot">${arr.length} demandas · pico ×${peak}</span>` : `<span class="rt-peak ok">${arr.length} demanda${arr.length>1?'s':''} · ×1</span>`;
+    return `<div class="rt-lane"><div class="rt-head" style="width:${LABEL}px"><div class="rt-nm">${escapeHtml(a)}</div>${sub}</div><div class="rt-body" style="width:${W}px;height:${bodyH}px">${gl}${todayInRange ? `<div class="rt-today" style="left:${todayX}px"></div>` : ''}${loadHtml}${bars}</div></div>`;
+  }).join('');
+  host.innerHTML = `<div class="rt-title">Alocação por recurso · sobreposição no tempo <span>— barra = demanda (por data); faixa = carga (×1 ok · ×2 dividido · ×3+ sobrecarga).</span></div>` +
+    (leitura.length ? `<div class="rt-read">⚠ Recurso dividido: ${leitura.join(' · ')}</div>` : `<div class="rt-read ok">Sem recurso dividido no período.</div>`) +
+    `<div class="rt-legend"><span><i style="background:#86C99A"></i>×1</span><span><i style="background:#F5B54B"></i>×2 dividido</span><span><i style="background:#EE6A5F"></i>×3+</span></div>` +
+    `<div class="rt-scroll"><div class="rt-axis" style="margin-left:${LABEL}px;width:${W}px;height:18px">${axis}${todayInRange ? `<div class="rt-today" style="left:${todayX}px"></div>` : ''}</div>${lanes}</div>`;
 }
 
 let gridInst = null;
