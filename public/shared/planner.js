@@ -127,6 +127,7 @@ function defaultState(){
     childDone: {},          // childKey -> bool (override manual de done)
     dateOverride: {},       // demandKey -> { start:'YYYY-MM-DD'|null, due:'YYYY-MM-DD'|null } (replaneja no cenário)
     assigneeOverride: {},   // demandKey -> { accountId, name } | null (null = tira o responsável)
+    team: [],               // [{ accountId, name }] — os devs do time; definem as tracks (Track N). Vazio = agrupa por assignee.
     whatIfMode: false,
     createdAt: new Date().toISOString(),
   };
@@ -684,6 +685,16 @@ function loadColor(n){ return n >= 3 ? '#EE6A5F' : n === 2 ? '#F5B54B' : '#86C99
 let RT_EDIT = null; // geometria da timeline p/ traduzir arraste → dias
 let RT_TRACKMAP = null; // nome real do recurso -> rótulo exibido ("Track N"). Anonimiza a exibição; identidade real fica só no data-name/accountId (não visível).
 function rtTrack(name){ return (RT_TRACKMAP && RT_TRACKMAP.get(name)) || (name === 'Sem responsável' ? 'Sem responsável' : '—'); }
+// ---- Time (roster) — define as tracks: 1 track por dev do time ---------------
+function teamList(){ return Array.isArray(STATE.team) ? STATE.team : []; }
+function teamHas(id){ return !!id && teamList().some(t => t.accountId === id); }
+function teamName(id){ const t = teamList().find(x => x.accountId === id); return t ? t.name : '—'; }
+// Candidatos p/ adicionar ao time: assignees presentes nos épicos (nome+accountId), fora quem já está no time.
+function teamCandidates(){
+  const seen = new Map();
+  (EPICS || []).forEach(e => { if (e.assigneeId && !teamHas(e.assigneeId) && !seen.has(e.assigneeId)) seen.set(e.assigneeId, e.assignee || e.assigneeId); });
+  return [...seen.entries()].map(([accountId, name]) => ({ accountId, name })).sort((a, b) => a.name.localeCompare(b.name));
+}
 function isoDay(d){ return d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` : null; }
 function ovStartD(e){ const o = STATE.dateOverride[e.key]; return (o && o.start) ? startOfDay(new Date(o.start + 'T00:00:00')) : e.jiraStart; }
 function ovDueD(e){ const o = STATE.dateOverride[e.key]; return (o && o.due) ? startOfDay(new Date(o.due + 'T00:00:00')) : e.jiraDue; }
@@ -732,10 +743,6 @@ function renderResourceTimeline(sched){
   const xOf = ms => Math.round(((startOfDay(new Date(ms)) - axisStart) / MS_DAY) * PX_DAY);
   RT_EDIT = { axisStartMs: +axisStart, pxDay: PX_DAY, W, label: LABEL };
 
-  // AGRUPA POR RECURSO (assignee efetivo). "Sem responsável" fica por último.
-  const byA = new Map();
-  items.forEach(e => { const k = effAssigneeName(e); if (!byA.has(k)) byA.set(k, []); byA.get(k).push(e); });
-
   const segsOf = arr => { const ev = []; arr.forEach(e => { ev.push([+dS(e), 1]); ev.push([+dE(e), -1]); }); ev.sort((a, b) => a[0] - b[0] || a[1] - b[1]); const out = []; let cur = 0, prev = null; ev.forEach(([t, d]) => { if (prev != null && t > prev && cur > 0) out.push([prev, t, cur]); cur += d; prev = t; }); return out; };
   const packRows = arr => { const its = arr.slice().sort((a, b) => +dS(a) - +dS(b)); const rowEnd = []; const placed = []; its.forEach(e => { let r = rowEnd.findIndex(end => +dS(e) >= end); if (r < 0) { r = rowEnd.length; rowEnd.push(0); } rowEnd[r] = +dE(e); placed.push({ e, r }); }); return { placed, nrows: Math.max(1, rowEnd.length) }; };
   const countCol = n => n >= 3 ? '#EE6A5F' : n === 2 ? '#F5B54B' : '#86C99A';
@@ -746,16 +753,33 @@ function renderResourceTimeline(sched){
 
   const hasDate = e => !!(ovStartD(e) || ovDueD(e));
   const peakOf = arr => Math.max(1, ...segsOf(arr.filter(hasDate)).map(s => s[2]));
-  const groups = [...byA.entries()].map(([label, arr]) => ({ label, arr, peak: peakOf(arr), acct: effAssigneeId(arr[0]) }));
-  groups.sort((a, b) => (a.label === 'Sem responsável') - (b.label === 'Sem responsável') || b.peak - a.peak || a.label.localeCompare(b.label));
-  // Anonimiza: cada recurso vira "Track N" na exibição; identidade real (nome/acct)
-  // fica só no data-name/data-acct p/ a reatribuição funcionar.
-  let _tn = 0;
-  groups.forEach(g => { g.display = (g.label === 'Sem responsável') ? 'Sem responsável' : ('Track ' + (++_tn)); });
+  const team = teamList();
+  let groups;
+  if (team.length){
+    // MODO TIME: 1 track por dev do time (na ordem do time = Track N, estável).
+    // Demandas de quem não é do time caem em "Fora do time"; sem responsável à parte.
+    const byId = new Map(); team.forEach(t => byId.set(t.accountId, []));
+    const outArr = [], noneArr = [];
+    items.forEach(e => { const id = effAssigneeId(e); if (id && byId.has(id)) byId.get(id).push(e); else if (id) outArr.push(e); else noneArr.push(e); });
+    groups = team.map(t => ({ label: t.name, arr: byId.get(t.accountId) || [], acct: t.accountId, kind: 'team' }));
+    if (outArr.length) groups.push({ label: 'Fora do time', arr: outArr, acct: '__out__', kind: 'out' });
+    if (noneArr.length) groups.push({ label: 'Sem responsável', arr: noneArr, acct: '', kind: 'none' });
+    groups.forEach(g => g.peak = peakOf(g.arr));
+    let _tn = 0;
+    groups.forEach(g => { g.display = g.kind === 'team' ? ('Track ' + (++_tn)) : g.label; });
+  } else {
+    // SEM TIME DEFINIDO: agrupa por recurso (fallback) e anonimiza como Track N.
+    const byA = new Map();
+    items.forEach(e => { const k = effAssigneeName(e); if (!byA.has(k)) byA.set(k, []); byA.get(k).push(e); });
+    groups = [...byA.entries()].map(([label, arr]) => ({ label, arr, peak: peakOf(arr), acct: effAssigneeId(arr[0]), kind: label === 'Sem responsável' ? 'none' : 'team' }));
+    groups.sort((a, b) => (a.label === 'Sem responsável') - (b.label === 'Sem responsável') || b.peak - a.peak || a.label.localeCompare(b.label));
+    let _tn = 0;
+    groups.forEach(g => { g.display = (g.label === 'Sem responsável') ? 'Sem responsável' : ('Track ' + (++_tn)); });
+  }
   RT_TRACKMAP = new Map(groups.map(g => [g.label, g.display]));
 
   const leitura = [];
-  const lanes = groups.map(({ label, arr, peak, acct, display }) => {
+  const lanes = groups.map(({ label, arr, peak, acct, display, kind }) => {
     const { placed, nrows } = packRows(arr); const dated = arr.filter(hasDate); const segs = segsOf(dated); const bodyH = LOADH + 6 + nrows * ROWH;
     const nUndated = arr.length - dated.length;
     const splitKeys = new Set();
@@ -773,8 +797,10 @@ function renderResourceTimeline(sched){
         `<b>${e.key}</b><span>${escapeHtml(nm)}</span></div>`;
     }).join('');
     const hot = peak >= 2;
-    const sub = `<span class="rt-peak ${hot ? 'hot' : 'ok'}">${dated.length} c/ data${hot ? ` · ×${peak} simultâneas` : ''}${nUndated ? ` · +${nUndated} sem data` : ''}</span>`;
-    return `<div class="rt-lane" data-name="${escapeHtml(label)}" data-acct="${acct || ''}"><div class="rt-head" style="width:${LABEL}px"><div class="rt-nm">${escapeHtml(display)}</div>${sub}</div>` +
+    const sub = arr.length === 0
+      ? `<span class="rt-peak idle">ocioso · 0 demandas</span>`
+      : `<span class="rt-peak ${hot ? 'hot' : 'ok'}">${dated.length} c/ data${hot ? ` · ×${peak} simultâneas` : ''}${nUndated ? ` · +${nUndated} sem data` : ''}</span>`;
+    return `<div class="rt-lane" data-name="${escapeHtml(label)}" data-acct="${acct || ''}" data-kind="${kind || ''}"><div class="rt-head" style="width:${LABEL}px"><div class="rt-nm">${escapeHtml(display)}</div>${sub}</div>` +
       `<div class="rt-body" style="width:${W}px;height:${bodyH}px">${gl}${todayInRange ? `<div class="rt-today" style="left:${todayX}px"></div>` : ''}${loadHtml}${bars}</div></div>`;
   }).join('');
 
@@ -783,8 +809,17 @@ function renderResourceTimeline(sched){
     ? `<div class="rt-actions"><button class="rt-apply" id="rtApply">Aplicar no JIRA (${pend.length})</button><button class="rt-revert" id="rtRevert">Reverter tudo</button><span class="rt-hint">${pend.length} demanda(s) replanejada(s) no cenário — nada foi gravado no JIRA ainda</span></div>`
     : `<div class="rt-actions"><span class="rt-hint">Arraste as barras p/ replanejar datas · solte em outra raia p/ reatribuir · nada é gravado no JIRA até você aplicar</span></div>`;
 
+  // Barra de time: define quais devs são as tracks (Track N). Chips anônimos; nomes só no seletor.
+  const cand = teamCandidates();
+  const chips = team.map((t, i) => `<span class="rt-tchip">Track ${i + 1}<button data-rmteam="${t.accountId}" title="Remover do time">×</button></span>`).join('');
+  const addSel = cand.length
+    ? `<select class="rt-tadd" id="rtTeamAdd"><option value="">+ adicionar dev…</option>${cand.map(c => `<option value="${c.accountId}">${escapeHtml(c.name)}</option>`).join('')}</select>`
+    : (team.length ? `<span class="rt-hint">todos os assignees já estão no time</span>` : '');
+  const teamBar = `<div class="rt-team"><span class="rt-tlabel">Time (tracks):</span>${chips || '<span class="rt-hint">nenhum dev definido — as raias mostram todos os assignees</span>'}${addSel}</div>`;
+
   host.innerHTML =
     `<div class="rt-title">Alocação por recurso · sobreposição real <span>— barras nas <b>datas reais do JIRA</b>; a faixa mostra quantas demandas o recurso toca ao mesmo tempo (×2 dividido · ×3+ sobrecarregado).</span></div>` +
+    teamBar +
     (leitura.length ? `<div class="rt-read">⚠ Recurso dividido: ${leitura.join(' · ')}</div>` : `<div class="rt-read ok">Nenhum recurso com demandas concorrentes no período.</div>`) +
     actions +
     `<div class="rt-legend"><span><i style="background:#86C99A"></i>×1</span><span><i style="background:#F5B54B"></i>×2 dividido</span><span><i style="background:#EE6A5F"></i>×3+ sobrecarga</span><span class="rt-est-lg">▨ estimado (sem data)</span></div>` +
@@ -797,9 +832,11 @@ function renderResourceTimeline(sched){
 function wireTimelineEditing(host){
   const applyBtn = host.querySelector('#rtApply'); if (applyBtn) applyBtn.onclick = openApplyModal;
   const revertBtn = host.querySelector('#rtRevert'); if (revertBtn) revertBtn.onclick = () => { if (confirm('Descartar todos os replanejamentos do cenário?')) { STATE.dateOverride = {}; STATE.assigneeOverride = {}; persist(); render(); } };
+  const addSel = host.querySelector('#rtTeamAdd'); if (addSel) addSel.onchange = () => { const id = addSel.value; if (!id) return; const c = teamCandidates().find(x => x.accountId === id); if (c) { STATE.team = teamList().concat([{ accountId: c.accountId, name: c.name }]); persist(); render(); } };
+  host.querySelectorAll('[data-rmteam]').forEach(b => b.onclick = () => { STATE.team = teamList().filter(t => t.accountId !== b.dataset.rmteam); persist(); render(); });
   const scroll = host.querySelector('.rt-scroll'); if (!scroll || !RT_EDIT) return;
   let drag = null;
-  const laneAt = (x, y) => { for (const lane of host.querySelectorAll('.rt-lane')) { const r = lane.getBoundingClientRect(); if (y >= r.top && y <= r.bottom) return { el: lane, name: lane.dataset.name, acct: lane.dataset.acct }; } return null; };
+  const laneAt = (x, y) => { for (const lane of host.querySelectorAll('.rt-lane')) { const r = lane.getBoundingClientRect(); if (y >= r.top && y <= r.bottom) return { el: lane, name: lane.dataset.name, acct: lane.dataset.acct, kind: lane.dataset.kind }; } return null; };
   scroll.addEventListener('pointerdown', ev => {
     const bar = ev.target.closest('.rt-bar'); if (!bar) return;
     const r = bar.getBoundingClientRect(); const off = ev.clientX - r.left;
@@ -816,7 +853,7 @@ function wireTimelineEditing(host){
     else drag.bar.style.width = Math.max(10, drag.w0 + dx) + 'px';
     const lane = laneAt(ev.clientX, ev.clientY);
     host.querySelectorAll('.rt-lane.drop').forEach(l => l.classList.remove('drop'));
-    if (lane && drag.mode === 'move') lane.el.classList.add('drop');
+    if (lane && drag.mode === 'move' && lane.kind !== 'out') lane.el.classList.add('drop');
   });
   scroll.addEventListener('pointerup', ev => {
     if (!drag) return; const d = drag; drag = null; d.bar.classList.remove('dragging');
@@ -837,8 +874,9 @@ function commitTimelineEdit(d, dxDays, clientX, clientY, laneAt){
   STATE.dateOverride[d.key] = { start: isoDay(ns), due: isoDay(nd) };
   if (d.mode === 'move'){
     const lane = laneAt(clientX, clientY);
-    if (lane && lane.name !== effAssigneeName(e)){
-      if (lane.name === 'Sem responsável') STATE.assigneeOverride[d.key] = null;
+    // "Fora do time" é um balde de leitura — não é alvo de atribuição.
+    if (lane && lane.kind !== 'out' && lane.name !== effAssigneeName(e)){
+      if (lane.kind === 'none') STATE.assigneeOverride[d.key] = null;
       else STATE.assigneeOverride[d.key] = { accountId: lane.acct || null, name: lane.name };
     }
   }
