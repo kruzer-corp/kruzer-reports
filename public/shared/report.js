@@ -364,7 +364,7 @@ function epicRowEl(i, b){
     `<td class="name">${escapeHtml(i.name)}</td>` +
     `<td><span class="badge ${b.badgeCls}">${b.label}</span></td>` +
     (REQUESTER_FIELD
-      ? `<td><input class="req-edit" data-key="${i.key}" value="${escapeHtml(i.requester||'')}" placeholder="—" title="Editar Solicitante → grava no JIRA"></td>`
+      ? `<td class="requester"><input class="req-edit" data-key="${i.key}" value="${escapeHtml(i.requester||'')}" placeholder="—" title="Editar Solicitante → grava no JIRA"></td>`
       : `<td><select class="prio-edit prio-${i.priorityTier.toLowerCase()}" data-key="${i.key}" title="Editar prioridade → grava no JIRA">${['P0','P1','P2','P3'].map(p=>`<option value="${p}" ${p===i.priorityTier?'selected':''}>${p}</option>`).join('')}</select></td>`) +
     `<td class="date">${start || '<span class="empty">—</span>'}</td>` +
     `<td class="date">${ (i.dueDate||'').slice(0,10)
@@ -388,7 +388,7 @@ function childRowEl(c, epicKey){
     `<td class="name child">${escapeHtml(c.name)}</td>` +
     `<td><span class="badge ${bk.badgeCls}">${bk.label}</span></td>` +
     (REQUESTER_FIELD
-      ? `<td><span class="req-ro">${escapeHtml(c.requester || '') || '<span class="empty">—</span>'}</span></td>`
+      ? `<td class="requester"><span class="req-ro">${escapeHtml(c.requester || '') || '<span class="empty">—</span>'}</span></td>`
       : `<td><span class="prio-ro prio-${(c.priorityTier||'P3').toLowerCase()}">${c.priorityTier || '—'}</span></td>`) +
     `<td class="date">${start || '<span class="empty">—</span>'}</td>` +
     `<td class="date">${due || '<span class="empty">—</span>'}</td>` +
