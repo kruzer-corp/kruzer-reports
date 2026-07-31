@@ -905,7 +905,16 @@ function allocHeadcount(){
   const v = parseInt(localStorage.getItem(`${CFG.scope}:alloc-hc`) || '', 10);
   return (v && v > 0) ? v : ((ALLOC && ALLOC.headcount) || 3);
 }
-function businessDays(y, m){ let n = 0; const d = new Date(y, m, 1); while (d.getMonth() === m){ const wd = d.getDay(); if (wd >= 1 && wd <= 5) n++; d.setDate(d.getDate() + 1); } return n; }
+// Feriados nacionais BR (2026–2027), incl. móveis (Carnaval, Sexta Santa, Corpus Christi)
+// e Consciência Negra (20/11, nacional desde 2024). Só descontam se caírem em dia útil.
+const BR_HOLIDAYS = new Set([
+  '2026-01-01','2026-02-16','2026-02-17','2026-04-03','2026-04-21','2026-05-01','2026-06-04',
+  '2026-09-07','2026-10-12','2026-11-02','2026-11-20','2026-12-25',
+  '2027-01-01','2027-02-08','2027-02-09','2027-03-26','2027-04-21','2027-05-27','2027-09-07',
+  '2027-10-12','2027-11-02','2027-11-15','2027-12-25',
+]);
+function isoOf(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function businessDays(y, m){ let n = 0; const d = new Date(y, m, 1); while (d.getMonth() === m){ const wd = d.getDay(); if (wd >= 1 && wd <= 5 && !BR_HOLIDAYS.has(isoOf(d))) n++; d.setDate(d.getDate() + 1); } return n; }
 function renderAllocation(){
   const host = document.getElementById('allocThermo'); if (!host || !ALLOC) return;
   const plan = readPublishedSchedule() || localPlan();
@@ -948,12 +957,42 @@ function renderAllocation(){
   if (inp) inp.addEventListener('change', () => { const v = Math.max(1, parseInt(inp.value, 10) || hc); localStorage.setItem(`${CFG.scope}:alloc-hc`, String(v)); renderAllocation(); });
 }
 
+// ---- Faturamento previsto: marcos de 50% (aprovação=Start) / 50% (go-live=Due) --
+const BILLING = CFG.billing || null;
+function renderBilling(){
+  const host = document.getElementById('billingMilestones'); if (!host || !BILLING) return;
+  const evs = [];
+  RAW.forEach(e => {
+    if (e.done) return;
+    if (e.startDate) evs.push({ key: e.key, name: e.name, url: e.url, date: e.startDate, kind: 'aprovacao' });
+    if (e.dueDate)   evs.push({ key: e.key, name: e.name, url: e.url, date: e.dueDate,   kind: 'golive' });
+  });
+  const now = new Date();
+  const keys = [];
+  for (let i = 0; i < 2; i++){ const d = new Date(now.getFullYear(), now.getMonth() + i, 1); keys.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`); }
+  const mkey = s => (s || '').slice(0, 7);
+  const sel = evs.filter(x => keys.includes(mkey(x.date))).sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+  if (!sel.length){ host.innerHTML = `<div class="bill-empty">Nenhum marco de faturamento no mês atual ou no próximo.</div>`; return; }
+  const kindLabel = k => k === 'aprovacao' ? 'Aprovação · 50%' : 'Go-live · 50%';
+  host.innerHTML = keys.map(k => {
+    const rows = sel.filter(x => mkey(x.date) === k);
+    if (!rows.length) return '';
+    const [y, m] = k.split('-');
+    const mn = new Date(+y, +m - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: '2-digit' });
+    const nAp = rows.filter(r => r.kind === 'aprovacao').length, nGl = rows.length - nAp;
+    return `<div class="bill-month"><div class="bill-mh"><b>${mn}</b> <span>${rows.length} marco${rows.length>1?'s':''} · ${nAp} aprovação${nAp!==1?'ões':''} + ${nGl} go-live${nGl!==1?'s':''}</span></div>` +
+      rows.map(r => `<a class="bill-row" href="${r.url}" target="_blank" rel="noopener"><span class="bill-date">${fmtDate(r.date)}</span><span class="bill-badge bill-${r.kind}">${kindLabel(r.kind)}</span><span class="bill-proj"><b>${r.key}</b> ${escapeHtml(r.name)}</span></a>`).join('') +
+      `</div>`;
+  }).join('');
+}
+
 function renderAll(){
   renderKPIs();
   renderTypeFilters();
   renderTable();
   renderGantt();
   renderAllocation();
+  renderBilling();
   requestAnimationFrame(renderGantt); // re-mede a largura do Gantt após o layout assentar
   const now = new Date().toLocaleString('pt-BR');
   document.getElementById('metaTotal').textContent = RAW.length;
