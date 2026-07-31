@@ -14,7 +14,7 @@
   <div class="header">
     <div>
       <h1>Status Report — FAST</h1>
-      <div class="sub">Controle consolidado de demandas (épicos FST) com status, prazos, prioridades e remarks editáveis.</div>
+      <div class="sub">Controle consolidado de demandas (épicos FST) com status, solicitante, prazos e remarks editáveis.</div>
       <div class="meta">
         <span><strong>Total de demandas:</strong> <span id="metaTotal">—</span></span>
         <span><strong>Última atualização:</strong> <span id="metaUpdated">—</span></span>
@@ -46,14 +46,14 @@
     <!-- Tabela -->
     <section class="section">
       <h2>Tabela de controle</h2>
-      <div class="sub">Ordenada por status (do mais próximo de conclusão ao mais inicial) e, dentro de cada status, por Priority e Due Date.</div>
+      <div class="sub">Ordenada por status (do mais próximo de conclusão ao mais inicial) e, dentro de cada status, por Due Date (as datas são pensadas em cima de capacity).</div>
 
       <div class="rule-box">
         <strong>Como os campos são derivados do JIRA (ao vivo):</strong>
         <code>Status</code> vem das labels do épico (em-execucao, hyper-care, aguardando-aprovacao, aguardando-estimativa, backlog), com fallback pro status nativo.
-        <code>Priority</code> mapeia a prioridade do JIRA: Highest → <code>P0</code>, High → <code>P1</code>, Medium → <code>P2</code>, Low → <code>P3</code>.
+        <code>Solicitante</code> vem do campo customfield_10423 e é <b>editável na tabela</b> — grava direto no JIRA.
         <code>Start</code> vem do campo Start date. <code>Due Date</code> é <b>editável na tabela</b> e grava direto no campo Due do épico no JIRA.
-        <code>Remarks</code> é editável: ao sair do campo, <b>adiciona um comentário</b> no épico do JIRA (e mantém o texto salvo localmente para exibição).
+        <code>Remarks</code> é editável (no épico e nos sub-itens da visão expandida): ao sair do campo, <b>adiciona um comentário</b> no item do JIRA (e mantém o texto salvo localmente para exibição).
       </div>
 
       <div class="toolbar export-hide">
@@ -83,7 +83,7 @@
               <th>DMND</th>
               <th>Name</th>
               <th>Status</th>
-              <th>Priority</th>
+              <th>Solicitante</th>
               <th>Start Date</th>
               <th>Due Date</th>
               <th>Remarks</th>
@@ -127,6 +127,6 @@
 <script src="/shared/capacity.js"></script>
 <script src="/shared/components.js"></script>
 <script src="/shared/report.js"></script>
-<script>KruzerReport.mount({ project:'FST', statusVariant:'fst',  scope:'fst-report',  capScope:'fst',  capStateKey:'kruzer:fst-capacity:current-scenario',  defaultTrack:{'FST-133':1}, remarkStore:'fst-remarks-v1',  followupStore:'fst-followups-v1',  pdfName:'FST-StatusReport' });</script>
+<script>KruzerReport.mount({ project:'FST', statusVariant:'fst',  scope:'fst-report',  capScope:'fst',  capStateKey:'kruzer:fst-capacity:current-scenario',  defaultTrack:{'FST-133':1}, remarkStore:'fst-remarks-v1',  followupStore:'fst-followups-v1',  pdfName:'FST-StatusReport', requesterField:'customfield_10423' });</script>
 </body>
 </html>

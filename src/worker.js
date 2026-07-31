@@ -675,7 +675,8 @@ async function handleUpdateIssue(request, env) {
   if ('priority' in fields) allowed.priority = fields.priority; // { name: 'Highest'|'High'|'Medium'|'Low' }
   if ('customfield_10015' in fields) allowed.customfield_10015 = fields.customfield_10015; // Start date 'YYYY-MM-DD' ou null
   if ('assignee' in fields) allowed.assignee = fields.assignee; // { accountId } ou null (desatribui)
-  if (!Object.keys(allowed).length) return jsonError(400, 'No editable fields (allowed: duedate, priority, customfield_10015, assignee)');
+  if ('customfield_10423' in fields) allowed.customfield_10423 = fields.customfield_10423; // Solicitante (texto) ou null
+  if (!Object.keys(allowed).length) return jsonError(400, 'No editable fields (allowed: duedate, priority, customfield_10015, assignee, customfield_10423)');
   return forwardJira(env, 'PUT', `/rest/api/3/issue/${encodeURIComponent(key)}`, { fields: allowed });
 }
 

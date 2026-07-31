@@ -4,7 +4,9 @@
 // do FST e os status nativos do VENA). Rede de segurança: scripts/render-snapshot.js.
 window.KruzerReport = { mount: function (CFG) {
 const PROJECT = CFG.project, JIRA_BASE = 'https://kruzer.atlassian.net';
-const FIELDS = ['summary','status','priority','issuetype','parent','issuelinks','created','resolutiondate','labels','duedate','description','customfield_10015','timeoriginalestimate','aggregatetimeoriginalestimate'].concat(KruzerCapacity.DEV_DUE_FIELD ? [KruzerCapacity.DEV_DUE_FIELD] : []);
+const FIELDS = ['summary','status','priority','issuetype','parent','issuelinks','created','resolutiondate','labels','duedate','description','customfield_10015','customfield_10423','timeoriginalestimate','aggregatetimeoriginalestimate'].concat(KruzerCapacity.DEV_DUE_FIELD ? [KruzerCapacity.DEV_DUE_FIELD] : []);
+// customfield_10423 = Solicitante (texto livre). Editável no report (write-back JIRA).
+const REQUESTER_FIELD = CFG.requesterField || null;
 
 // Dependências (issuelinks): coleta as chaves que ESTE item bloqueia/precede
 // (link outward do tipo "blocks"/"depends"). Uma aresta dirigida origem→alvo.
@@ -180,6 +182,9 @@ function normalize(issue){
   out.name = dm ? dm[2].trim() : out.summary;
   out.bucket = resolveBucket(out);
   out.remarkDefault = parseField(descText, 'Remarks');
+  // Solicitante (customfield_10423): texto livre; defensivo p/ formatos objeto.
+  const rq = f.customfield_10423;
+  out.requester = typeof rq === 'string' ? rq : ((rq && (rq.value || rq.displayName)) || '');
   // Insumos de capacity (mesmos do /fst/capacity): esforço em horas + flag "committed".
   const estSec = (f.timeoriginalestimate != null && f.timeoriginalestimate > 0) ? f.timeoriginalestimate
                : ((f.aggregatetimeoriginalestimate != null && f.aggregatetimeoriginalestimate > 0) ? f.aggregatetimeoriginalestimate : null);
@@ -245,6 +250,12 @@ let HIER_BUSY = false;         // fetch em andamento (guard de reentrância)
 const EXPANDED = new Set();    // épicos expandidos na tabela
 
 function childrenOf(key){ return CHILDREN_BY_PARENT[key] || []; }
+// Busca por key em épicos (RAW) OU em qualquer descendente (p/ editores de remark/solicitante nas filhas).
+function issueByKey(key){
+  const e = RAW.find(x => x.key === key); if (e) return e;
+  for (const arr of Object.values(CHILDREN_BY_PARENT)) { const c = arr.find(x => x.key === key); if (c) return c; }
+  return null;
+}
 function hasDescendants(key){ return childrenOf(key).length > 0; }
 // Pré-ordem: todos os descendentes de um épico (feature → story → sub-task…).
 function descendantsOf(key, depth, out){
@@ -324,6 +335,12 @@ function renderKPIs(){
 // Rank de prioridade: P0=0 (maior) … P3=3 (menor). Sem || pra não tratar P0 (0) como falsy.
 function prioRank(t){ const n = parseInt(String(t||'').slice(1)); return isNaN(n) ? 9 : n; }
 function sortWithin(arr){
+  // FIFO (cliente): ordena por Due Date. Interno: por prioridade e depois due.
+  if (REQUESTER_FIELD) return arr.sort((a,b) => {
+    const da = a.dueDate || '9999', db = b.dueDate || '9999';
+    if (da !== db) return da < db ? -1 : 1;
+    return prioRank(a.priorityTier) - prioRank(b.priorityTier);
+  });
   return arr.sort((a,b) => {
     const pa = prioRank(a.priorityTier), pb = prioRank(b.priorityTier);
     if (pa !== pb) return pa - pb; // maior prioridade (P0) primeiro
@@ -346,7 +363,9 @@ function epicRowEl(i, b){
     `<td class="key">${i.dmnd || '<span class="empty">—</span>'}</td>` +
     `<td class="name">${escapeHtml(i.name)}</td>` +
     `<td><span class="badge ${b.badgeCls}">${b.label}</span></td>` +
-    `<td><select class="prio-edit prio-${i.priorityTier.toLowerCase()}" data-key="${i.key}" title="Editar prioridade → grava no JIRA">${['P0','P1','P2','P3'].map(p=>`<option value="${p}" ${p===i.priorityTier?'selected':''}>${p}</option>`).join('')}</select></td>` +
+    (REQUESTER_FIELD
+      ? `<td><input class="req-edit" data-key="${i.key}" value="${escapeHtml(i.requester||'')}" placeholder="—" title="Editar Solicitante → grava no JIRA"></td>`
+      : `<td><select class="prio-edit prio-${i.priorityTier.toLowerCase()}" data-key="${i.key}" title="Editar prioridade → grava no JIRA">${['P0','P1','P2','P3'].map(p=>`<option value="${p}" ${p===i.priorityTier?'selected':''}>${p}</option>`).join('')}</select></td>`) +
     `<td class="date">${start || '<span class="empty">—</span>'}</td>` +
     `<td class="date">${ (i.dueDate||'').slice(0,10)
         ? `<input type="date" class="due-edit" data-key="${i.key}" value="${(i.dueDate||'').slice(0,10)}" title="Editar Due Date → grava no épico do JIRA">`
@@ -368,10 +387,12 @@ function childRowEl(c, epicKey){
     `<td class="key"><span class="type-badge">${escapeHtml(c.issueType || 'Task')}</span></td>` +
     `<td class="name child">${escapeHtml(c.name)}</td>` +
     `<td><span class="badge ${bk.badgeCls}">${bk.label}</span></td>` +
-    `<td><span class="prio-ro prio-${(c.priorityTier||'P3').toLowerCase()}">${c.priorityTier || '—'}</span></td>` +
+    (REQUESTER_FIELD
+      ? `<td><span class="req-ro">${escapeHtml(c.requester || '') || '<span class="empty">—</span>'}</span></td>`
+      : `<td><span class="prio-ro prio-${(c.priorityTier||'P3').toLowerCase()}">${c.priorityTier || '—'}</span></td>`) +
     `<td class="date">${start || '<span class="empty">—</span>'}</td>` +
     `<td class="date">${due || '<span class="empty">—</span>'}</td>` +
-    `<td class="remarks"><span class="child-remark">${escapeHtml(c.remarkDefault || '')}</span></td>`;
+    `<td class="remarks"><div class="remark-edit" contenteditable="true" data-key="${c.key}" title="Editar remark → adiciona comentário no item do JIRA">${escapeHtml(remarkFor(c))}</div></td>`;
   return tr;
 }
 function renderTable(){
@@ -394,6 +415,7 @@ function renderTable(){
     });
   });
   wireRemarkEditors();
+  wireRequesterEditors();
   wireDueEditors();
   wirePrioEditors();
   if (EXPLODED) wireCarets();
@@ -416,7 +438,7 @@ function wireCarets(){
 function wireRemarkEditors(){
   document.querySelectorAll('.remark-edit').forEach(el => {
     const key = el.dataset.key;
-    const issue = RAW.find(x => x.key === key);
+    const issue = issueByKey(key);
     const markDirty = () => {
       const cur = el.innerText.trim();
       const isOverride = Object.prototype.hasOwnProperty.call(REMARK_OVERRIDES, key) && REMARK_OVERRIDES[key] !== (issue?.remarkDefault || '');
@@ -443,6 +465,30 @@ function wireRemarkEditors(){
     });
     el.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); el.blur(); } });
     markDirty();
+  });
+}
+
+// Solicitante (customfield_10423) editável → grava direto no campo do JIRA.
+function wireRequesterEditors(){
+  if (!REQUESTER_FIELD) return;
+  document.querySelectorAll('.req-edit').forEach(inp => {
+    const key = inp.dataset.key;
+    inp.addEventListener('focus', () => { inp.dataset.baseline = inp.value.trim(); });
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); inp.blur(); } });
+    inp.addEventListener('blur', async () => {
+      const cur = inp.value.trim();
+      const baseline = inp.dataset.baseline != null ? inp.dataset.baseline : cur;
+      if (cur === baseline) return;
+      inp.disabled = true;
+      try {
+        await KruzerAPI.updateFields(key, { [REQUESTER_FIELD]: cur || null });
+        const issue = issueByKey(key); if (issue) issue.requester = cur;
+        toast(`Solicitante de ${key} ${cur ? 'atualizado' : 'limpo'} no JIRA`);
+      } catch (e) {
+        toast(`Falha ao gravar Solicitante de ${key}: ${e.message}`, true);
+        inp.value = baseline;
+      } finally { inp.disabled = false; }
+    });
   });
 }
 
@@ -1043,6 +1089,8 @@ document.getElementById('refreshBtn').addEventListener('click', loadAndRender);
 document.getElementById('search').addEventListener('input', applyFilter);
 document.getElementById('filter-status').addEventListener('change', applyFilter);
 document.getElementById('filter-prio').addEventListener('change', applyFilter);
+// Modo FIFO (cliente): sem coluna de prioridade → esconde o filtro de prioridade.
+if (REQUESTER_FIELD) { const fp = document.getElementById('filter-prio'); if (fp) fp.style.display = 'none'; }
 let _gz; window.addEventListener('resize', () => { clearTimeout(_gz); _gz = setTimeout(() => { if (RAW.length) renderGantt(); }, 150); });
 loadAndRender();
 } };
