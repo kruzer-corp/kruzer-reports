@@ -899,11 +899,61 @@ function applyFilter(){
   });
 }
 
+// ---- Termômetro de alocação: horas de projeto projetadas vs capacidade/mês ----
+const ALLOC = CFG.allocation || null;
+function allocHeadcount(){
+  const v = parseInt(localStorage.getItem(`${CFG.scope}:alloc-hc`) || '', 10);
+  return (v && v > 0) ? v : ((ALLOC && ALLOC.headcount) || 3);
+}
+function businessDays(y, m){ let n = 0; const d = new Date(y, m, 1); while (d.getMonth() === m){ const wd = d.getDay(); if (wd >= 1 && wd <= 5) n++; d.setDate(d.getDate() + 1); } return n; }
+function renderAllocation(){
+  const host = document.getElementById('allocThermo'); if (!host || !ALLOC) return;
+  const plan = readPublishedSchedule() || localPlan();
+  const items = plan.groups.flatMap(g => g.items).filter(it => it.start && it.end);
+  const hpd = ALLOC.hoursPerDay || 8;
+  const hc = allocHeadcount();
+  const lbl = document.getElementById('allocHcLabel'); if (lbl) lbl.textContent = hc;
+  const base = plan.today ? new Date(plan.today) : new Date();
+  const overlapH = (it, ws, we) => {
+    const s = +startOfDay(it.start), e = +startOfDay(it.end);
+    const total = Math.max(1, (e - s) / MS_DAY);
+    const os = Math.max(s, +ws), oe = Math.min(e, +we);
+    return oe <= os ? 0 : (it.effort || 0) * ((oe - os) / MS_DAY) / total;
+  };
+  let rows = '';
+  for (let i = 0; i < 4; i++){
+    const m0 = new Date(base.getFullYear(), base.getMonth() + i, 1);
+    const y = m0.getFullYear(), m = m0.getMonth();
+    const ws = new Date(y, m, 1), we = new Date(y, m + 1, 1);
+    const bd = businessDays(y, m);
+    const cap = hc * hpd * bd;
+    const proj = items.reduce((a, it) => a + overlapH(it, ws, we), 0);
+    const pct = cap ? proj / cap : 0;
+    const col = pct > 1.0 ? '#E24B4A' : pct >= 0.85 ? '#EF9F27' : pct >= 0.5 ? '#1D9E75' : '#378ADD';
+    const folga = cap - proj;
+    const extra = pct > 1.0 ? Math.ceil((proj - cap) / (hpd * bd)) : 0;
+    const read = pct > 1.0 ? `afogado · faltam ~${Math.round(proj - cap)}h (~${extra} recurso${extra > 1 ? 's' : ''})`
+      : pct < 0.5 ? `folga de ~${Math.round(folga)}h — dá p/ puxar mais ou reduzir time`
+      : `${Math.round(folga)}h livres`;
+    const mn = m0.toLocaleDateString('pt-BR', { month: 'long', year: '2-digit' });
+    rows += `<div class="alloc-row">
+      <div class="alloc-mo">${mn}<span>${bd} dias úteis</span></div>
+      <div class="alloc-barwrap"><div class="alloc-bar" style="width:${Math.min(100, pct * 100).toFixed(0)}%;background:${col}"></div>${pct > 1 ? '<div class="alloc-over" title="acima da capacidade"></div>' : ''}</div>
+      <div class="alloc-num"><b style="color:${col}">${(pct * 100).toFixed(0)}%</b><span>${Math.round(proj)}h / ${cap}h</span></div>
+      <div class="alloc-read" style="color:${col}">${read}</div>
+    </div>`;
+  }
+  host.innerHTML = `<div class="alloc-ctrl"><label>Recursos disponíveis <input type="number" min="1" max="20" id="allocHc" value="${hc}"></label> <span class="alloc-hint">× ${hpd}h/dia × dias úteis do mês</span></div>${rows}`;
+  const inp = document.getElementById('allocHc');
+  if (inp) inp.addEventListener('change', () => { const v = Math.max(1, parseInt(inp.value, 10) || hc); localStorage.setItem(`${CFG.scope}:alloc-hc`, String(v)); renderAllocation(); });
+}
+
 function renderAll(){
   renderKPIs();
   renderTypeFilters();
   renderTable();
   renderGantt();
+  renderAllocation();
   requestAnimationFrame(renderGantt); // re-mede a largura do Gantt após o layout assentar
   const now = new Date().toLocaleString('pt-BR');
   document.getElementById('metaTotal').textContent = RAW.length;
