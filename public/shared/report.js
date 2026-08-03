@@ -917,18 +917,28 @@ function isoOf(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(
 function businessDays(y, m){ let n = 0; const d = new Date(y, m, 1); while (d.getMonth() === m){ const wd = d.getDay(); if (wd >= 1 && wd <= 5 && !BR_HOLIDAYS.has(isoOf(d))) n++; d.setDate(d.getDate() + 1); } return n; }
 function renderAllocation(){
   const host = document.getElementById('allocThermo'); if (!host || !ALLOC) return;
-  const plan = readPublishedSchedule() || localPlan();
-  const items = plan.groups.flatMap(g => g.items).filter(it => it.start && it.end);
   const hpd = ALLOC.hoursPerDay || 8;
   const hc = allocHeadcount();
   const lbl = document.getElementById('allocHcLabel'); if (lbl) lbl.textContent = hc;
-  const base = plan.today ? new Date(plan.today) : new Date();
-  const overlapH = (it, ws, we) => {
-    const s = +startOfDay(it.start), e = +startOfDay(it.end);
-    const total = Math.max(1, (e - s) / MS_DAY);
-    const os = Math.max(s, +ws), oe = Math.min(e, +we);
-    return oe <= os ? 0 : (it.effort || 0) * ((oe - os) / MS_DAY) / total;
+  const parse = s => s ? new Date(String(s).slice(0, 10) + 'T00:00:00') : null;
+  const workEnd = e => e.devDue || e.dueDate;   // entrega do dev (QA) quando existir, senão go-live
+  const epics = (RAW || []).filter(e => !e.done);
+  const dated = epics.filter(e => e.startDate && workEnd(e) && e.estH != null && e.estH > 0);
+  const skipNoDate = epics.filter(e => !(e.startDate && workEnd(e))).length;
+  const skipNoEst  = epics.filter(e => e.startDate && workEnd(e) && !(e.estH != null && e.estH > 0)).length;
+  // CONCENTRA o esforço nos ÚLTIMOS dias úteis até a entrega, a hpd/dia por recurso —
+  // e não diluído no prazo inteiro (start→due), que é longo e some com a sobreposição.
+  const monthHours = (e, ws, we) => {
+    const s = startOfDay(parse(e.startDate)); let en = startOfDay(parse(workEnd(e)));
+    if (!s || !en) return 0; if (+en < +s) en = s;
+    const bds = [];
+    for (const d = new Date(s); +d <= +en; d.setDate(d.getDate() + 1)){ const w = d.getDay(); if (w >= 1 && w <= 5 && !BR_HOLIDAYS.has(isoOf(d))) bds.push(+startOfDay(d)); }
+    if (!bds.length) return 0;
+    let rem = e.estH, h = 0;
+    for (let i = bds.length - 1; i >= 0 && rem > 0; i--){ const give = Math.min(hpd, rem); rem -= give; if (bds[i] >= +ws && bds[i] < +we) h += give; }
+    return h;
   };
+  const base = new Date();
   let rows = '';
   for (let i = 0; i < 4; i++){
     const m0 = new Date(base.getFullYear(), base.getMonth() + i, 1);
@@ -936,7 +946,7 @@ function renderAllocation(){
     const ws = new Date(y, m, 1), we = new Date(y, m + 1, 1);
     const bd = businessDays(y, m);
     const cap = hc * hpd * bd;
-    const proj = items.reduce((a, it) => a + overlapH(it, ws, we), 0);
+    const proj = dated.reduce((a, e) => a + monthHours(e, ws, we), 0);
     const pct = cap ? proj / cap : 0;
     const col = pct > 1.0 ? '#E24B4A' : pct >= 0.85 ? '#EF9F27' : pct >= 0.5 ? '#1D9E75' : '#378ADD';
     const folga = cap - proj;
@@ -952,7 +962,8 @@ function renderAllocation(){
       <div class="alloc-read" style="color:${col}">${read}</div>
     </div>`;
   }
-  host.innerHTML = `<div class="alloc-ctrl"><label>Recursos disponíveis <input type="number" min="1" max="20" id="allocHc" value="${hc}"></label> <span class="alloc-hint">× ${hpd}h/dia × dias úteis do mês</span></div>${rows}`;
+  const foot = (skipNoDate || skipNoEst) ? `<div class="alloc-foot">Fora do cálculo: ${skipNoDate} sem data de trabalho${skipNoEst ? ` · ${skipNoEst} sem estimativa (h)` : ''}.</div>` : '';
+  host.innerHTML = `<div class="alloc-ctrl"><label>Recursos disponíveis <input type="number" min="1" max="20" id="allocHc" value="${hc}"></label> <span class="alloc-hint">× ${hpd}h/dia × dias úteis · esforço concentrado até a entrega</span></div>${rows}${foot}`;
   const inp = document.getElementById('allocHc');
   if (inp) inp.addEventListener('change', () => { const v = Math.max(1, parseInt(inp.value, 10) || hc); localStorage.setItem(`${CFG.scope}:alloc-hc`, String(v)); renderAllocation(); });
 }
