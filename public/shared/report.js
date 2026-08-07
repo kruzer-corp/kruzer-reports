@@ -899,74 +899,6 @@ function applyFilter(){
   });
 }
 
-// ---- Termômetro de alocação: horas de projeto projetadas vs capacidade/mês ----
-const ALLOC = CFG.allocation || null;
-function allocHeadcount(){
-  const v = parseInt(localStorage.getItem(`${CFG.scope}:alloc-hc`) || '', 10);
-  return (v && v > 0) ? v : ((ALLOC && ALLOC.headcount) || 3);
-}
-// Feriados nacionais BR (2026–2027), incl. móveis (Carnaval, Sexta Santa, Corpus Christi)
-// e Consciência Negra (20/11, nacional desde 2024). Só descontam se caírem em dia útil.
-const BR_HOLIDAYS = new Set([
-  '2026-01-01','2026-02-16','2026-02-17','2026-04-03','2026-04-21','2026-05-01','2026-06-04',
-  '2026-09-07','2026-10-12','2026-11-02','2026-11-20','2026-12-25',
-  '2027-01-01','2027-02-08','2027-02-09','2027-03-26','2027-04-21','2027-05-27','2027-09-07',
-  '2027-10-12','2027-11-02','2027-11-15','2027-12-25',
-]);
-function isoOf(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
-function businessDays(y, m){ let n = 0; const d = new Date(y, m, 1); while (d.getMonth() === m){ const wd = d.getDay(); if (wd >= 1 && wd <= 5 && !BR_HOLIDAYS.has(isoOf(d))) n++; d.setDate(d.getDate() + 1); } return n; }
-function renderAllocation(){
-  const host = document.getElementById('allocThermo'); if (!host || !ALLOC) return;
-  const hpd = ALLOC.hoursPerDay || 8;
-  const hc = allocHeadcount();
-  const lbl = document.getElementById('allocHcLabel'); if (lbl) lbl.textContent = hc;
-  const parse = s => s ? new Date(String(s).slice(0, 10) + 'T00:00:00') : null;
-  const workEnd = e => e.devDue || e.dueDate;   // entrega do dev (QA) quando existir, senão go-live
-  const epics = (RAW || []).filter(e => !e.done);
-  const dated = epics.filter(e => e.startDate && workEnd(e) && e.estH != null && e.estH > 0);
-  const skipNoDate = epics.filter(e => !(e.startDate && workEnd(e))).length;
-  const skipNoEst  = epics.filter(e => e.startDate && workEnd(e) && !(e.estH != null && e.estH > 0)).length;
-  // CONCENTRA o esforço nos ÚLTIMOS dias úteis até a entrega, a hpd/dia por recurso —
-  // e não diluído no prazo inteiro (start→due), que é longo e some com a sobreposição.
-  const monthHours = (e, ws, we) => {
-    const s = startOfDay(parse(e.startDate)); let en = startOfDay(parse(workEnd(e)));
-    if (!s || !en) return 0; if (+en < +s) en = s;
-    const bds = [];
-    for (const d = new Date(s); +d <= +en; d.setDate(d.getDate() + 1)){ const w = d.getDay(); if (w >= 1 && w <= 5 && !BR_HOLIDAYS.has(isoOf(d))) bds.push(+startOfDay(d)); }
-    if (!bds.length) return 0;
-    let rem = e.estH, h = 0;
-    for (let i = bds.length - 1; i >= 0 && rem > 0; i--){ const give = Math.min(hpd, rem); rem -= give; if (bds[i] >= +ws && bds[i] < +we) h += give; }
-    return h;
-  };
-  const base = new Date();
-  let rows = '';
-  for (let i = 0; i < 4; i++){
-    const m0 = new Date(base.getFullYear(), base.getMonth() + i, 1);
-    const y = m0.getFullYear(), m = m0.getMonth();
-    const ws = new Date(y, m, 1), we = new Date(y, m + 1, 1);
-    const bd = businessDays(y, m);
-    const cap = hc * hpd * bd;
-    const proj = dated.reduce((a, e) => a + monthHours(e, ws, we), 0);
-    const pct = cap ? proj / cap : 0;
-    const col = pct > 1.0 ? '#E24B4A' : pct >= 0.85 ? '#EF9F27' : pct >= 0.5 ? '#1D9E75' : '#378ADD';
-    const folga = cap - proj;
-    const extra = pct > 1.0 ? Math.ceil((proj - cap) / (hpd * bd)) : 0;
-    const read = pct > 1.0 ? `afogado · faltam ~${Math.round(proj - cap)}h (~${extra} recurso${extra > 1 ? 's' : ''})`
-      : pct < 0.5 ? `folga de ~${Math.round(folga)}h — dá p/ puxar mais ou reduzir time`
-      : `${Math.round(folga)}h livres`;
-    const mn = m0.toLocaleDateString('pt-BR', { month: 'long', year: '2-digit' });
-    rows += `<div class="alloc-row">
-      <div class="alloc-mo">${mn}<span>${bd} dias úteis</span></div>
-      <div class="alloc-barwrap"><div class="alloc-bar" style="width:${Math.min(100, pct * 100).toFixed(0)}%;background:${col}"></div>${pct > 1 ? '<div class="alloc-over" title="acima da capacidade"></div>' : ''}</div>
-      <div class="alloc-num"><b style="color:${col}">${(pct * 100).toFixed(0)}%</b><span>${Math.round(proj)}h / ${cap}h</span></div>
-      <div class="alloc-read" style="color:${col}">${read}</div>
-    </div>`;
-  }
-  const foot = (skipNoDate || skipNoEst) ? `<div class="alloc-foot">Fora do cálculo: ${skipNoDate} sem data de trabalho${skipNoEst ? ` · ${skipNoEst} sem estimativa (h)` : ''}.</div>` : '';
-  host.innerHTML = `<div class="alloc-ctrl"><label>Recursos disponíveis <input type="number" min="1" max="20" id="allocHc" value="${hc}"></label> <span class="alloc-hint">× ${hpd}h/dia × dias úteis · esforço concentrado até a entrega</span></div>${rows}${foot}`;
-  const inp = document.getElementById('allocHc');
-  if (inp) inp.addEventListener('change', () => { const v = Math.max(1, parseInt(inp.value, 10) || hc); localStorage.setItem(`${CFG.scope}:alloc-hc`, String(v)); renderAllocation(); });
-}
 
 // ---- Faturamento previsto: marcos de 50% (aprovação=Start) / 50% (go-live=Due) --
 const BILLING = CFG.billing || null;
@@ -1002,7 +934,6 @@ function renderAll(){
   renderTypeFilters();
   renderTable();
   renderGantt();
-  renderAllocation();
   renderBilling();
   requestAnimationFrame(renderGantt); // re-mede a largura do Gantt após o layout assentar
   const now = new Date().toLocaleString('pt-BR');
