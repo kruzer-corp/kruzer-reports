@@ -745,7 +745,8 @@ function renderGantt(){
 
   const today = plan.today;
   const starts = renderItems.map(it => it.start.getTime());
-  const ends = renderItems.map(it => it.end.getTime());
+  // inclui o go-live (meia barra pós-dev) no alcance do eixo, senão a barra corta
+  const ends = renderItems.map(it => Math.max(it.end.getTime(), it.goLiveD ? +it.goLiveD : it.end.getTime()));
   const aprFloor = new Date(today.getFullYear(), 3, 1).getTime();
   const minD = new Date(Math.max(Math.min(Math.min(...starts) - 3*MS_DAY, today.getTime() - 3*MS_DAY), aprFloor));
   const horizonMs = plan.horizonEnd ? plan.horizonEnd.getTime() : Math.max(...ends);
@@ -809,6 +810,12 @@ function renderGantt(){
         + ` data-key="${e.key}" data-name="${escapeHtml(e.name)}" data-status="${escapeHtml(e.statusLabel)}${e.isChild?' · '+escapeHtml(e.issueType||''):''}"`
         + ` data-eff="${e.isChild ? (e.undated?'sem data':'') : effLabel(e)}" data-start="${fmtShort(e.start)}" data-end="${fmtShort(e.end)}"`
         + ` data-due="${e.dueD?fmtShort(e.dueD):''}" data-late="${e.late?'1':''}" data-url="${e.url}"/>`;
+      // Meia barra pós-dev: da entrega de dev até o go-live — projeto não acabou, só a atuação de dev.
+      if (!e.isChild && e.devEnd && e.goLiveD && +e.goLiveD > +e.end){
+        const gx = xd(e.goLiveD), gw = Math.max(2, gx - ex);
+        const hH = Math.round(H/2), hy = by + (H - hH)/2;
+        body += `<rect class="gantt-bar-post" x="${ex.toFixed(1)}" y="${hy}" width="${gw.toFixed(1)}" height="${hH}" rx="2" fill="${e.color}" opacity="0.32"><title>${escapeHtml(e.key)}: pós-dev (QA/homolog até go-live ${fmtShort(e.goLiveD)})</title></rect>`;
+      }
       if (clampedLeft && bw > 16) body += `<polyline points="${(bx+8).toFixed(1)},${by+3} ${(bx+3).toFixed(1)},${by+H/2} ${(bx+8).toFixed(1)},${by+H-3}" fill="none" stroke="#fff" stroke-width="1.5"/>`;
       if (!e.isChild && bw > 46) body += `<text class="g-barlabel" x="${(bx+(clampedLeft?14:6)).toFixed(1)}" y="${by+13}" ${e.placeholder?'fill="#232534"':''}>${effLabel(e)}</text>`;
       barPos[e.key] = { x1: bx, x2: bx+bw, y: by + H/2 };
