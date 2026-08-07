@@ -4,7 +4,8 @@
 // do FST e os status nativos do VENA). Rede de segurança: scripts/render-snapshot.js.
 window.KruzerReport = { mount: function (CFG) {
 const PROJECT = CFG.project, JIRA_BASE = 'https://kruzer.atlassian.net';
-const FIELDS = ['summary','status','priority','issuetype','parent','issuelinks','created','resolutiondate','labels','duedate','description','customfield_10015','customfield_10423','timeoriginalestimate','aggregatetimeoriginalestimate'].concat(KruzerCapacity.DEV_DUE_FIELD ? [KruzerCapacity.DEV_DUE_FIELD] : []);
+const DEV_DUE_FIELD = CFG.devDueField || KruzerCapacity.DEV_DUE_FIELD || '';   // customfield da entrega de dev (QA)
+const FIELDS = ['summary','status','priority','issuetype','parent','issuelinks','created','resolutiondate','labels','duedate','description','customfield_10015','customfield_10423','timeoriginalestimate','aggregatetimeoriginalestimate'].concat(DEV_DUE_FIELD ? [DEV_DUE_FIELD] : []);
 // customfield_10423 = Solicitante (texto livre). Editável no report (write-back JIRA).
 const REQUESTER_FIELD = CFG.requesterField || null;
 
@@ -174,7 +175,7 @@ function normalize(issue){
     dueDate: f.duedate || parseDescDate(descText, 'Due'),
     // Due Date Dev — entrega do dev p/ testes. Campo custom (quando existir) ou
     // "**Due Dev:** DD/MM" na descrição. NÃO é goal final → não vira atraso/risco.
-    devDue: (KruzerCapacity.DEV_DUE_FIELD && f[KruzerCapacity.DEV_DUE_FIELD]) || parseDescDate(descText, 'Due Dev') || parseDescDate(descText, 'Due Date Dev') || '',
+    devDue: (DEV_DUE_FIELD && f[DEV_DUE_FIELD]) || parseDescDate(descText, 'Due Dev') || parseDescDate(descText, 'Due Date Dev') || '',
   };
   // DMND code + nome limpo.
   const dm = out.summary.match(/^(DMND\d+)\s*\|\s*(.*)$/);
@@ -691,6 +692,12 @@ function renderGantt(){
   const svg = document.getElementById('ganttSvg');
   const groups = plan.groups;
   const allItems = groups.flatMap(g => g.items);
+  // Timeline baseada na ENTREGA DE DEV: a barra do épico termina na Due Date Dev
+  // (entrega pro QA) quando houver; senão na Due Date (go-live). Mostra a atuação
+  // real do dev — libera pro backlog após a entrega, não só no go-live.
+  const devDueMap = {};
+  (RAW || []).forEach(e => { if (e.devDue){ const d = startOfDay(new Date(String(e.devDue).slice(0, 10) + 'T00:00:00')); if (!isNaN(+d)) devDueMap[e.key] = d; } });
+  allItems.forEach(it => { const dd = devDueMap[it.key]; if (dd && +dd >= +it.start){ it.end = dd; it.devEnd = true; it.goLiveD = it.dueD; } });
   const unit = plan.unit, U = unit === 'SP' ? ' SP' : 'h';
   const effLabel = it => it.placeholder ? '?' : `${it.effort}${U}`;
   const pa = plan.params || {};
