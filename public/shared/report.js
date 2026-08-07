@@ -697,7 +697,13 @@ function renderGantt(){
   // real do dev — libera pro backlog após a entrega, não só no go-live.
   const devDueMap = {};
   (RAW || []).forEach(e => { if (e.devDue){ const d = startOfDay(new Date(String(e.devDue).slice(0, 10) + 'T00:00:00')); if (!isNaN(+d)) devDueMap[e.key] = d; } });
-  allItems.forEach(it => { const dd = devDueMap[it.key]; if (dd && +dd >= +it.start){ it.end = dd; it.devEnd = true; it.goLiveD = it.dueD; } });
+  allItems.forEach(it => {
+    // "Atraso" só quando a projeção ultrapassa o due EM DIAS. Fim projetado == due
+    // é goal ATINGIDO, não atraso (o e.late do engine também acusa esforço-não-cabe).
+    it.lateDisp = !!(it.dueD && it.end && +startOfDay(it.end) > +startOfDay(it.dueD));
+    const dd = devDueMap[it.key];
+    if (dd && +dd >= +it.start){ it.end = dd; it.devEnd = true; it.goLiveD = it.dueD; }
+  });
   const unit = plan.unit, U = unit === 'SP' ? ' SP' : 'h';
   const effLabel = it => it.placeholder ? '?' : `${it.effort}${U}`;
   const pa = plan.params || {};
@@ -799,7 +805,7 @@ function renderGantt(){
       const H = e.isChild ? 12 : 18;
       const by = y + (ROW-H)/2;
       const fill = e.placeholder ? 'url(#hh)' : e.color;
-      const stroke = e.late ? '#F04438' : 'none', sw = e.late ? 2 : 0;
+      const stroke = e.lateDisp ? '#F04438' : 'none', sw = e.lateDisp ? 2 : 0;
       const ind = (e.depth||0) * 14;
       const nm = e.name.length > 30 ? e.name.slice(0,29)+'…' : e.name;
       const keyCls = e.isChild ? 'g-key g-key-child' : 'g-key';
@@ -809,7 +815,7 @@ function renderGantt(){
       body += `<rect class="gantt-bar" x="${bx.toFixed(1)}" y="${by}" width="${bw.toFixed(1)}" height="${H}" rx="${e.isChild?3:4}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"`
         + ` data-key="${e.key}" data-name="${escapeHtml(e.name)}" data-status="${escapeHtml(e.statusLabel)}${e.isChild?' · '+escapeHtml(e.issueType||''):''}"`
         + ` data-eff="${e.isChild ? (e.undated?'sem data':'') : effLabel(e)}" data-start="${fmtShort(e.start)}" data-end="${fmtShort(e.end)}"`
-        + ` data-due="${e.dueD?fmtShort(e.dueD):''}" data-late="${e.late?'1':''}" data-url="${e.url}"/>`;
+        + ` data-due="${e.dueD?fmtShort(e.dueD):''}" data-late="${e.lateDisp?'1':''}" data-url="${e.url}"/>`;
       // Meia barra pós-dev: da entrega de dev até o go-live — projeto não acabou, só a atuação de dev.
       if (!e.isChild && e.devEnd && e.goLiveD && +e.goLiveD > +e.end){
         const gx = xd(e.goLiveD), gw = Math.max(2, gx - ex);
