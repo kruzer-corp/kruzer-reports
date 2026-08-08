@@ -39,7 +39,21 @@ Aprendizados já consolidados no Hermes que o Guardião deve respeitar:
 
 <!-- O Claude adiciona aqui, na mesma convenção de tabela acima. -->
 
-| Run de fim de semana = 0 alerta por tempo | run incremental sabado 08/08 rodou limpo, 0 NOVOS; silencio de sexta-noite/sabado nao vira alerta de sem-retorno, so deadline/risco ativo conta | sempre | run 2026-08-08 14:11 | ativo
-| KRZR-2991 SNGPC CRM errado | aberto sabado 08/08, producao, regulatorio (validacao SNGPC), Pending com dono Giovanelli -> nao alertado por regra de fds; cobrar triagem/status na 2a 11/08 | revisar 11/08 | run 2026-08-08 14:11 | ativo
-| DCT-56 pentest externo bloqueador go-live | To Do SEM DONO desde 01/06, rotulado BLOQUEADOR Go-Live; higiene de longa data -> confirmar se ainda e bloqueador real e atribuir dono | revisar | run 2026-08-08 14:11 | ativo
-| Divergencia Git x Jira no cluster ARC OOM | PRs #11/#12 em api-gateway-v2 existem no GitHub mas os 8 cards ARC seguem sem dono no Jira -> conferir merge/deploy e fechar cards | sempre | run 2026-08-08 14:11 | ativo
+| Tema | Contexto | Prazo | Origem | Status |
+|---|---|---|---|---|
+| Gmail C3/C4 estoura retry cap | subagente inbox+Fireflies (coleta-fanout parallel[7]) estourou StructuredOutput retry cap em 2 runs (09:58 e 14:12) -> digests parciais | corrigir ja | digest 2026-08-07 | ativo |
+| Cluster ARC OOM subcontado | tabela viva listava 3 tickets; Jira ao vivo tinha 8 sem dono (ARC-225/305/386/387/389/390/391/392) -> expandir cluster pelo Jira ao vivo | sempre | run 2026-08-07 | ativo |
+| Tema sensivel -> DM/canal privado | relacao de conta abalada / enquadramento de confianca nao vai a #proj aberto (FastShop Fast Pro por DM; PM risco-crise por #proj-paguemenos-gestao) | sempre | run 2026-08-07 | ativo |
+| Reacoes em proposta = conta do Vitor | check/x semeados pelo bot sao indistinguiveis do clique do Vitor -> nao semear; check do Vitor na proposta e aprovacao inequivoca | sempre | correcao de run 07/08 | ativo |
+| Correcao #1 (Gmail/Fireflies serial+fallback) | RESOLVIDA lado Claude: coleta-fanout com try/catch na resiliencia + controle de volume no C3/C4; instalada no skill guardiao-v3 | feito | digest 2026-08-07 | ativo |
+| Correcao #2 (orfao board PMD) | APLICADA: alerta orfao board PMD (ts 1786108796.240889) registrado na tabela viva no run 14:12 | feito | digest 2026-08-07 | arquivado |
+| Correcao #1 (Gmail/Fireflies serial+fallback) VALIDADA | run incremental 07/08 21:23 rodou 11/11 subagentes OK, C3/C4 varridos sem estouro de retry | feito | run 2026-08-07 21:23 | ativo |
+| Host em UTC nao BRT | subagentes de coleta trataram hoje=sabado 08/08 (relogio do host em UTC); sessao principal usou BRT sexta 07/08 21:02. Passar hoje/desde/janela em BRT nos args e revalidar datas na reconciliacao | sempre | run 2026-08-07 21:23 | ativo |
+| Falso-positivo evitado KRZR-2987/2988 | ambos Waiting for customer no Jira ao vivo = bola do cliente, nao alertar como sem retorno | sempre | run 2026-08-07 21:23 | ativo |
+| Integridade VENA-713 | aparece Entregue (PR vpharma#6 merged) mas Jira em Backlog -> card nao atualizado pos-merge; conferir na fonte Jira antes de marcar entregue | sempre | run 2026-08-07 21:23 | ativo |
+| Debito de seguranca orfao Venancio | VENA-692..695 (JWT forjavel, CORS aberto, isolamento por loja, operatorCode forjavel) em Backlog sem dono -> superficie de seguranca sem responsavel | revisar | run 2026-08-07 21:23 | ativo |
+| Correcao #3 (link Jira em linha propria) | APLICADA: propostas de 07/08 usam link em linha propria, sem <...> | feito | digest 2026-08-07 | arquivado |
+| Run de fim de semana = 0 alerta por tempo | run incremental sabado 08/08 rodou limpo, 0 NOVOS; silencio de sexta-noite/sabado nao vira alerta de sem-retorno, so deadline/risco ativo conta | sempre | run 2026-08-08 14:11 | ativo |
+| KRZR-2991 SNGPC CRM errado | aberto sabado 08/08, producao, regulatorio (validacao SNGPC), Pending com dono Giovanelli -> nao alertado por regra de fds; cobrar triagem/status na 2a 11/08 | revisar 11/08 | run 2026-08-08 14:11 | ativo |
+| DCT-56 pentest externo bloqueador go-live | To Do SEM DONO desde 01/06, rotulado BLOQUEADOR Go-Live; higiene de longa data -> confirmar se ainda e bloqueador real e atribuir dono | revisar | run 2026-08-08 14:11 | ativo |
+| Divergencia Git x Jira no cluster ARC OOM | PRs #11/#12 em api-gateway-v2 existem no GitHub mas os 8 cards ARC seguem sem dono no Jira -> conferir merge/deploy e fechar cards | sempre | run 2026-08-08 14:11 | ativo |
