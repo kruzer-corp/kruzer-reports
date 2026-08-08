@@ -47,4 +47,9 @@ Aprendizados já consolidados no Hermes que o Guardião deve respeitar:
 | Reacoes em proposta = conta do Vitor | check/x semeados pelo bot sao indistinguiveis do clique do Vitor -> nao semear; check do Vitor na proposta e aprovacao inequivoca | sempre | correcao de run 07/08 | ativo |
 | Correcao #1 (Gmail/Fireflies serial+fallback) | RESOLVIDA lado Claude: coleta-fanout com try/catch na resiliencia + controle de volume no C3/C4; instalada no skill guardiao-v3 | feito | digest 2026-08-07 | ativo |
 | Correcao #2 (orfao board PMD) | APLICADA: alerta orfao board PMD (ts 1786108796.240889) registrado na tabela viva no run 14:12 | feito | digest 2026-08-07 | arquivado |
+| Correcao #1 (Gmail/Fireflies serial+fallback) VALIDADA | run incremental 07/08 21:23 rodou 11/11 subagentes OK, C3/C4 varridos sem estouro de retry | feito | run 2026-08-07 21:23 | ativo |
+| Host em UTC nao BRT | subagentes de coleta trataram hoje=sabado 08/08 (relogio do host em UTC); sessao principal usou BRT sexta 07/08 21:02. Passar hoje/desde/janela em BRT nos args e revalidar datas na reconciliacao | sempre | run 2026-08-07 21:23 | ativo |
+| Falso-positivo evitado KRZR-2987/2988 | ambos Waiting for customer no Jira ao vivo = bola do cliente, nao alertar como sem retorno | sempre | run 2026-08-07 21:23 | ativo |
+| Integridade VENA-713 | aparece Entregue (PR vpharma#6 merged) mas Jira em Backlog -> card nao atualizado pos-merge; conferir na fonte Jira antes de marcar entregue | sempre | run 2026-08-07 21:23 | ativo |
+| Debito de seguranca orfao Venancio | VENA-692..695 (JWT forjavel, CORS aberto, isolamento por loja, operatorCode forjavel) em Backlog sem dono -> superficie de seguranca sem responsavel | revisar | run 2026-08-07 21:23 | ativo |
 | Correcao #3 (link Jira em linha propria) | APLICADA: propostas de 07/08 usam link em linha propria, sem <...> | feito | digest 2026-08-07 | arquivado |
