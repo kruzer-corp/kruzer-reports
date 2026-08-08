@@ -38,3 +38,13 @@ Aprendizados já consolidados no Hermes que o Guardião deve respeitar:
 ## Espaço para append do Claude
 
 <!-- O Claude adiciona aqui, na mesma convenção de tabela acima. -->
+
+| Tema | Contexto | Prazo | Origem | Status |
+|---|---|---|---|---|
+| Gmail C3/C4 estoura retry cap | subagente inbox+Fireflies (coleta-fanout parallel[7]) estourou StructuredOutput retry cap em 2 runs (09:58 e 14:12) -> digests parciais | corrigir ja | digest 2026-08-07 | ativo |
+| Cluster ARC OOM subcontado | tabela viva listava 3 tickets; Jira ao vivo tinha 8 sem dono (ARC-225/305/386/387/389/390/391/392) -> expandir cluster pelo Jira ao vivo | sempre | run 2026-08-07 | ativo |
+| Tema sensivel -> DM/canal privado | relacao de conta abalada / enquadramento de confianca nao vai a #proj aberto (FastShop Fast Pro por DM; PM risco-crise por #proj-paguemenos-gestao) | sempre | run 2026-08-07 | ativo |
+| Reacoes em proposta = conta do Vitor | check/x semeados pelo bot sao indistinguiveis do clique do Vitor -> nao semear; check do Vitor na proposta e aprovacao inequivoca | sempre | correcao de run 07/08 | ativo |
+| Correcao #1 (Gmail/Fireflies serial+fallback) | RESOLVIDA lado Claude: coleta-fanout com try/catch na resiliencia + controle de volume no C3/C4; instalada no skill guardiao-v3 | feito | digest 2026-08-07 | ativo |
+| Correcao #2 (orfao board PMD) | APLICADA: alerta orfao board PMD (ts 1786108796.240889) registrado na tabela viva no run 14:12 | feito | digest 2026-08-07 | arquivado |
+| Correcao #3 (link Jira em linha propria) | APLICADA: propostas de 07/08 usam link em linha propria, sem <...> | feito | digest 2026-08-07 | arquivado |
