@@ -57,3 +57,11 @@ Aprendizados já consolidados no Hermes que o Guardião deve respeitar:
 | KRZR-2991 SNGPC CRM errado | aberto sabado 08/08, producao, regulatorio (validacao SNGPC), Pending com dono Giovanelli -> nao alertado por regra de fds; cobrar triagem/status na 2a 11/08 | revisar 11/08 | run 2026-08-08 14:11 | ativo |
 | DCT-56 pentest externo bloqueador go-live | To Do SEM DONO desde 01/06, rotulado BLOQUEADOR Go-Live; higiene de longa data -> confirmar se ainda e bloqueador real e atribuir dono | revisar | run 2026-08-08 14:11 | ativo |
 | Divergencia Git x Jira no cluster ARC OOM | PRs #11/#12 em api-gateway-v2 existem no GitHub mas os 8 cards ARC seguem sem dono no Jira -> conferir merge/deploy e fechar cards | sempre | run 2026-08-08 14:11 | ativo |
+| ARC-394 seguranca-LGPD novo sem dono | PII (NF-e XML) + apikeys em texto plano nos logs do api-gateway-v2 prod, To Do High sem dono, nascido do mesmo blind spot do cluster ARC OOM | revisar | run 2026-08-10 | ativo |
+| Incidente OOM api-gateway-v2 RESOLVIDO | PRs #11/#12 (prod-0.1.49), 68h sem reciclagem; ALIVIO real, mas ARC-225 (causa raiz) + 8 cards ARC + ARC-389 seguem To Do sem dono | sempre | run 2026-08-10 | ativo |
+| KRZR-2992 Done | 'repro Pedido POS em 0' fechado (era Waiting for support/cobravel) | feito | run 2026-08-10 | arquivado |
+| PMD-1729 e PMD-1694 bloqueiam PMD-204 ja Done | bloqueador aberto de item concluido -> possivel obsolescencia, verificar antes de tratar como ativo | revisar | run 2026-08-10 | ativo |
+| Orfao Elyneker-PO cronograma Desconto | alerta proprio ts 1785869164.362219 disparado sem registro na tabela viva -> adicionado nesta gravacao | corrigir | run 2026-08-10 | ativo |
+| Samsung certs SSL fora do C10 | ~13 certs *.samsung.krzlabs.io vencem ~23/08 sem dono; cliente novo sem projeto/canal proprio; precedente FastShop virou vermelho | revisar 23/08 | run 2026-08-10 | ativo |
+| KRZR-2991 Pending producao HIGH | aberto sab 08/08 (Carlos Camelo), status Pending nao mapeado, dono Giovanelli; cobrar triagem na 2a | revisar | run 2026-08-10 | ativo |
+| Subagentes reinterpretam janela | passei janela=3d nos args mas subagentes aplicaram '2d uteis'; nesta 2a cobriu de sex 07/08 (fds excluido) = equivalente, mas reforcar 3d literal p/ nao perder a quinta anterior | revisar | run 2026-08-10 | ativo |
