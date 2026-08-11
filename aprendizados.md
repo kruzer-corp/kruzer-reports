@@ -72,3 +72,10 @@ Aprendizados já consolidados no Hermes que o Guardião deve respeitar:
 | KRZR-2991 destravou pos-alerta | Pending -> Work in progress logo apos o alerta das 10:59; PR api-vena-core#150 [QA] remocao codigo RJ no CRM | feito | run 2026-08-10 17:47 | ativo |
 | ARC-394 reconhecido mas sem dono | Alec reconheceu no Slack ('bom ponto') mas NAO atribuiu dono nem remediacao; segue To Do High sem dono; recobrar amanha | revisar | run 2026-08-10 17:47 | ativo |
 | Wagner URL Coelho->WS formalizado 07/08 | Larissa confirmou formalizacao; ressalva nao confirma reenvio ao endereco certo apos bounce @pmnos.com | revisar | run 2026-08-10 17:47 | ativo |
+| ARC-394 ganhou dono | Alec se atribuiu ontem 18:38 (apos o alerta da manha); segue To Do High; o reforco 'ainda sem dono' cairia em falso -> gate ao vivo pegou | revisar | run 2026-08-11 10:10 | ativo |
+| FastShop integracao Amazon x AnyMarket x Kruzer x GAN | notas nao recebidas em producao (impede expedicao/escrituracao/contabilizacao), reportado 11/08 09:19 a Matheus/Felipe/Rogerio, sem ticket -> proposta vermelha | revisar | run 2026-08-11 10:10 | ativo |
+| Webhook Tuna so aceita token fixo | inviabiliza Bearer/JWT; cliente espera a Kruzer definir a validacao do token fixo (~1 dia util) -> proposta amarela | revisar | run 2026-08-11 10:10 | ativo |
+| KRZR-2994 virou Waiting for support | de Waiting for customer p/ bola da Kruzer apos cliente enviar cod promo 64439 hoje 09:15; highest producao, dono Giovanelli | revisar | run 2026-08-11 10:10 | ativo |
+| KRZR-2995 Rappi bloqueio externo | Kruzer diagnosticou store id divergente (Rappi 900734007 vs loja 41), cliente vai reportar a Rappi -> nao e atraso da Kruzer | sempre | run 2026-08-11 10:10 | ativo |
+| KRZR-2996 pede revisao de regra PBM | aberto 11/08, alem do ajuste do pedido pede revisar a regra de bloqueio de edicao para pedidos com PBM (mudanca de comportamento) | revisar | run 2026-08-11 10:10 | ativo |
+| Etapa APPEND-HERMES sem marcar bot | por decisao do Vitor 11/08 o bloco de aprendizados nao menciona mais o KruzerBot nem instrui commit; o Claude do canal reage ao bloco e commita | sempre | run 2026-08-11 10:10 | ativo |
