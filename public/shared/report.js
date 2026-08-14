@@ -26,15 +26,16 @@ const BUCKETS = [
   { id:'hyper',      label:'Hyper Care',           badgeCls:'badge-hyper',      laneCls:'hyper',      labelMatch:'hyper-care' },
   { id:'uat',        label:'UAT (cliente)',        badgeCls:'badge-uat',        laneCls:'uat',        labelMatch:'uat' },
   { id:'execucao',   label:'Em Execução',          badgeCls:'badge-execucao',   laneCls:'execucao',   labelMatch:'em-execucao' },
+  { id:'qa',         label:'QA',                   badgeCls:'badge-qa',         laneCls:'qa',         labelMatch:'qa' },
   { id:'aprovacao',  label:'Aguardando Aprovação', badgeCls:'badge-aprovacao',  laneCls:'aprovacao',  labelMatch:'aguardando-aprovacao' },
   { id:'estimativa', label:'Aguardando Estimativa',badgeCls:'badge-estimativa', laneCls:'estimativa', labelMatch:'aguardando-estimativa' },
   { id:'backlog',    label:'Backlog',              badgeCls:'badge-backlog',    laneCls:'backlog',    labelMatch:'backlog' },
 ];
 const bucketById = id => BUCKETS.find(b => b.id === id);
 // Ordem da tabela (top→down): conclusão → início.
-const TABLE_ORDER = ['hyper','uat','execucao','aprovacao','estimativa','backlog'];
+const TABLE_ORDER = ['hyper','uat','qa','execucao','aprovacao','estimativa','backlog'];
 // Ordem da swimlane / KPIs (esq→dir): início → conclusão.
-const LANE_ORDER = ['backlog','estimativa','aprovacao','execucao','uat','hyper'];
+const LANE_ORDER = ['backlog','estimativa','aprovacao','execucao','qa','uat','hyper'];
 
 // JIRA priority name → P-tier.
 function priorityTier(p){
@@ -68,6 +69,7 @@ function statusTextToBucketVena(txt){
   if (s.includes('hyper'))                                                              return 'hyper';
   if (s.includes('done') || s.includes('conclu') || s.includes('closed') || s.includes('pronto')) return 'hyper';
   if (s.includes('aprova'))                                                             return 'aprovacao';
+  if (/\bqa\b/.test(s))                                                                 return 'qa';
   if (s.includes('execu') || s.includes('progress') || s.includes('review')
       || s.includes('desenvolvimento') || s.includes('bloqueado') || s.includes('blocked')) return 'execucao';
   if (s.includes('estimativa') || s.includes('refinamento') || s.includes('refinement') || s.includes('grooming')) return 'estimativa';
@@ -89,6 +91,7 @@ function statusTextToBucketFst(txt){
   const s = (txt||'').toLowerCase();
   if (s.includes('hyper'))                         return 'hyper';
   if (s.includes('uat') || s.includes('homolog'))  return 'uat';
+  if (/\bqa\b/.test(s))                            return 'qa';
   if (s.includes('execu'))                         return 'execucao';
   if (s.includes('aprova'))                        return 'aprovacao';
   if (s.includes('estimativa'))                    return 'estimativa';
@@ -102,6 +105,7 @@ function nativeToBucketFst(statusName){
   if (s.includes('hyper') || s.includes('done') || s.includes('conclu') || s.includes('closed')) return 'hyper';
   if (s.includes('aprova'))                                                  return 'aprovacao';
   if (s.includes('estimativa') || s.includes('refin'))                       return 'estimativa';
+  if (/\bqa\b/.test(s))                                                      return 'qa';
   if (s.includes('progress') || s.includes('review') || s.includes('execu') || s.includes('desenvolv')) return 'execucao';
   return null;
 }
@@ -595,7 +599,7 @@ const ganttEpics = () => RAW.filter(e => !e.done && !GANTT_EXCLUDE.includes(e.ke
 const MS_DAY = 86400000;
 const CAP_DEFAULTS = { devs: 2, velocityPerDev: 30, parallelTracks: 2, horizonWeeks: 12 };
 const PRIO_RANK = { P0:0, P1:1, P2:2, P3:3 };
-const BUCKET_COLOR = { hyper:'#12B76A', uat:'#7C3AED', execucao:'#3151CE', aprovacao:'#F79009', estimativa:'#C6C9D9', backlog:'#48507D' };
+const BUCKET_COLOR = { hyper:'#12B76A', uat:'#7C3AED', qa:'#06B6D4', execucao:'#3151CE', aprovacao:'#F79009', estimativa:'#C6C9D9', backlog:'#48507D' };
 const MONTHS = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 
 function loadCapState(){
