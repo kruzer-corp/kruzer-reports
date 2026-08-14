@@ -166,3 +166,13 @@ Aprendizados já consolidados no Hermes que o Guardião deve respeitar:
 | Rogerio saiu 14/08; Matheus Mereb assume plantao AMS FastShop (Integracoes/PIM/Pick n Pack) - garantir continuidade do handover | FastShop | - | run 14/08 | ativo |
 | OMS PagueMenos: decisao de multiplos EANs por SKU e GET por SKU convergida SEM ticket -> candidato a abrir card | PagueMenos/Chrysler | proximas sprints | run 14/08 | revisar |
 | Cosmos>PIM possivel inversao de escopo p/ lado Kruzer (impacto capacity/cronograma); cliente pediu p/ nao tratar como red flag ate daily de 2a 18/08 | PagueMenos/Bruno | 18/08 | run 14/08 | ativo |
+| Run incremental fim de tarde 14/08 fechou o dia limpo | Guardiao | - | run 14/08 18:17 | ativo -> 11/11 fontes ok, headless via Task (0 prompt), 0 despacho, 0 falso-positivo, score 6.5 |
+| KRZR-3005 correcao msg retorno PBM Venancio incident High novo | hudson.freitas | revisar 2a | run 14/08 18:17 | ativo -> Waiting for support (bola Kruzer) mas engajado: suporte tocou 3x, cliente respondeu codigo 101686 16:04, <1/2 dia util -> radar/nao alertado |
+| Cora Hub cronograma novo retorno do cliente 17:55 | Fernanda Tanganeli -> Bruno Pavan | responder | run 14/08 18:17 | ativo -> linha 16 fora escopo (GP Amanda), bloco OMS fora do board; bola Kruzer; ja rastreado 12:28 nao re-disparado; item 4 esforcos PGM prazo 18/08 |
+| OMS cargas de catalogo multiplos EANs decisao sem ticket | Chrysler/PagueMenos | 17/08 | run 14/08 18:17 | ativo -> GET por SKU inexistente + OMS nao aceita multiplos EANs ~30% base; workaround EAN principal+metadata; reuniao alinhamento seg 17/08 15h; candidato a abrir card |
+| Assessment Decathlon ADRs entregue aguarda cliente | Mereb/Decathlon | - | run 14/08 18:17 | ativo -> entregue a Jefferson/Takeshi p/ aprovacao = bola cliente nao atraso Kruzer |
+| Integridade KRZR-3004 higiene | Venancio/hudson.freitas | mover terminal | run 14/08 18:17 | revisar -> cliente validou 14:06 mas Jira segue Waiting for support |
+| Integridade FST-81..84 tabela viva In Progress mas Jira ao vivo QA | FastShop | corrigir | run 14/08 18:17 | ativo |
+| Integridade PMD-1722/PMD-1677 migraram p/ QA Pague Menos = bola cliente | PagueMenos | - | run 14/08 18:17 | ativo |
+| Handoff Rogerio saiu 14/08 FST-159/168 e cadastro QA a reatribuir | Mereb/FastShop | 2a | run 14/08 18:17 | revisar |
+| Pendencia 11 double-run so na manha 14/08; fim de tarde e run unico | Guardiao/Vitor | desativar tarefa agendada redundante da manha | run 14/08 18:17 | ativo |
