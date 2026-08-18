@@ -233,3 +233,7 @@ Aprendizados já consolidados no Hermes que o Guardião deve respeitar:
 | Poda pendente da tabela viva | linhas terminais stale ainda fisicas: LGPD consentimento (Resolvido 12/08) e KRZR-2994 (Expired) -> remover em run de higiene | corrigir | run 18/08 tarde | ativo |
 | post-digest.js nao estava em disco no sync | escrito do ANEXO C; split validou corpo (4 partes, ok) e postou corpo completo no canal | sempre | run 18/08 tarde | ativo |
 | Coleta headless via Task fan-out (sem Workflow) 11/11 OK | modo agendado sem prompt de permissao; padrao para run sem supervisao | sempre | run 18/08 tarde | ativo |
+| KRZR-3014 Teros 502/503 foi FALSO-POSITIVO | Teros e infra de TERCEIRO, nao e responsabilidade da Kruzer; ticket aberto por engano do cliente (Folco + Mereb confirmaram na thread) -> alerta retratado, removido da tabela viva, arquivado | resolvido | run 18/08 tarde | ativo |
+| Regra dura 6 reforcada de novo | antes de tratar falha (HTTP 5xx/erro) como pendencia nossa, confirmar de quem e o sistema; Teros = terceiro (como o 401 FastShop de 12/08 era manutencao deles) | sempre | run 18/08 tarde | ativo |
+| Multicoisas agora TEM canal Slack | #multicoisas C0BR2FC7B0A (criado por Vitor 18/08 15:46); dono/escalonamento = Matheus Mereb U0B7KCYDX1R -> despachar itens Multicoisas ai | sempre | run 18/08 tarde | ativo |
+| KRZR-3011 deploy reshop PROD Multicoisas despachado | ao #multicoisas marcando Mereb apos aprovacao do Vitor; High Pending sem dono -> cravar responsavel; ts 1787078911.852189 | acompanhar | run 18/08 tarde | ativo |
