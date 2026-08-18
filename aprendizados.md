@@ -225,3 +225,11 @@ Aprendizados já consolidados no Hermes que o Guardião deve respeitar:
 | FST-159/168 seguem orfaos Rogerio (saiu 14/08) | FastShop/Mereb | reatribuir | run 18/08 10:30 | ativo |
 | Saude do Jira terca 0 alerta estrutural novo | Guardiao | sempre | run 18/08 10:30 | ativo -> PMD vencidos 86, ~500 sem dono (~350 >30d Parking Lot/Backlog), PMD 46 sem prazo, 12 sem triagem na carencia; label guardiao=0; nenhuma concentracao cruzou limiar 7d/30d novo |
 | C5/C6 reunioes 0 na janela possivel lapso gravacao daily PM | Guardiao | revisar | run 18/08 10:30 | ativo -> Granola e tldv vivas; daily Pague Menos nao capturada 17-18/08 |
+| Gate anti-falso-positivo funcionou no despacho automático | KRZR-3011 barrado (Suporte respondeu 14:34) e KRZR-3013 barrado (WIP com dono) -> 0 falso-positivo | sempre | run 18/08 tarde | ativo |
+| KRZR-3014 Teros 502/503 despachado | Teros STG e sistema da Kruzer (regra dura 6 OK); Highest Pending sem dono, Fast perdeu prazo de deploy -> #proj-fastshop @Mereb ts 1787078080.703709 | acompanhar atribuicao | run 18/08 tarde | ativo |
+| FST-159/FST-168 reatribuidos a Matheus Albuquerque (upd 18/08 13:54) | orfaos do Rogerio (saida 14/08) resolvidos; nao viraram linha na tabela viva, so nota de reconciliacao | integridade | run 18/08 tarde | ativo |
+| FST webhook Tuna x Kruzer x GAN (401->400) e o 401 FRESCO da manha, engajado ao vivo | NAO confundir com o 401 de 12/08 (manutencao da propria FastShop = falso-positivo) | radar | run 18/08 tarde | ativo |
+| Decathlon aceite ADR_CONTABIL condicionado (Walisson) exige garantias Risco 6 e Risco 20 | prazo 19/08; movimento no item ja rastreado (Aceite dos 7 docs) | 19/08 | run 18/08 tarde | ativo |
+| Poda pendente da tabela viva | linhas terminais stale ainda fisicas: LGPD consentimento (Resolvido 12/08) e KRZR-2994 (Expired) -> remover em run de higiene | corrigir | run 18/08 tarde | ativo |
+| post-digest.js nao estava em disco no sync | escrito do ANEXO C; split validou corpo (4 partes, ok) e postou corpo completo no canal | sempre | run 18/08 tarde | ativo |
+| Coleta headless via Task fan-out (sem Workflow) 11/11 OK | modo agendado sem prompt de permissao; padrao para run sem supervisao | sempre | run 18/08 tarde | ativo |
