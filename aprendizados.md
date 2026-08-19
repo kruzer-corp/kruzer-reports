@@ -279,3 +279,11 @@ Aprendizados já consolidados no Hermes que o Guardião deve respeitar:
 | Cosmos->PIM estimativa segue engajado radar | PagueMenos/Bruno-Tallys | acompanhar | run 19/08 15:21 | ativo -> Mateus/PGM pediu por e-mail estimativa p/ mover complexidade a Kruzer sem consultar Cosmos; time refina interno antes de responder; Bruno tratando com Tallys (fora de escopo) |
 | post-digest.js de novo ausente no sync | Guardiao | - | run 19/08 15:21 | ativo -> so SKILL.md / coleta-fanout / coleta-tasks vieram no sync desta sessao; reescrito verbatim do ANEXO C; split validou corpo (4 partes, ok) e postou completo |
 | slack_create_canvas funcionou (Canvas F0BR862S83F) | Guardiao | - | run 19/08 15:21 | ativo -> sem recorrencia do HTTP 500 de 18/08 fim de tarde; digest tem corpo no canal + Canvas complementar |
+| Run tarde 19/08 headless via Task 11/11 fontes OK, saude:false, 1 disparo, 0 falhas | Guardiao v4 | - | run 19/08 18:27 | ativo |
+| Decathlon ADR Financeiro aceite vence 20/08 - Takeshi pediu posicao nos pontos 4 e 7 (retornos da tesouraria); despachado reforco 2o disparo a Mereb+Folco | Matheus Mereb + Folco | 20/08 | run 19/08 18:27 | ativo |
+| Keys mortas na tabela viva (PGM-619, PGM-253, VEN-170, VEN-1) legadas/renomeadas nao resolvem na JQL ao vivo -> aposentar/renomear; PGM-619 superado por PMD-1246 Done | tabela viva | revisar | run 19/08 18:27 | ativo |
+| VPN Venancio dev Hudson bloqueado desde 14/08 -> bola cliente (Venancio/PRODB, nao e OpenVPN); Mereb escalou 17:07 add Patrick PIC; nao alertar (regra dura 6, sistema do cliente) | Venancio | revisar | run 19/08 18:27 | ativo |
+| MongoDB PRD retencao/LGPD Venancio - Folco formalizou proposta 17:10 (cluster ~308GB/no sem TTL desde 2023); watch validacao fiscal/atendimento cliente | Venancio/Folco | watch | run 19/08 18:27 | ativo |
+| api-vena-core 4 PRs em conflito parados (vpharma#6/#109 trava devolucao convenio Fidelize) + api-vena-invoices 2 -> higiene de codigo, candidato Saude do Jira do 1o run | engenharia Vena | revisar | run 19/08 18:27 | ativo |
+| Prazo aceite 7 docs Decathlon corrigido 19->20/08 na tabela viva | Decathlon | feito | run 19/08 18:27 | ativo |
+| post-digest.js e coleta-tasks.js confirmados em disco e funcionais no run agendado (post-digest.js reescrito do Anexo C; 3 partes validadas, corpo completo postado) | Guardiao v4 | feito | run 19/08 18:27 | ativo |
