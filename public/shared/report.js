@@ -195,7 +195,13 @@ function normalize(issue){
                : ((f.aggregatetimeoriginalestimate != null && f.aggregatetimeoriginalestimate > 0) ? f.aggregatetimeoriginalestimate : null);
   out.estH = estSec != null ? Math.round(estSec / 3600 * 10) / 10 : null;
   out.committed = !!out.startDate || out.bucket === 'execucao';
-  out.done = (f.status?.statusCategory?.key === 'done'); // Done no JIRA → fora do cálculo da esteira
+  // Done no JIRA → fora da esteira. EXCEÇÃO: UAT (cliente) — em alguns projetos
+  // (VENA) o status "UAT" é categoria Done no JIRA, mas é fase ATIVA (teste do
+  // cliente), então segue visível como swimlane e elegível a atraso.
+  out.done = (f.status?.statusCategory?.key === 'done') && out.bucket !== 'uat';
+  // Atrasado = due (go-live) vencido e ainda não entregue (não Hyper Care/done).
+  out.isLate = !!(out.dueDate && !out.done && out.bucket !== 'hyper' &&
+    +startOfDay(new Date(String(out.dueDate).slice(0,10) + 'T00:00:00')) < +startOfDay(new Date()));
   // Hierarquia: tipo do issue + chave do pai (parent nativo ou epic-link legado).
   out.issueType = f.issuetype?.name || 'Task';
   out.parentKey = f.parent?.key || f.customfield_10014 || null;
@@ -372,9 +378,9 @@ function epicRowEl(i, b){
       ? `<td class="requester"><input class="req-edit" data-key="${i.key}" value="${escapeHtml(i.requester||'')}" placeholder="—" title="Editar Solicitante → grava no JIRA"></td>`
       : `<td><select class="prio-edit prio-${i.priorityTier.toLowerCase()}" data-key="${i.key}" title="Editar prioridade → grava no JIRA">${['P0','P1','P2','P3'].map(p=>`<option value="${p}" ${p===i.priorityTier?'selected':''}>${p}</option>`).join('')}</select></td>`) +
     `<td class="date">${start || '<span class="empty">—</span>'}</td>` +
-    `<td class="date">${ (i.dueDate||'').slice(0,10)
+    `<td class="date${i.isLate ? ' late' : ''}">${ (i.dueDate||'').slice(0,10)
         ? `<input type="date" class="due-edit" data-key="${i.key}" value="${(i.dueDate||'').slice(0,10)}" title="Editar Due Date → grava no épico do JIRA">`
-        : `<span class="empty due-empty" data-key="${i.key}" role="button" tabindex="0" title="Definir Due Date → grava no épico do JIRA">—</span>` }${ i.devDue ? `<div class="dev-due" title="Due Date Dev — entrega do desenvolvimento p/ testes (não é o goal final do projeto)">🔧 dev ${fmtDate(i.devDue)}</div>` : '' }</td>` +
+        : `<span class="empty due-empty" data-key="${i.key}" role="button" tabindex="0" title="Definir Due Date → grava no épico do JIRA">—</span>` }${ i.isLate ? `<div class="late-flag" title="Atrasado — due vencido e ainda não entregue">⚠ atrasado</div>` : '' }${ i.devDue ? `<div class="dev-due" title="Due Date Dev — entrega do desenvolvimento p/ testes (não é o goal final do projeto)">🔧 dev ${fmtDate(i.devDue)}</div>` : '' }</td>` +
     `<td class="remarks"><div class="remark-edit" contenteditable="true" data-key="${i.key}" title="Editar remark → adiciona comentário no épico do JIRA">${escapeHtml(remarkFor(i))}</div></td>`;
   return tr;
 }
@@ -699,12 +705,19 @@ function renderGantt(){
   // Timeline baseada na ENTREGA DE DEV: a barra do épico termina na Due Date Dev
   // (entrega pro QA) quando houver; senão na Due Date (go-live). Mostra a atuação
   // real do dev — libera pro backlog após a entrega, não só no go-live.
-  const devDueMap = {};
-  (RAW || []).forEach(e => { if (e.devDue){ const d = startOfDay(new Date(String(e.devDue).slice(0, 10) + 'T00:00:00')); if (!isNaN(+d)) devDueMap[e.key] = d; } });
+  const devDueMap = {}, metaByKey = {};
+  (RAW || []).forEach(e => { metaByKey[e.key] = e; if (e.devDue){ const d = startOfDay(new Date(String(e.devDue).slice(0, 10) + 'T00:00:00')); if (!isNaN(+d)) devDueMap[e.key] = d; } });
+  const todayMs = +startOfDay(plan.today || new Date());
   allItems.forEach(it => {
-    // "Atraso" só quando a projeção ultrapassa o due EM DIAS. Fim projetado == due
-    // é goal ATINGIDO, não atraso (o e.late do engine também acusa esforço-não-cabe).
-    it.lateDisp = !!(it.dueD && it.end && +startOfDay(it.end) > +startOfDay(it.dueD));
+    // ATRASO = projeção passa o due (em dias) OU o due já passou e não foi entregue.
+    // Fim projetado == due FUTURO é goal atingido, não atraso. Hyper Care (já em
+    // produção) nunca é atraso. Cobre tanto FST quanto VENA (UAT vencido).
+    const e = metaByKey[it.key];
+    const delivered = e ? e.bucket === 'hyper' : it.statusLabel === 'Hyper Care';
+    const dueMs = it.dueD ? +startOfDay(it.dueD) : null;
+    it.lateDisp = !delivered && dueMs != null && (
+      (it.end && +startOfDay(it.end) > dueMs) || dueMs < todayMs
+    );
     const dd = devDueMap[it.key];
     if (dd && +dd >= +it.start){ it.end = dd; it.devEnd = true; it.goLiveD = it.dueD; }
   });
