@@ -5,7 +5,7 @@
 window.KruzerReport = { mount: function (CFG) {
 const PROJECT = CFG.project, JIRA_BASE = 'https://kruzer.atlassian.net';
 const DEV_DUE_FIELD = CFG.devDueField || KruzerCapacity.DEV_DUE_FIELD || '';   // customfield da entrega de dev (QA)
-const FIELDS = ['summary','status','priority','issuetype','parent','issuelinks','created','resolutiondate','labels','duedate','description','customfield_10015','customfield_10423','timeoriginalestimate','aggregatetimeoriginalestimate'].concat(DEV_DUE_FIELD ? [DEV_DUE_FIELD] : []);
+const FIELDS = ['summary','status','priority','issuetype','parent','issuelinks','created','resolutiondate','labels','duedate','description','customfield_10015','customfield_10423','customfield_10021','timeoriginalestimate','aggregatetimeoriginalestimate'].concat(DEV_DUE_FIELD ? [DEV_DUE_FIELD] : []);
 // customfield_10423 = Solicitante (texto livre). Editável no report (write-back JIRA).
 const REQUESTER_FIELD = CFG.requesterField || null;
 
@@ -30,12 +30,13 @@ const BUCKETS = [
   { id:'aprovacao',  label:'Aguardando Aprovação', badgeCls:'badge-aprovacao',  laneCls:'aprovacao',  labelMatch:'aguardando-aprovacao' },
   { id:'estimativa', label:'Aguardando Estimativa',badgeCls:'badge-estimativa', laneCls:'estimativa', labelMatch:'aguardando-estimativa' },
   { id:'backlog',    label:'Backlog',              badgeCls:'badge-backlog',    laneCls:'backlog',    labelMatch:'backlog' },
+  { id:'blocked',    label:'Blocked',              badgeCls:'badge-blocked',    laneCls:'blocked',    labelMatch:'blocked' },
 ];
 const bucketById = id => BUCKETS.find(b => b.id === id);
 // Ordem da tabela (top→down): conclusão → início.
-const TABLE_ORDER = ['hyper','uat','qa','execucao','aprovacao','estimativa','backlog'];
+const TABLE_ORDER = ['hyper','uat','qa','execucao','aprovacao','estimativa','backlog','blocked'];
 // Ordem da swimlane / KPIs (esq→dir): início → conclusão.
-const LANE_ORDER = ['backlog','estimativa','aprovacao','execucao','qa','uat','hyper'];
+const LANE_ORDER = ['blocked','backlog','estimativa','aprovacao','execucao','qa','uat','hyper'];
 
 // JIRA priority name → P-tier.
 function priorityTier(p){
@@ -76,7 +77,12 @@ function statusTextToBucketVena(txt){
   if (s.includes('backlog'))                                                            return 'backlog';
   return null;
 }
+function isBlocked(issue){
+  const s = (issue.statusName || '').toLowerCase();
+  return issue.flagged || s.includes('block') || s.includes('bloque');
+}
 function resolveBucketVena(issue){
+  if (isBlocked(issue)) return 'blocked';
   const labels = issue.labels || [];
   const sem = semanticLabelBucket(labels);
   if (sem) return sem;
@@ -110,6 +116,7 @@ function nativeToBucketFst(statusName){
   return null;
 }
 function resolveBucketFst(issue){
+  if (isBlocked(issue)) return 'blocked';
   const labels = issue.labels || [];
   const sem = semanticLabelBucket(labels);
   if (sem) return sem;
@@ -185,6 +192,9 @@ function normalize(issue){
   const dm = out.summary.match(/^(DMND\d+)\s*\|\s*(.*)$/);
   out.dmnd = dm ? dm[1] : '';
   out.name = dm ? dm[2].trim() : out.summary;
+  // Flag de impedimento (JIRA Flagged = customfield_10021). Usada como "Blocked"
+  // quando não há status Blocked no workflow.
+  out.flagged = Array.isArray(f.customfield_10021) && f.customfield_10021.length > 0;
   out.bucket = resolveBucket(out);
   out.remarkDefault = parseField(descText, 'Remarks');
   // Solicitante (customfield_10423): texto livre; defensivo p/ formatos objeto.
@@ -605,7 +615,7 @@ const ganttEpics = () => RAW.filter(e => !e.done && !GANTT_EXCLUDE.includes(e.ke
 const MS_DAY = 86400000;
 const CAP_DEFAULTS = { devs: 2, velocityPerDev: 30, parallelTracks: 2, horizonWeeks: 12 };
 const PRIO_RANK = { P0:0, P1:1, P2:2, P3:3 };
-const BUCKET_COLOR = { hyper:'#12B76A', uat:'#7C3AED', qa:'#06B6D4', execucao:'#3151CE', aprovacao:'#F79009', estimativa:'#C6C9D9', backlog:'#48507D' };
+const BUCKET_COLOR = { hyper:'#12B76A', uat:'#7C3AED', qa:'#06B6D4', execucao:'#3151CE', aprovacao:'#F79009', estimativa:'#C6C9D9', backlog:'#48507D', blocked:'#B42318' };
 const MONTHS = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 
 function loadCapState(){
