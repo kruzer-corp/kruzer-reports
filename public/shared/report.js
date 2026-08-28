@@ -59,15 +59,20 @@ function priorityTier(p){
 // DUAS variantes: 'vena' (status nativos PT, superset) e 'fst' (mapa nativo rico +
 // fallback). CFG.statusVariant seleciona.
 // Labels semânticas que vencem o nativo (estados ausentes do workflow do JIRA).
+// Hyper Care = fase PÓS-DEPLOY. Reconhece pela label (hypercare/hyper-care/hyper
+// care) e, pelo status: "Hyper Care", "Em Produção/Entregue - Em Produção",
+// "Sustentação", "pós-deploy". (Label é o fallback quando o workflow não tem o status.)
+function hyperLabel(labels){ return (labels || []).some(l => String(l).toLowerCase().replace(/[-_\s]/g, '').includes('hypercare')); }
+function isHyperCareStatus(name){ const s = (name || '').toLowerCase(); return s.includes('hyper') || s.includes('produ') || s.includes('sustenta') || /p[óo]s.?deploy/.test(s); }
 function semanticLabelBucket(labels){
   if ((labels || []).includes('uat')) return 'uat';
-  if ((labels || []).includes('hyper-care')) return 'hyper';
+  if (hyperLabel(labels)) return 'hyper';
   return null;
 }
 function statusTextToBucketVena(txt){
   const s = (txt||'').toLowerCase();
   if (s.includes('uat') || s.includes('homolog'))                                       return 'uat';
-  if (s.includes('hyper'))                                                              return 'hyper';
+  if (isHyperCareStatus(s))                                                             return 'hyper';
   if (s.includes('done') || s.includes('conclu') || s.includes('closed') || s.includes('pronto')) return 'hyper';
   if (s.includes('aprova'))                                                             return 'aprovacao';
   if (/\bqa\b/.test(s))                                                                 return 'qa';
@@ -95,7 +100,7 @@ function resolveBucketVena(issue){
 }
 function statusTextToBucketFst(txt){
   const s = (txt||'').toLowerCase();
-  if (s.includes('hyper'))                         return 'hyper';
+  if (isHyperCareStatus(s))                        return 'hyper';
   if (s.includes('uat') || s.includes('homolog'))  return 'uat';
   if (/\bqa\b/.test(s))                            return 'qa';
   if (s.includes('execu'))                         return 'execucao';
@@ -108,7 +113,7 @@ function statusTextToBucketFst(txt){
 function nativeToBucketFst(statusName){
   const s = (statusName||'').toLowerCase();
   if (s.includes('uat') || s.includes('homolog'))                            return 'uat';
-  if (s.includes('hyper') || s.includes('done') || s.includes('conclu') || s.includes('closed')) return 'hyper';
+  if (isHyperCareStatus(s) || s.includes('done') || s.includes('conclu') || s.includes('closed')) return 'hyper';
   if (s.includes('aprova'))                                                  return 'aprovacao';
   if (s.includes('estimativa') || s.includes('refin'))                       return 'estimativa';
   if (/\bqa\b/.test(s))                                                      return 'qa';
@@ -250,7 +255,7 @@ function remarkFor(issue){
 // statusCategory = Done (Done/Resolved/Closed/Canceled/Expired/Duplicate…),
 // EXCETO Hyper Care — que é acompanhamento ativo pós-entrega e permanece visível.
 function isHyperCareEpic(e){
-  return (e.labels || []).includes('hyper-care') || /hyper.?care/i.test(e.statusName || '');
+  return hyperLabel(e.labels) || isHyperCareStatus(e.statusName);
 }
 function isClosedNotHyper(e){ return e.done && !isHyperCareEpic(e); }
 
